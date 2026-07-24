@@ -11,10 +11,11 @@ System Proof must eventually prove the AML T1 invariant:
 > A positive SMPP `deliver_sm_resp` must not be emitted before PostgreSQL confirms successful
 > commit of RAW and Outbox, with `synchronous_commit=on`.
 
-The current `SmsIngestionSmokeIT` demonstrates end-to-end reachability, a successful positive
-response, and persisted RAW and Outbox rows. It does not control or observe the PostgreSQL commit
-boundary. Consequently, its waits and observations cannot establish the cross-component ordering
-required by T1.
+The current `SmsIngestionSmokeIT` demonstrates end-to-end reachability and persisted RAW and
+Outbox rows. The fixture logs receipt of `deliver_sm_resp` diagnostically, but exposes neither its
+status nor sequence number through a stable API. The smoke therefore does not assert a correlated
+positive response, control the PostgreSQL commit boundary, or establish the cross-component
+ordering required by T1.
 
 ## Decision
 
@@ -86,7 +87,7 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
 
 - `SmsIngestionSmokeIT` remains a smoke/baseline test and must not be presented as proof of T1.
 - This baseline task changes no production behavior and no public framework API.
-- `ScenarioJournal`, runtime connections, protocol gateways, decoding, barriers, and fault
-  injection remain separate roadmap tasks.
+- `ScenarioJournal`, runtime connections, `InteractionGateway`, protocol evidence, barriers, and
+  fault injection remain separate roadmap tasks.
 - A future T1 test that lacks any required evidence above is incomplete even if it is repeatably
   green.

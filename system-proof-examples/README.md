@@ -17,7 +17,8 @@ The example uses `postgres:17.6-alpine` by default. Override it with
 test:
 
 ```text
-SMSC simulator
+system-proof-smsc-simulator (logical component)
+  -> adapted ukarim/smscsim fixture
   -> SMPP deliver_sm
   -> Jasmin 0.11
   -> POST /v1/ingestion/sms
@@ -30,13 +31,15 @@ Its environment contains the SMSC simulator, Jasmin, ingestion service, PostgreS
 Redis components together with their drivers, configuration, bootstrap, operations, and typed
 connections.
 
-The scenario sends one SMS and verifies one correlated `deliver_sm_resp`, one RAW row, one
-correlated Outbox row, matching aggregate ID, persisted message fields, session identity, sequence
-numbers, command status, and SMSC-local delivery-before-response ordering.
+The scenario waits until the real `ukarim/smscsim` control page lists Jasmin's bound system ID,
+submits one uniquely identifiable MO through its form, and verifies one matching RAW row, one
+matching Outbox row, equal RAW and aggregate IDs, and the normalized message fields.
 
 This is not proof of T1. It does not establish ordering between the PostgreSQL commit and the SMPP
-acknowledgement. Its waits, timestamps, and SMSC-local event indexes cannot prove cross-component
-causality. The accepted T1 evidence and success boundary are defined in
+acknowledgement. Upstream logs that `deliver_sm_resp` arrived, but its stable API exposes neither
+the response status nor sequence number. The smoke does not parse container logs or treat control
+plane success as an SMPP acknowledgement. The accepted T1 evidence and success boundary are
+defined in
 [`docs/adr/0001-t1-proof-contract.md`](../docs/adr/0001-t1-proof-contract.md).
 
 Default dependency images:
@@ -46,16 +49,26 @@ Default dependency images:
 - `redis:8.0.3-alpine`
 - `jookies/jasmin:0.11.0`
 
-The reference applications live under `apps/`:
+The reference SUT lives under `apps/`:
 
 - `system-proof-ingestion-service`: Spring Boot HTTP ingress with Flyway-managed
-  `raw_sms_event` and `outbox_event` tables written in one transaction.
-- `system-proof-smsc-simulator`: jSMPP server plus the minimal HTTP control API used by the smoke.
+  `raw_sms_event` and `outbox_event` tables written in one transaction. It decodes Jasmin's UCS2
+  `binary` form field at the HTTP boundary and returns `ACK/Jasmin` only after the transactional
+  service call completes.
 
-During the root reactor's `verify` phase, their JARs are packaged first and the drivers build
-`system-proof-ingestion-service:local` and `system-proof-smsc-simulator:local` directly from those
-artifacts. A clean checkout therefore does not need either image in a registry or local Docker
-cache. Explicit image overrides still use the supplied image without rebuilding it.
+The logical `system-proof-smsc-simulator` component is implemented at runtime by a minimally
+adapted [`ukarim/smscsim`](https://github.com/ukarim/smscsim) fixture. Its Docker build is under
+`fixtures/ukarim-smscsim` and pins upstream commit
+`4975a569f7be11a89f9c381494f42ccf55fd49d3`. The separate
+`patches/0001-empty-deliver-sm-service-type.patch` changes only the invalid
+`deliver_sm.service_type`: it emits an empty C-Octet String, selecting the SMSC default service.
+The build runs `service_type_test.go` against the generated PDU before compiling the image.
+
+During the root reactor's `verify` phase, the ingestion JAR is packaged first and the drivers build
+`system-proof-ingestion-service:local` from that artifact and
+`system-proof-ukarim-smscsim:local` from the pinned upstream source and patch. A clean checkout
+therefore does not need either image in a registry or local Docker cache. Explicit image overrides
+still use the supplied image without rebuilding it.
 
 Image overrides:
 
@@ -63,7 +76,7 @@ Image overrides:
 - `SYSTEM_PROOF_EXAMPLE_RABBITMQ_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_REDIS_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_IMAGE`
-- `SYSTEM_PROOF_EXAMPLE_SMSC_SIMULATOR_IMAGE`
+- `SYSTEM_PROOF_SMSC_SIMULATOR_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_JASMIN_IMAGE`
 
 The ingestion container's database environment-variable names are configurable through:
@@ -89,6 +102,9 @@ Run both examples with Docker:
 ./mvnw clean verify
 ```
 
-The reference SMSC intentionally implements only the proof fixture's needs: one active receiver or
-transceiver session, bind authentication, `deliver_sm`, correlated `deliver_sm_resp` journaling,
-and the `/health`, `/test/messages`, and `/test/events` endpoints. It is not a general-purpose SMSC.
+The adapted fixture retains upstream's intentionally small SMPP 3.4 subset and does not validate
+incoming PDUs. Its control plane exposes `GET /` and the `POST /` MO form on port `12775`; SMPP is
+on port `2775`. The POST finishes after writing `deliver_sm`, not after a correlated response.
+`deliver_sm_resp` remains diagnostic until a future independent `InteractionGateway` provides
+structured protocol evidence. See [`docs/third-party.md`](../docs/third-party.md) for the MIT
+attribution, exact pin, patch, and complete limitations.

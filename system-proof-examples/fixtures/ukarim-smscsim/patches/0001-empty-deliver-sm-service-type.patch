@@ -1,0 +1,8 @@
+diff --git a/smsc.go b/smsc.go
+index 2f0b146..fce70fd 100644
+--- a/smsc.go
++++ b/smsc.go
+@@ -391,2 +391 @@ func deliverSmPDU(sender, recipient string, shortMessage []byte, coding byte, se
+-	buf.WriteString("smscsim")
+-	buf.WriteByte(0) // null term
++	buf.WriteByte(0) // empty service_type selects the SMSC default service

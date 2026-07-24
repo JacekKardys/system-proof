@@ -35,7 +35,7 @@ public interface SmscConfig
 
         @NotBlank(message = "SMSC control path must not be blank")
         @Pattern(regexp = "^/.*", message = "SMSC control path must start with '/'")
-        @ConfigurationSource(provider = Literal.class, value = "/test/messages")
+        @ConfigurationSource(provider = Literal.class, value = "/")
         String controlPath();
     }
 
@@ -43,8 +43,8 @@ public interface SmscConfig
         @NotBlank(message = "SMSC simulator image must not be blank")
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_SMSC_SIMULATOR_IMAGE",
-            defaultValue = "system-proof-smsc-simulator:local"
+            key = "SYSTEM_PROOF_SMSC_SIMULATOR_IMAGE",
+            defaultValue = "system-proof-ukarim-smscsim:local"
         )
         String image();
 
@@ -53,24 +53,8 @@ public interface SmscConfig
         int smppPort();
 
         @Positive(message = "SMSC control port must be positive")
-        @ConfigurationSource(provider = Literal.class, value = "8081")
+        @ConfigurationSource(provider = Literal.class, value = "12775")
         int controlPort();
-
-        @NotBlank(message = "SMSC system ID environment variable must not be blank")
-        @ConfigurationSource(provider = Literal.class, value = "SMSC_SYSTEM_ID")
-        String systemIdVariable();
-
-        @NotBlank(message = "SMSC password environment variable must not be blank")
-        @ConfigurationSource(provider = Literal.class, value = "SMSC_PASSWORD")
-        String passwordVariable();
-
-        @NotBlank(message = "SMSC health path must not be blank")
-        @ConfigurationSource(provider = Literal.class, value = "/health")
-        String healthPath();
-
-        @Positive(message = "SMSC health status must be positive")
-        @ConfigurationSource(provider = Literal.class, value = "200")
-        int healthStatus();
 
         @NotNull(message = "SMSC startup timeout must not be null")
         @ConfigurationSource(provider = Literal.class, value = "PT2M")

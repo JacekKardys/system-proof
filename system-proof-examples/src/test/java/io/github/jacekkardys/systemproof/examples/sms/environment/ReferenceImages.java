@@ -7,7 +7,7 @@ import org.testcontainers.images.builder.ImageFromDockerfile;
 
 public final class ReferenceImages {
     public static final String INGESTION = "system-proof-ingestion-service:local";
-    public static final String SMSC = "system-proof-smsc-simulator:local";
+    public static final String SMSC = "system-proof-ukarim-smscsim:local";
 
     private ReferenceImages() {
     }
@@ -21,11 +21,17 @@ public final class ReferenceImages {
     }
 
     public static Future<String> smsc() {
-        return build(
-            SMSC,
-            "system-proof-smsc-simulator",
-            "system-proof-smsc-simulator.jar"
-        );
+        Path fixtureDirectory = repositoryRoot()
+            .resolve("system-proof-examples")
+            .resolve("fixtures")
+            .resolve("ukarim-smscsim");
+        return new ImageFromDockerfile(SMSC, false)
+            .withFileFromPath("Dockerfile", fixtureDirectory.resolve("Dockerfile"))
+            .withFileFromPath(
+                "patches/0001-empty-deliver-sm-service-type.patch",
+                fixtureDirectory.resolve("patches").resolve("0001-empty-deliver-sm-service-type.patch")
+            )
+            .withFileFromPath("service_type_test.go", fixtureDirectory.resolve("service_type_test.go"));
     }
 
     private static Future<String> build(String image, String application, String jar) {

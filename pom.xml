@@ -16,7 +16,6 @@
         <module>system-proof-junit5</module>
         <module>system-proof-testcontainers</module>
         <module>system-proof-examples/apps/system-proof-ingestion-service</module>
-        <module>system-proof-examples/apps/system-proof-smsc-simulator</module>
         <module>system-proof-examples</module>
     </modules>
 
@@ -26,7 +25,6 @@
         <maven.version>3.9.0</maven.version>
         <assertj.version>3.27.4</assertj.version>
         <awaitility.version>4.3.0</awaitility.version>
-        <jackson.version>2.19.2</jackson.version>
         <hibernate-validator.version>9.1.2.Final</hibernate-validator.version>
         <jakarta-validation.version>3.1.1</jakarta-validation.version>
         <junit.version>5.13.4</junit.version>
@@ -35,8 +33,6 @@
         <postgresql.version>42.7.7</postgresql.version>
         <slf4j.version>2.0.17</slf4j.version>
         <spring-boot.version>3.5.9</spring-boot.version>
-        <jsmpp.version>3.0.2</jsmpp.version>
-        <maven.shade.version>3.6.1</maven.shade.version>
         <testcontainers.version>1.21.3</testcontainers.version>
         <maven.clean.version>3.4.1</maven.clean.version>
         <maven.compiler.version>3.14.0</maven.compiler.version>
@@ -87,21 +83,6 @@
                 <groupId>org.awaitility</groupId>
                 <artifactId>awaitility</artifactId>
                 <version>${awaitility.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.datatype</groupId>
-                <artifactId>jackson-datatype-jsr310</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.jsmpp</groupId>
-                <artifactId>jsmpp</artifactId>
-                <version>${jsmpp.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.validation</groupId>
