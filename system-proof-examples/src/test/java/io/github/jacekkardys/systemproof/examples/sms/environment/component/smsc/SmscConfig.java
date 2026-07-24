@@ -44,7 +44,7 @@ public interface SmscConfig
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
             key = "SYSTEM_PROOF_EXAMPLE_SMSC_SIMULATOR_IMAGE",
-            defaultValue = "aml-smsc-simulator:local"
+            defaultValue = "system-proof-smsc-simulator:local"
         )
         String image();
 

@@ -7,6 +7,7 @@ import lombok.NonNull;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
+import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Driver;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
@@ -29,7 +30,7 @@ public final class SmscTestcontainersDriver
     protected ContainerPlan create(SmscComponent component, DriverContext context) {
         PortBinding smppPort = port(configuration.smppPort());
         PortBinding controlPort = port(configuration.controlPort());
-        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
+        GenericContainer<?> container = referenceContainer()
             .withEnv(configuration.systemIdVariable(), component.configuration().systemId())
             .withEnv(configuration.passwordVariable(), component.configuration().password().reveal())
             .waitingFor(Wait.forHttp(configuration.healthPath())
@@ -54,6 +55,13 @@ public final class SmscTestcontainersDriver
                 address -> URI.create(address.value())
             )
             .build();
+    }
+
+    private GenericContainer<?> referenceContainer() {
+        if (ReferenceImages.SMSC.equals(configuration.image())) {
+            return new GenericContainer<>(ReferenceImages.smsc());
+        }
+        return new GenericContainer<>(DockerImageName.parse(configuration.image()));
     }
 
     @Override

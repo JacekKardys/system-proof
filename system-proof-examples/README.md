@@ -39,14 +39,23 @@ acknowledgement. Its waits, timestamps, and SMSC-local event indexes cannot prov
 causality. The accepted T1 evidence and success boundary are defined in
 [`docs/adr/0001-t1-proof-contract.md`](../docs/adr/0001-t1-proof-contract.md).
 
-Default images:
+Default dependency images:
 
 - `postgres:17.6-alpine`
 - `rabbitmq:4.1.2-management-alpine`
 - `redis:8.0.3-alpine`
-- `system-proof-ingestion-service:local`
-- `aml-smsc-simulator:local` (external simulator image)
 - `jookies/jasmin:0.11.0`
+
+The reference applications live under `apps/`:
+
+- `system-proof-ingestion-service`: Spring Boot HTTP ingress with Flyway-managed
+  `raw_sms_event` and `outbox_event` tables written in one transaction.
+- `system-proof-smsc-simulator`: jSMPP server plus the minimal HTTP control API used by the smoke.
+
+During the root reactor's `verify` phase, their JARs are packaged first and the drivers build
+`system-proof-ingestion-service:local` and `system-proof-smsc-simulator:local` directly from those
+artifacts. A clean checkout therefore does not need either image in a registry or local Docker
+cache. Explicit image overrides still use the supplied image without rebuilding it.
 
 Image overrides:
 
@@ -63,9 +72,8 @@ The ingestion container's database environment-variable names are configurable t
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_USERNAME_VARIABLE`
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_PASSWORD_VARIABLE`
 
-Their defaults match the current external ingestion image contract (`AML_DB_URL`,
-`AML_DB_USERNAME`, and `AML_DB_PASSWORD`). The overrides allow another service image to run
-unchanged.
+Their defaults are `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`. The overrides
+allow another service image with a different environment contract to run unchanged.
 
 ## Running
 
@@ -80,3 +88,7 @@ Run both examples with Docker:
 ```bash
 ./mvnw clean verify
 ```
+
+The reference SMSC intentionally implements only the proof fixture's needs: one active receiver or
+transceiver session, bind authentication, `deliver_sm`, correlated `deliver_sm_resp` journaling,
+and the `/health`, `/test/messages`, and `/test/events` endpoints. It is not a general-purpose SMSC.

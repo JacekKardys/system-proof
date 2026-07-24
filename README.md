@@ -9,6 +9,10 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 system-proof-examples -> system-proof-junit5        -> system-proof-core
         |------------> system-proof-testcontainers -> system-proof-core
         `------------------------------------------> system-proof-core
+
+system-proof-examples/apps
+        |-> system-proof-ingestion-service
+        `-> system-proof-smsc-simulator
 ```
 
 - `system-proof-core`: typed components, ports, connections, lifecycle, logging, and diagnostics.
@@ -16,6 +20,7 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
   failure artifacts.
 - `system-proof-testcontainers`: container-backed drivers and runtime port bindings.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
+- `system-proof-examples/apps`: small reference applications used only by the complete example.
 
 Core is independent of JUnit and Testcontainers. The JUnit 5 module is independent of
 Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
@@ -81,18 +86,13 @@ Java 21 and the Maven Wrapper are required:
 ./mvnw clean verify
 ```
 
-`clean test` runs unit tests without Docker. `clean verify` also runs the PostgreSQL and complete
-SMS-ingestion examples through Failsafe. It requires Docker and the local SMS service images
-documented in `system-proof-examples/README.md`.
+`clean test` runs unit tests without Docker. `clean verify` also runs the transactional ingestion
+test, PostgreSQL example, and complete SMS-ingestion topology through Failsafe. It requires Docker.
+The reference ingestion and SMSC images are built from the current checkout during verification;
+no prebuilt application images are required.
 
 ## Continuous integration
 
-The `Verify` workflow runs unit and architecture tests plus the PostgreSQL Testcontainers example
-on GitHub-hosted Java 21 runners.
-
-The complete AML smoke job targets a self-hosted Windows x64 runner carrying the `system-proof`
-label. That runner must provide Docker with Linux-container support and the two external images
-`system-proof-ingestion-service:local` and `aml-smsc-simulator:local`; the workflow checks these
-prerequisites before starting Maven. Set the repository Actions variable
-`SYSTEM_PROOF_DOCKER_RUNNER_ENABLED` to `true` only after that runner is registered and provisioned.
-Until then, the AML job is visibly skipped instead of remaining queued without a matching runner.
+The `Verify` workflow runs `./mvnw clean verify` with Java 21 and Docker on a GitHub-hosted Ubuntu
+runner. The same job executes unit and architecture tests, both Docker integration tests, builds
+both reference application images from source, and runs the complete topology smoke.
