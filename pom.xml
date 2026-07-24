@@ -4,18 +4,18 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>pl.gov.uke.aml</groupId>
-    <artifactId>aml-regression-tests</artifactId>
+    <groupId>io.github.jacekkardys.systemproof</groupId>
+    <artifactId>system-proof</artifactId>
     <version>0.1.0</version>
     <packaging>pom</packaging>
 
-    <name>AML Regression Tests</name>
+    <name>System Proof</name>
 
     <modules>
-        <module>environment-harness-core</module>
-        <module>environment-harness-junit5</module>
-        <module>environment-harness-testcontainers</module>
-        <module>aml-system-tests</module>
+        <module>system-proof-core</module>
+        <module>system-proof-junit5</module>
+        <module>system-proof-testcontainers</module>
+        <module>system-proof-examples</module>
     </modules>
 
     <properties>
@@ -46,17 +46,17 @@
         <dependencies>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>environment-harness-core</artifactId>
+                <artifactId>system-proof-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>environment-harness-junit5</artifactId>
+                <artifactId>system-proof-junit5</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>environment-harness-testcontainers</artifactId>
+                <artifactId>system-proof-testcontainers</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
