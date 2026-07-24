@@ -13,7 +13,8 @@ The example uses `postgres:17.6-alpine` by default. Override it with
 
 ## Complete SMS ingestion example
 
-`SmsIngestionSmokeIT` retains the complete multi-component system scenario:
+`SmsIngestionSmokeIT` retains the complete multi-component system scenario as a baseline smoke
+test:
 
 ```text
 SMSC simulator
@@ -29,13 +30,14 @@ Its environment contains the SMSC simulator, Jasmin, ingestion service, PostgreS
 Redis components together with their drivers, configuration, bootstrap, operations, and typed
 connections.
 
-The scenario sends one SMS, waits for one correlated `deliver_sm_resp`, and verifies one RAW row,
-one correlated Outbox row, matching aggregate ID, persisted message fields, session identity,
-sequence numbers, command status, and event ordering.
+The scenario sends one SMS and verifies one correlated `deliver_sm_resp`, one RAW row, one
+correlated Outbox row, matching aggregate ID, persisted message fields, session identity, sequence
+numbers, command status, and SMSC-local delivery-before-response ordering.
 
-As before, it does not assert temporal ordering between the SMPP acknowledgement and the database
-commit. The T1 acknowledgement invariant remains deferred until the system exposes a deterministic
-observation boundary.
+This is not proof of T1. It does not establish ordering between the PostgreSQL commit and the SMPP
+acknowledgement. Its waits, timestamps, and SMSC-local event indexes cannot prove cross-component
+causality. The accepted T1 evidence and success boundary are defined in
+[`docs/adr/0001-t1-proof-contract.md`](../docs/adr/0001-t1-proof-contract.md).
 
 Default images:
 
@@ -43,7 +45,7 @@ Default images:
 - `rabbitmq:4.1.2-management-alpine`
 - `redis:8.0.3-alpine`
 - `system-proof-ingestion-service:local`
-- `system-proof-smsc-simulator:local`
+- `aml-smsc-simulator:local` (external simulator image)
 - `jookies/jasmin:0.11.0`
 
 Image overrides:
@@ -61,7 +63,9 @@ The ingestion container's database environment-variable names are configurable t
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_USERNAME_VARIABLE`
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_PASSWORD_VARIABLE`
 
-This allows an existing service image with a different environment contract to run unchanged.
+Their defaults match the current external ingestion image contract (`AML_DB_URL`,
+`AML_DB_USERNAME`, and `AML_DB_PASSWORD`). The overrides allow another service image to run
+unchanged.
 
 ## Running
 

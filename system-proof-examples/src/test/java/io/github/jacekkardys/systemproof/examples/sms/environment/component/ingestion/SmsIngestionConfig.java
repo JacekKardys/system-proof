@@ -39,7 +39,7 @@ public interface SmsIngestionConfig
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
             key = "SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_URL_VARIABLE",
-            defaultValue = "DATABASE_URL"
+            defaultValue = "AML_DB_URL"
         )
         String databaseUrlVariable();
 
@@ -47,7 +47,7 @@ public interface SmsIngestionConfig
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
             key = "SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_USERNAME_VARIABLE",
-            defaultValue = "DATABASE_USERNAME"
+            defaultValue = "AML_DB_USERNAME"
         )
         String databaseUsernameVariable();
 
@@ -55,7 +55,7 @@ public interface SmsIngestionConfig
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
             key = "SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_PASSWORD_VARIABLE",
-            defaultValue = "DATABASE_PASSWORD"
+            defaultValue = "AML_DB_PASSWORD"
         )
         String databasePasswordVariable();
 

@@ -9,7 +9,11 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.domain.SmsPers
 import io.github.jacekkardys.systemproof.examples.sms.environment.domain.TestSms;
 import io.github.jacekkardys.systemproof.junit.EnvironmentTest;
 
-/** Verifies that one SMS crosses the real container topology and is persisted. */
+/**
+ * Baseline smoke test for end-to-end reachability and persistence.
+ *
+ * <p>This test does not prove the T1 commit-before-positive-acknowledgement invariant.
+ */
 @EnvironmentTest(environment = SmsExampleEnvironment.class)
 @Tag("docker")
 @Tag("smoke")

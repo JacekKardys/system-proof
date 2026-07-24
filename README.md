@@ -6,13 +6,9 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 ## Modules
 
 ```text
-system-proof-core <- system-proof-junit5
-        ^
-        |
-system-proof-testcontainers
-        ^
-        |
-system-proof-examples
+system-proof-examples -> system-proof-junit5        -> system-proof-core
+        |------------> system-proof-testcontainers -> system-proof-core
+        `------------------------------------------> system-proof-core
 ```
 
 - `system-proof-core`: typed components, ports, connections, lifecycle, logging, and diagnostics.
@@ -22,7 +18,9 @@ system-proof-examples
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
 
 Core is independent of JUnit and Testcontainers. The JUnit 5 module is independent of
-Testcontainers.
+Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
+`Junit5ModuleBoundaryTest` and recorded with the T1 baseline in
+[`docs/adr/0001-t1-proof-contract.md`](docs/adr/0001-t1-proof-contract.md).
 
 ## Minimal test
 
@@ -86,3 +84,15 @@ Java 21 and the Maven Wrapper are required:
 `clean test` runs unit tests without Docker. `clean verify` also runs the PostgreSQL and complete
 SMS-ingestion examples through Failsafe. It requires Docker and the local SMS service images
 documented in `system-proof-examples/README.md`.
+
+## Continuous integration
+
+The `Verify` workflow runs unit and architecture tests plus the PostgreSQL Testcontainers example
+on GitHub-hosted Java 21 runners.
+
+The complete AML smoke job targets a self-hosted Windows x64 runner carrying the `system-proof`
+label. That runner must provide Docker with Linux-container support and the two external images
+`system-proof-ingestion-service:local` and `aml-smsc-simulator:local`; the workflow checks these
+prerequisites before starting Maven. Set the repository Actions variable
+`SYSTEM_PROOF_DOCKER_RUNNER_ENABLED` to `true` only after that runner is registered and provisioned.
+Until then, the AML job is visibly skipped instead of remaining queued without a matching runner.
