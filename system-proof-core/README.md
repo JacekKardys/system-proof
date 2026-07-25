@@ -13,8 +13,8 @@ Public contracts:
   directional typed topology without runtime addresses.
 - `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
   runtime materialization per logical connection, without exposing endpoint values.
-- `ComponentDriver<C, O>`, component-scoped `DriverContext`, restricted `JournalContributions`, and
-  `ComponentRuntime<O>`: runtime materialization SPI.
+- `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
+  restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
 - `ScenarioJournal`, its sealed core-owned `ScenarioEvent` envelopes, `EvidenceCodec<T>`,
   `EvidenceSnapshot`, and immutable journal snapshots: the single authoritative structured
@@ -31,8 +31,11 @@ complete provided-port materialization.
 Concrete component classes declare their stable `ComponentType` and driver with
 `@SystemComponent`. Core derives the component configuration and operations types from the direct
 `AbstractComponent<C, O>` superclass, then derives `D` from `C extends ComponentConfig<D>`. A single
-metadata boundary validates all four types, the Testcontainers component target when present, the
-component no-argument constructor, and the unique driver constructor accepting `D`.
+metadata boundary resolves these contracts through the driver hierarchy and validates all four
+types, the target declared by `ComponentBoundDriver<C, O, T>` when present, the component
+no-argument constructor, and the unique driver constructor accepting `D`. Testcontainers drivers
+implement this explicit component-bound SPI; unrelated generic base-driver parameters have no
+component-target meaning.
 
 `Environment.environment()` binds from a snapshot of system properties and environment variables.
 `Environment.environment(EnvironmentConfiguration)` accepts an explicit snapshot. Both expose

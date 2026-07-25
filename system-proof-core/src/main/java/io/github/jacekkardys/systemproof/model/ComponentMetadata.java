@@ -5,10 +5,14 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
+import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 
 /** Central validated reflection boundary for declarative component materialization. */
@@ -270,21 +274,9 @@ final class ComponentMetadata<
         Class<?> componentClass,
         Class<?> driverClass
     ) {
-        for (Type candidate : driverClass.getGenericInterfaces()) {
-            if (candidate instanceof ParameterizedType parameterized
-                && parameterized.getRawType() == ComponentDriver.class) {
-                return parameterized.getActualTypeArguments();
-            }
-        }
-
-        Type superclass = driverClass.getGenericSuperclass();
-        if (superclass instanceof ParameterizedType parameterized
-            && parameterized.getRawType() instanceof Class<?> rawType
-            && ComponentDriver.class.isAssignableFrom(rawType)) {
-            Type[] arguments = parameterized.getActualTypeArguments();
-            if (arguments.length >= 2) {
-                return new Type[] { arguments[0], arguments[1] };
-            }
+        Type[] arguments = typeArguments(driverClass, ComponentDriver.class);
+        if (arguments != null) {
+            return arguments;
         }
         throw invalid(
             componentClass,
@@ -297,15 +289,12 @@ final class ComponentMetadata<
         Class<?> componentClass,
         Class<?> driverClass
     ) {
-        Type superclass = driverClass.getGenericSuperclass();
-        if (!(superclass instanceof ParameterizedType parameterized)
-            || !(parameterized.getRawType() instanceof Class<?> rawType)
-            || !ComponentDriver.class.isAssignableFrom(rawType)
-            || parameterized.getActualTypeArguments().length < 3) {
+        Type[] arguments = typeArguments(driverClass, ComponentBoundDriver.class);
+        if (arguments == null) {
             return;
         }
 
-        Type boundType = parameterized.getActualTypeArguments()[2];
+        Type boundType = arguments[2];
         if (!(boundType instanceof Class<?> boundClass)
             || !AbstractComponent.class.isAssignableFrom(boundClass)) {
             throw invalid(
@@ -321,6 +310,68 @@ final class ComponentMetadata<
                     + boundClass.getName()
             );
         }
+    }
+
+    private static Type[] typeArguments(Class<?> source, Class<?> target) {
+        return typeArguments(source, Map.of(), target);
+    }
+
+    private static Type[] typeArguments(
+        Type declaration,
+        Map<TypeVariable<?>, Type> inheritedBindings,
+        Class<?> target
+    ) {
+        if (declaration == null) {
+            return null;
+        }
+
+        Class<?> rawType;
+        Map<TypeVariable<?>, Type> bindings = new HashMap<>(inheritedBindings);
+        if (declaration instanceof ParameterizedType parameterized
+            && parameterized.getRawType() instanceof Class<?> parameterizedClass) {
+            rawType = parameterizedClass;
+            TypeVariable<?>[] variables = rawType.getTypeParameters();
+            Type[] arguments = parameterized.getActualTypeArguments();
+            for (int index = 0; index < variables.length; index++) {
+                bindings.put(
+                    variables[index],
+                    resolve(arguments[index], inheritedBindings)
+                );
+            }
+        } else if (declaration instanceof Class<?> declaredClass) {
+            rawType = declaredClass;
+        } else {
+            return null;
+        }
+
+        if (rawType == target) {
+            return Arrays.stream(rawType.getTypeParameters())
+                .map(variable -> resolve(variable, bindings))
+                .toArray(Type[]::new);
+        }
+
+        for (Type candidate : rawType.getGenericInterfaces()) {
+            Type[] resolved = typeArguments(candidate, bindings, target);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        return typeArguments(rawType.getGenericSuperclass(), bindings, target);
+    }
+
+    private static Type resolve(
+        Type type,
+        Map<TypeVariable<?>, Type> bindings
+    ) {
+        Type resolved = type;
+        while (resolved instanceof TypeVariable<?> variable) {
+            Type replacement = bindings.get(variable);
+            if (replacement == null || replacement == resolved) {
+                return resolved;
+            }
+            resolved = replacement;
+        }
+        return resolved;
     }
 
     private static Constructor<?> noArgumentComponentConstructor(Class<?> componentClass) {

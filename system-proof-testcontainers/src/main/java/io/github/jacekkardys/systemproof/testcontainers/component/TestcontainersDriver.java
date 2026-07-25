@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.testcontainers.component;
 import java.util.Objects;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import io.github.jacekkardys.systemproof.driver.ComponentDriver;
+import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
@@ -18,7 +18,7 @@ public abstract class TestcontainersDriver<
     C extends RuntimeConfig,
     O,
     T extends AbstractComponent<C, O>
-> implements ComponentDriver<C, O> {
+> implements ComponentBoundDriver<C, O, T> {
     private static final DriverResourceKey<Network> NETWORK =
         DriverResourceKey.resourceKey("testcontainers-network", Network.class);
 

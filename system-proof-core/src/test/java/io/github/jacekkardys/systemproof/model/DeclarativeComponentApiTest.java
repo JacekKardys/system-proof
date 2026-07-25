@@ -98,6 +98,26 @@ class DeclarativeComponentApiTest {
     }
 
     @Test
+    void shouldResolveDriverTypesFromAnInheritedDeclaration() {
+        InheritedDriverComponent component = Environment.environment(
+            EnvironmentConfiguration.of(VALUES)
+        ).component(InheritedDriverComponent.class);
+
+        assertThat(component.driver()).isInstanceOf(InheritedDriver.class);
+        assertThat(component.configuration().name()).isEqualTo("configured-service");
+    }
+
+    @Test
+    void shouldIgnoreAnUnrelatedThirdDriverBaseTypeArgument() {
+        RetryingDriverComponent component = Environment.environment(
+            EnvironmentConfiguration.of(VALUES)
+        ).component(RetryingDriverComponent.class);
+
+        assertThat(component.driver()).isInstanceOf(RetryingDriver.class);
+        assertThat(component.configuration().name()).isEqualTo("configured-service");
+    }
+
+    @Test
     void shouldRejectAComponentWithoutSystemComponentMetadata() {
         assertThatThrownBy(() ->
             Environment.environment().component(MissingAnnotationComponent.class)
@@ -287,6 +307,54 @@ class DeclarativeComponentApiTest {
                 )
                 .build();
         }
+    }
+
+    @SystemComponent(type = "inherited-driver", driver = InheritedDriver.class)
+    private static final class InheritedDriverComponent
+        extends AbstractComponent<ValidConfig, Void> {
+        private InheritedDriverComponent() {}
+    }
+
+    private static class FixedBaseDriver implements ComponentDriver<ValidConfig, Void> {
+        protected FixedBaseDriver() {}
+
+        @Override
+        public ComponentRuntime<Void> start(
+            AbstractComponent<ValidConfig, Void> component,
+            DriverContext context
+        ) {
+            return ComponentRuntime.<Void>runtime(() -> {}).build();
+        }
+    }
+
+    private static final class InheritedDriver extends FixedBaseDriver {
+        private InheritedDriver(ValidConfig.Driver configuration) {}
+    }
+
+    @SystemComponent(type = "retrying-driver", driver = RetryingDriver.class)
+    private static final class RetryingDriverComponent
+        extends AbstractComponent<ValidConfig, Void> {
+        private RetryingDriverComponent() {}
+    }
+
+    private static class GenericDriverBase<C extends RuntimeConfig, O, M>
+        implements ComponentDriver<C, O> {
+        protected GenericDriverBase() {}
+
+        @Override
+        public ComponentRuntime<O> start(
+            AbstractComponent<C, O> component,
+            DriverContext context
+        ) {
+            return ComponentRuntime.<O>runtime(() -> {}).build();
+        }
+    }
+
+    private static final class RetryPolicy {}
+
+    private static final class RetryingDriver
+        extends GenericDriverBase<ValidConfig, Void, RetryPolicy> {
+        private RetryingDriver(ValidConfig.Driver configuration) {}
     }
 
     private static final class MissingAnnotationComponent

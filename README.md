@@ -123,8 +123,10 @@ SmscComponent secondary = isolated.component("secondary", SmscComponent.class);
 
 The builder returns the exact instance retained by the topology and later runtime. Component classes
 do not know `ComponentFactory` or `Environment.Builder`. Core derives and validates the component
-configuration, operations, driver configuration, driver, and Testcontainers component target before
-binding values. Tests and programmatic configuration can use the typed low-level
+configuration, operations, driver configuration, and driver through its generic hierarchy before
+binding values. Runtime technologies that bind to one concrete component declare that target
+through `ComponentBoundDriver<C, O, T>`; Testcontainers uses this explicit SPI. Tests and
+programmatic configuration can use the typed low-level
 `AbstractComponent.component(...)` path with an already prepared configuration and driver; this does
 not add a factory method or constructor DSL to the concrete component.
 
