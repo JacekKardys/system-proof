@@ -2,7 +2,11 @@ package io.github.jacekkardys.systemproof.model;
 
 import java.util.Objects;
 
-/** Detached immutable semantic metadata for one logical or runtime connection. */
+/**
+ * Detached immutable semantic metadata for one logical or runtime connection.
+ *
+ * <p>The ID is derived from, and validated against, the structured source and target fields.
+ */
 public record ConnectionDescriptor(
     ConnectionId id,
     ComponentId sourceComponentId,
@@ -38,12 +42,23 @@ public record ConnectionDescriptor(
         interactionId = requireText(interactionId, "interactionId");
         protocolId = requireText(protocolId, "protocolId");
         protocolScheme = requireText(protocolScheme, "protocolScheme");
+        ConnectionId expectedId = ConnectionId.between(
+            sourceComponentId,
+            sourceRequiredPortName,
+            targetComponentId,
+            targetProvidedPortName
+        );
+        if (!id.equals(expectedId)) {
+            throw new IllegalArgumentException(
+                "Connection descriptor ID '" + id
+                    + "' does not match its structured endpoints; expected '" + expectedId + "'"
+            );
+        }
     }
 
     public static ConnectionDescriptor from(ConnectionRef connection) {
         Objects.requireNonNull(connection, "connection must not be null");
-        return new ConnectionDescriptor(
-            connection.id(),
+        return of(
             connection.from().owner().id(),
             connection.from().name(),
             connection.to().owner().id(),
@@ -56,12 +71,42 @@ public record ConnectionDescriptor(
         );
     }
 
+    public static ConnectionDescriptor of(
+        ComponentId sourceComponentId,
+        String sourceRequiredPortName,
+        ComponentId targetComponentId,
+        String targetProvidedPortName,
+        String contractId,
+        String contractTypeName,
+        String interactionId,
+        String protocolId,
+        String protocolScheme
+    ) {
+        return new ConnectionDescriptor(
+            ConnectionId.between(
+                sourceComponentId,
+                sourceRequiredPortName,
+                targetComponentId,
+                targetProvidedPortName
+            ),
+            sourceComponentId,
+            sourceRequiredPortName,
+            targetComponentId,
+            targetProvidedPortName,
+            contractId,
+            contractTypeName,
+            interactionId,
+            protocolId,
+            protocolScheme
+        );
+    }
+
     public String sourcePortQualifiedName() {
-        return sourceComponentId + "." + sourceRequiredPortName;
+        return ConnectionId.canonicalEndpoint(sourceComponentId, sourceRequiredPortName);
     }
 
     public String targetPortQualifiedName() {
-        return targetComponentId + "." + targetProvidedPortName;
+        return ConnectionId.canonicalEndpoint(targetComponentId, targetProvidedPortName);
     }
 
     private static String requireText(String value, String description) {

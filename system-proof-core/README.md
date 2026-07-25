@@ -25,10 +25,14 @@ compatibility, exactly one provider per required port, logging references, depen
 complete provided-port materialization.
 
 `Connection<C>` is the immutable logical declaration. Its typed `ConnectionId` is derived
-deterministically from both component and local port identities, with delimiter-safe port-name
-encoding. It does not depend on contract identity alone, endpoint values, mapped Docker ports,
-startup order, or object identity. Several required ports may target one provided port while
-retaining distinct IDs.
+deterministically from both component and local port identities. Each canonical endpoint uses
+`component-type[qualifier].local-port`, with empty brackets representing an absent qualifier.
+Component type and qualifier are separate semantic fields; construction deliberately does not use
+the flattened `ComponentId.toString()` or `ComponentId.value()` display form. Port names use
+delimiter-safe percent encoding. The ID does not depend on contract identity alone, endpoint
+values, mapped Docker ports, startup order, object identity, or hash codes. Several required ports
+may target one provided port while retaining distinct IDs. `ConnectionDescriptor` derives or
+validates the same canonical ID against its structured endpoint metadata.
 
 `EnvironmentRuntime` creates one ordered runtime-connection registry from the validated topology.
 The registry materializes each declaration exactly once, rejects duplicate IDs or required-port

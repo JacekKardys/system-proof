@@ -193,7 +193,7 @@ class JournalContributionBoundaryTest {
         TestComponent component = new TestComponent((current, context) -> {
             context.journalContributions().observeInteraction(
                 InteractionMetadata.onConnection(
-                    ConnectionId.of("missing.required->missing.provided"),
+                    ConnectionId.of("missing[].required->missing[].provided"),
                     InteractionMetadata.Direction.OUTBOUND
                 ),
                 MutableInteractionEvidence.codec(),
@@ -210,7 +210,7 @@ class JournalContributionBoundaryTest {
             .hasRootCauseInstanceOf(IllegalArgumentException.class)
             .hasRootCauseMessage(
                 "Interaction metadata references connection "
-                    + "'missing.required->missing.provided' outside the environment"
+                    + "'missing[].required->missing[].provided' outside the environment"
             );
     }
 

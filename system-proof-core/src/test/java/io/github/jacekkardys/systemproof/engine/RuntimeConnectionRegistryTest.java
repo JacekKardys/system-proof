@@ -180,6 +180,55 @@ class RuntimeConnectionRegistryTest {
             .hasMessageContaining("cannot transition from FAILED to FAILED");
     }
 
+    @Test
+    void shouldMaterializeFlattenedDisplayCollisionsAsDistinctRuntimeConnections() {
+        ComponentId unqualifiedId = ComponentId.component(
+            ComponentType.of("client-a")
+        );
+        ComponentId qualifiedId = ComponentId.component(CLIENT, "a");
+        Client unqualified = new Client(unqualifiedId);
+        Client qualified = new Client(qualifiedId);
+        Server server = new Server();
+        Connection<String> unqualifiedDeclaration = Connection.connect(
+            unqualified.api,
+            server.api
+        );
+        Connection<String> qualifiedDeclaration = Connection.connect(
+            qualified.api,
+            server.api
+        );
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+
+        RuntimeConnectionRegistry registry = registry(
+            List.of(unqualifiedDeclaration, qualifiedDeclaration),
+            journal
+        );
+
+        assertThat(unqualified.id().toString()).isEqualTo(qualified.id().toString());
+        assertThat(unqualifiedDeclaration.id())
+            .isNotEqualTo(qualifiedDeclaration.id());
+        assertThat(registry.snapshots())
+            .extracting(RuntimeConnectionSnapshot::id)
+            .containsExactly(
+                unqualifiedDeclaration.id(),
+                qualifiedDeclaration.id()
+            )
+            .doesNotHaveDuplicates();
+        assertThat(registry.connection(unqualifiedDeclaration.id()).sourceComponentId())
+            .isEqualTo(unqualifiedId);
+        assertThat(registry.connection(qualifiedDeclaration.id()).sourceComponentId())
+            .isEqualTo(qualifiedId);
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(ConnectionLifecycleEvent.class::isInstance)
+            .map(ConnectionLifecycleEvent.class::cast)
+            .extracting(event -> event.connection().id())
+            .containsExactly(
+                unqualifiedDeclaration.id(),
+                qualifiedDeclaration.id()
+            );
+    }
+
     private static RuntimeConnectionRegistry registry(
         List<ConnectionRef> declarations,
         ScenarioJournal journal
@@ -216,21 +265,27 @@ class RuntimeConnectionRegistryTest {
     private record EmptyConfig() implements RuntimeConfig {}
 
     private static final class Client extends AbstractComponent<EmptyConfig, Void> {
+        private final ComponentType type;
         private final RequiredPort<String> api;
 
         private Client(String qualifier) {
+            this(ComponentId.component(CLIENT, qualifier));
+        }
+
+        private Client(ComponentId id) {
             super(
-                ComponentId.component(CLIENT, qualifier),
+                id,
                 new EmptyConfig(),
                 Void.class,
                 UNUSED
             );
+            type = id.type();
             api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
         @Override
         protected ComponentType componentType() {
-            return CLIENT;
+            return type;
         }
     }
 

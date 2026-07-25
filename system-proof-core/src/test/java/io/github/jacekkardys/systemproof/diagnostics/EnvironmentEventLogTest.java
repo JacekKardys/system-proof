@@ -189,9 +189,7 @@ class EnvironmentEventLogTest {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         EnvironmentEventLog eventLog = view(journal);
         ComponentId component = ComponentId.component(ComponentType.of("service"));
-        ConnectionId connectionId = ConnectionId.of("client.api->server.api");
-        ConnectionDescriptor connection = new ConnectionDescriptor(
-            connectionId,
+        ConnectionDescriptor connection = ConnectionDescriptor.of(
             ComponentId.component(ComponentType.of("client")),
             "api",
             ComponentId.component(ComponentType.of("server")),
@@ -202,6 +200,7 @@ class EnvironmentEventLogTest {
             "http",
             "http"
         );
+        ConnectionId connectionId = connection.id();
         FailureDetails failure = FailureDetails.from(new IllegalStateException("broken"));
 
         journal.append(new EnvironmentLifecycleEvent(EnvironmentState.FAILED));
@@ -253,8 +252,8 @@ class EnvironmentEventLogTest {
             .contains(
                 "Environment failed",
                 "Component failed",
-                "[CONNECTION] [client.api->server.api] Direct target available "
-                    + "source=client.api target=server.api contract=api "
+                "[CONNECTION] [client[].api->server[].api] Direct target available "
+                    + "source=client[].api target=server[].api contract=api "
                     + "contractType=java.lang.String interaction=invocation "
                     + "protocol=http scheme=http state=RUNNING mode=DIRECT",
                 "diagnostic",
@@ -265,7 +264,7 @@ class EnvironmentEventLogTest {
                 "Connection cleanup failed: IllegalStateException - broken",
                 "Driver resource 'shared-resource' cleanup failed: "
                     + "IllegalStateException - broken",
-                "[INTERACTION] [service] [connection=client.api->server.api] "
+                "[INTERACTION] [service] [connection=client[].api->server[].api] "
                     + "Observed typed evidence direction=OUTBOUND "
                     + "schema=test.external:interaction version=1 encodedBytes=",
                 "[CHECKPOINT] [service] [request-visible] "

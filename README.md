@@ -63,9 +63,13 @@ Each `AbstractComponent<C, O>` owns:
 Each logical `Connection<C>` is an immutable directional
 `RequiredPort<C> -> ProvidedPort<C>` declaration. It validates contract, interaction, and protocol
 compatibility and owns a deterministic `ConnectionId` derived from both component and local port
-identities. Port-name delimiters are encoded, so distinct required ports connected to one provided
-port remain distinct without using endpoint values, startup order, object identity, or mapped
-ports.
+identities. Its canonical endpoint form is `component-type[qualifier].local-port`; empty brackets
+mean that the component has no qualifier. Component type and qualifier are encoded as separate
+semantic fields, so identity never depends on the flattened display form from
+`ComponentId.toString()`. Port-name delimiters are percent-encoded, so distinct required ports
+connected to one provided port remain distinct without using endpoint values, startup order,
+object identity, hash codes, or mapped ports. For example, `client-a[].api` and
+`client[a].api` are distinct endpoints even though both component IDs display as `client-a`.
 
 Each environment runtime materializes every logical declaration exactly once as a typed
 `RuntimeConnection<C>`. One environment-owned registry preserves topology declaration order,
