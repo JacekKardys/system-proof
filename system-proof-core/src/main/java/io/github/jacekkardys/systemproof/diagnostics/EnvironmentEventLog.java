@@ -11,6 +11,7 @@ import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
@@ -29,9 +30,13 @@ import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
+import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
+import io.github.jacekkardys.systemproof.model.RoutingMode;
 
 /**
  * Appending and textual rendering view over one supplied {@link ScenarioJournal}.
@@ -72,6 +77,21 @@ public final class EnvironmentEventLog {
         );
     }
 
+    public void connectionLifecycle(
+        ConnectionRef connection,
+        ConnectionDescriptor descriptor,
+        ConnectionState state,
+        RoutingMode routingMode
+    ) {
+        Objects.requireNonNull(connection, "connection must not be null");
+        LogLevel level = state == ConnectionState.FAILED ? LogLevel.ERROR : LogLevel.INFO;
+        append(
+            new ConnectionLifecycleEvent(descriptor, state, routingMode),
+            configuration.connectionLevel(connection),
+            level
+        );
+    }
+
     public void environmentStartupFailure(Throwable failure) {
         append(
             new FailureEvent.EnvironmentStartup(FailureDetails.from(failure)),
@@ -94,6 +114,33 @@ public final class EnvironmentEventLog {
         append(
             new FailureEvent.ComponentCleanup(component.id(), FailureDetails.from(failure)),
             configuration.componentLevel(component),
+            LogLevel.ERROR
+        );
+    }
+
+    public void connectionMaterializationFailure(
+        ConnectionRef connection,
+        Throwable failure
+    ) {
+        Objects.requireNonNull(connection, "connection must not be null");
+        append(
+            new FailureEvent.ConnectionMaterialization(
+                connection.id(),
+                FailureDetails.from(failure)
+            ),
+            configuration.connectionLevel(connection),
+            LogLevel.ERROR
+        );
+    }
+
+    public void connectionCleanupFailure(ConnectionRef connection, Throwable failure) {
+        Objects.requireNonNull(connection, "connection must not be null");
+        append(
+            new FailureEvent.ConnectionCleanup(
+                connection.id(),
+                FailureDetails.from(failure)
+            ),
+            configuration.connectionLevel(connection),
             LogLevel.ERROR
         );
     }
@@ -260,6 +307,10 @@ public final class EnvironmentEventLog {
                 componentLabels(lifecycle.componentId()),
                 componentLifecycleMessage(lifecycle.state())
             );
+            case ConnectionLifecycleEvent lifecycle -> new RenderedEvent(
+                connectionLabels(lifecycle.connection().id()),
+                connectionLifecycleMessage(lifecycle)
+            );
             case DiagnosticEvent diagnostic -> new RenderedEvent(
                 diagnosticLabels(diagnostic.subject()),
                 diagnostic.message()
@@ -275,6 +326,14 @@ public final class EnvironmentEventLog {
             case FailureEvent.ComponentCleanup failure -> new RenderedEvent(
                 componentLabels(failure.componentId()),
                 "Component cleanup failed: " + failureMessage(failure.failure())
+            );
+            case FailureEvent.ConnectionMaterialization failure -> new RenderedEvent(
+                connectionLabels(failure.connectionId()),
+                "Connection materialization failed: " + failureMessage(failure.failure())
+            );
+            case FailureEvent.ConnectionCleanup failure -> new RenderedEvent(
+                connectionLabels(failure.connectionId()),
+                "Connection cleanup failed: " + failureMessage(failure.failure())
             );
             case FailureEvent.DriverResourceCleanup failure -> new RenderedEvent(
                 "[FRAMEWORK] [environment]",
@@ -303,6 +362,9 @@ public final class EnvironmentEventLog {
         return switch (event) {
             case ComponentLifecycleEvent lifecycle ->
                 lifecycle.componentId().equals(componentId);
+            case ConnectionLifecycleEvent lifecycle ->
+                lifecycle.connection().sourceComponentId().equals(componentId)
+                    || lifecycle.connection().targetComponentId().equals(componentId);
             case DiagnosticEvent diagnostic ->
                 diagnostic.subject() instanceof DiagnosticEvent.ComponentSubject subject
                     && subject.componentId().equals(componentId);
@@ -319,6 +381,8 @@ public final class EnvironmentEventLog {
             case EnvironmentLifecycleEvent lifecycle -> false;
             case FailureEvent.EnvironmentStartup failure -> false;
             case FailureEvent.DriverResourceCleanup failure -> false;
+            case FailureEvent.ConnectionMaterialization failure -> false;
+            case FailureEvent.ConnectionCleanup failure -> false;
         };
     }
 
@@ -329,8 +393,12 @@ public final class EnvironmentEventLog {
             case DiagnosticEvent.ComponentSubject component ->
                 componentLabels(component.componentId());
             case DiagnosticEvent.ConnectionSubject connection ->
-                "[CONNECTION] [" + connection.connectionId() + "]";
+                connectionLabels(connection.connectionId());
         };
+    }
+
+    private static String connectionLabels(ConnectionId connectionId) {
+        return "[CONNECTION] [" + connectionId + "]";
     }
 
     private static String componentLabels(ComponentId componentId) {
@@ -375,6 +443,28 @@ public final class EnvironmentEventLog {
             case STOPPED -> "Component stopped";
             case FAILED -> "Component failed";
         };
+    }
+
+    private static String connectionLifecycleMessage(ConnectionLifecycleEvent lifecycle) {
+        ConnectionDescriptor connection = lifecycle.connection();
+        String action = switch (lifecycle.state()) {
+            case DECLARED -> "Connection materialized and validated";
+            case STARTING -> "Starting connection";
+            case RUNNING -> "Direct target available";
+            case STOPPING -> "Stopping connection";
+            case STOPPED -> "Connection stopped";
+            case FAILED -> "Connection failed";
+        };
+        return action
+            + " source=" + connection.sourcePortQualifiedName()
+            + " target=" + connection.targetPortQualifiedName()
+            + " contract=" + connection.contractId()
+            + " contractType=" + connection.contractTypeName()
+            + " interaction=" + connection.interactionId()
+            + " protocol=" + connection.protocolId()
+            + " scheme=" + connection.protocolScheme()
+            + " state=" + lifecycle.state()
+            + " mode=" + lifecycle.routingMode();
     }
 
     private static String failureMessage(FailureDetails failure) {

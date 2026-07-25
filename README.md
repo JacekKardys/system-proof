@@ -60,9 +60,37 @@ Each `AbstractComponent<C, O>` owns:
 - one `ComponentDriver<C, O>`;
 - an attached `ComponentRuntime<O>` while running.
 
-Connections are directional `RequiredPort<C> -> ProvidedPort<C>` relationships. They validate
-contract, interaction, and protocol compatibility. Host names, mapped ports, URIs, and JDBC URLs
-exist only in runtime bindings created by drivers.
+Each logical `Connection<C>` is an immutable directional
+`RequiredPort<C> -> ProvidedPort<C>` declaration. It validates contract, interaction, and protocol
+compatibility and owns a deterministic `ConnectionId` derived from both component and local port
+identities. Its canonical endpoint form is `component-type[qualifier].local-port`; empty brackets
+mean that the component has no qualifier. Component type and qualifier are encoded as separate
+semantic fields, so identity never depends on the flattened display form from
+`ComponentId.toString()`. Port-name delimiters are percent-encoded, so distinct required ports
+connected to one provided port remain distinct without using endpoint values, startup order,
+object identity, hash codes, or mapped ports. For example, `client-a[].api` and
+`client[a].api` are distinct endpoints even though both component IDs display as `client-a`.
+
+Each environment runtime materializes every logical declaration exactly once as a typed
+`RuntimeConnection<C>`. One environment-owned registry preserves topology declaration order,
+indexes runtime connections by `ConnectionId`, required port, provider, and provided port, and owns
+their lifecycle, routing mode, and direct targets. A provider still publishes an
+`EndpointBinding<C>`, but the registry binds that value once to each targeted runtime connection.
+Consumer resolution then follows the required port to its `RuntimeConnection` and returns the
+direct target's internal typed endpoint; it no longer resolves independently through the provider
+runtime.
+
+The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
+communication and the external test-host endpoint needed by later gateway work. Endpoint values
+remain internal because they may contain credentials, aliases, or other secrets.
+`Environment.runtimeConnections()` and `Environment.runtimeConnection(ConnectionId)` expose only
+detached immutable snapshots with semantic metadata, lifecycle state, routing mode, and target
+availability.
+
+`DIRECT` is currently the only routing mode. It means the consumer receives the provider's internal
+endpoint directly; it does not claim gateway interposition or traffic observation. A later
+reroutable consumer endpoint can therefore be added to each existing `RuntimeConnection` without
+creating another connection registry or replacing the direct target.
 
 External values enter through immutable `EnvironmentConfiguration`. One `ComponentFactory` owns
 that snapshot and binds annotated component and driver configuration interfaces. Secrets use
@@ -73,7 +101,8 @@ that snapshot and binds annotated component and driver configuration interfaces.
 Every environment owns exactly one append-only `ScenarioJournal`. It is the authoritative
 structured history. The sealed event hierarchy contains core-owned immutable envelopes for:
 
-- framework environment and component lifecycle transitions, failures, and diagnostics;
+- framework environment, component, and runtime-connection lifecycle transitions, failures, and
+  diagnostics;
 - externally contributed interaction observations;
 - checkpoint or barrier records;
 - disruption lifecycle records.
@@ -90,8 +119,9 @@ The driver capability supplies the observing component identity and exposes only
 checkpoint, and disruption contributions. It cannot append environment/component lifecycle,
 framework failure, or free-form diagnostic events, and it never exposes the mutable journal.
 Existing `DriverContext.log(...)` remains journal-backed and is restricted to the driver-owned
-component. `Environment.journalSnapshot()` returns a detached immutable snapshot for typed
-assertions.
+component. A scoped driver can resolve only required ports owned by that component, and contributed
+interaction metadata may name only a typed `ConnectionId` present in the current environment.
+`Environment.journalSnapshot()` returns a detached immutable snapshot for typed assertions.
 
 Textual environment logs are rendered views of one captured journal snapshot. They retain the
 readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
@@ -107,6 +137,8 @@ relationship. A checkpoint/barrier record and its position in the journal are al
 not proof of barrier evaluation, external ordering, or causality. Future protocol modules can add
 their own typed codecs and values through the existing contribution boundary; causal proof still
 requires explicit stream-local positions and semantic evaluation in the later roadmap tasks.
+Runtime-connection lifecycle order and elapsed time have the same limitation: target binding before
+another stored event is not proof of external protocol ordering or causality.
 
 Failed JUnit tests write:
 

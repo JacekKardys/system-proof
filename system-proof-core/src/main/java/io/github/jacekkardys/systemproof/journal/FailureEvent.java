@@ -2,12 +2,15 @@ package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 
 /** Closed category of framework-owned immutable scenario failure values. */
 public sealed interface FailureEvent extends ScenarioEvent permits
     FailureEvent.EnvironmentStartup,
     FailureEvent.ComponentStartup,
     FailureEvent.ComponentCleanup,
+    FailureEvent.ConnectionMaterialization,
+    FailureEvent.ConnectionCleanup,
     FailureEvent.DriverResourceCleanup {
     FailureDetails failure();
 
@@ -36,6 +39,34 @@ public sealed interface FailureEvent extends ScenarioEvent permits
     ) implements FailureEvent {
         public ComponentCleanup {
             componentId = Objects.requireNonNull(componentId, "componentId must not be null");
+            failure = Objects.requireNonNull(failure, "failure must not be null");
+        }
+    }
+
+    /** A provider could not materialize the direct target for one runtime connection. */
+    record ConnectionMaterialization(
+        ConnectionId connectionId,
+        FailureDetails failure
+    ) implements FailureEvent {
+        public ConnectionMaterialization {
+            connectionId = Objects.requireNonNull(
+                connectionId,
+                "connectionId must not be null"
+            );
+            failure = Objects.requireNonNull(failure, "failure must not be null");
+        }
+    }
+
+    /** A provider cleanup failed after its runtime connection was made unavailable. */
+    record ConnectionCleanup(
+        ConnectionId connectionId,
+        FailureDetails failure
+    ) implements FailureEvent {
+        public ConnectionCleanup {
+            connectionId = Objects.requireNonNull(
+                connectionId,
+                "connectionId must not be null"
+            );
             failure = Objects.requireNonNull(failure, "failure must not be null");
         }
     }

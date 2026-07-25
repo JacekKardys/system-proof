@@ -10,6 +10,7 @@ package io.github.jacekkardys.systemproof.journal;
 public sealed interface ScenarioEvent permits
     EnvironmentLifecycleEvent,
     ComponentLifecycleEvent,
+    ConnectionLifecycleEvent,
     FailureEvent,
     DiagnosticEvent,
     InteractionObservationEvent,

@@ -1,52 +1,69 @@
 package io.github.jacekkardys.systemproof.engine;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 
 /** Running component handles and typed values published for provided endpoint contracts. */
 final class RuntimeBindings {
-    private final Function<RequiredPort<?>, ConnectionRef> connectionFrom;
+    private final RuntimeConnectionRegistry connections;
     private final Map<Component, ComponentRuntime<?>> runtimes =
         new IdentityHashMap<>();
 
-    RuntimeBindings(Function<RequiredPort<?>, ConnectionRef> connectionFrom) {
-        this.connectionFrom = Objects.requireNonNull(connectionFrom, "connectionFrom must not be null");
+    RuntimeBindings(RuntimeConnectionRegistry connections) {
+        this.connections = Objects.requireNonNull(connections, "connections must not be null");
     }
 
     <C extends io.github.jacekkardys.systemproof.model.RuntimeConfig, O> void attach(
         AbstractComponent<C, O> component,
         ComponentRuntime<O> runtime
     ) {
+        Objects.requireNonNull(component, "component must not be null");
+        Objects.requireNonNull(runtime, "runtime must not be null");
+        if (runtimes.containsKey(component)) {
+            throw new IllegalStateException("Component '" + component.id() + "' already has a runtime");
+        }
+        List<ProvidedPort<?>> providedPorts = new ArrayList<>();
         component.ports().stream()
             .filter(ProvidedPort.class::isInstance)
-            .map(ProvidedPort.class::cast)
-            .filter(port -> !runtime.materializes(port))
-            .findFirst()
-            .ifPresent(port -> {
-                throw new IllegalStateException(
+            .map(port -> (ProvidedPort<?>) port)
+            .forEach(providedPorts::add);
+        for (ProvidedPort<?> port : providedPorts) {
+            if (!runtime.materializes(port)) {
+                IllegalStateException failure = new IllegalStateException(
                     "Driver for component '" + component.id() + "' did not materialize port '"
                         + port.qualifiedName() + "'"
                 );
-            });
-        if (runtimes.put(component, runtime) != null) {
-            throw new IllegalStateException("Component '" + component.id() + "' already has a runtime");
+                connections.failProvidedPortMaterialization(port, failure);
+                throw failure;
+            }
         }
+
+        List<RuntimeConnectionRegistry.PreparedDirectTarget<?>> prepared;
+        try {
+            prepared = connections.prepareDirectTargets(component, runtime);
+            connections.bindDirectTargets(prepared);
+        } catch (RuntimeException | Error failure) {
+            connections.failProviderMaterialization(component, failure);
+            throw failure;
+        }
+        runtimes.put(component, runtime);
     }
 
     <T> T resolve(RequiredPort<T> required) {
-        ConnectionRef connection = connectionFrom.apply(required);
-        ProvidedPort<?> provided = (ProvidedPort<?>) connection.to();
-        ComponentRuntime<?> runtime = requireRuntime(provided.owner());
-        Object value = runtime.resolve(provided);
-        return required.contract().cast(value);
+        return connections.resolve(required);
+    }
+
+    boolean containsConnection(ConnectionId connectionId) {
+        return connections.contains(connectionId);
     }
 
     <C extends io.github.jacekkardys.systemproof.model.RuntimeConfig, O> O operations(
@@ -66,8 +83,24 @@ final class RuntimeBindings {
         return requireRuntime(component);
     }
 
-    void detach(AbstractComponent<?, ?> component) {
+    void beginDetach(AbstractComponent<?, ?> component) {
+        connections.beginProviderCleanup(component);
+    }
+
+    void completeDetach(AbstractComponent<?, ?> component) {
+        connections.completeProviderCleanup(component);
+    }
+
+    void failDetach(AbstractComponent<?, ?> component, Throwable failure) {
+        connections.failProviderCleanup(component, failure);
+    }
+
+    void detachRuntime(AbstractComponent<?, ?> component) {
         runtimes.remove(component);
+    }
+
+    void providerStartFailure(AbstractComponent<?, ?> component, Throwable failure) {
+        connections.failProviderMaterialization(component, failure);
     }
 
     private ComponentRuntime<?> requireRuntime(Component component) {

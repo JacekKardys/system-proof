@@ -124,6 +124,8 @@ class EnvironmentTest {
         assertThat(logging.componentLevel(client)).isEqualTo(LogLevel.WARN);
         assertThat(logging.componentLevel(server)).isEqualTo(LogLevel.INFO);
         assertThat(logging.connectionLevel(environment.connections().getFirst())).isEqualTo(LogLevel.DEBUG);
+        assertThat(logging.connectionLevel(environment.connections().getFirst().id()))
+            .isEqualTo(LogLevel.DEBUG);
     }
 
     private enum Invocation implements InteractionSpec {

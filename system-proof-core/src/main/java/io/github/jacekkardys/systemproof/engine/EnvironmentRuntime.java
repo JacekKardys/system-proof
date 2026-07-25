@@ -16,17 +16,18 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentLifecycleException;
 import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
 
 /** Owns one environment execution: start, readiness, operations, diagnostics, stop, and cleanup. */
 public final class EnvironmentRuntime {
     private final List<AbstractComponent<?, ?>> components;
     private final List<AbstractComponent<?, ?>> startOrder;
-    private final List<ConnectionRef> connections;
+    private final RuntimeConnectionRegistry connections;
     private final RuntimeBindings bindings;
     private final Map<Component, ComponentState> componentStates = new IdentityHashMap<>();
     private final List<AbstractComponent<?, ?>> started = new ArrayList<>();
@@ -43,12 +44,12 @@ public final class EnvironmentRuntime {
         topology = Objects.requireNonNull(topology, "topology must not be null");
         components = topology.componentDefinitions();
         startOrder = ComponentStartPlan.order(components, topology::connectionFrom);
-        connections = topology.connections();
         logging = Objects.requireNonNull(logging, "logging must not be null");
-        bindings = new RuntimeBindings(topology::connectionFrom);
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
         journal = new ScenarioJournal();
         eventLog = new EnvironmentEventLog(journal, logging);
+        connections = new RuntimeConnectionRegistry(topology.connections(), eventLog);
+        bindings = new RuntimeBindings(connections);
         diagnostics = new RuntimeDiagnostics(journal, eventLog);
     }
 
@@ -64,11 +65,7 @@ public final class EnvironmentRuntime {
             eventLog
         );
         try {
-            connections.forEach(connection -> eventLog.connection(
-                connection,
-                LogLevel.INFO,
-                "Declared " + connection.from().qualifiedName() + " -> " + connection.to().qualifiedName()
-            ));
+            connections.beginStartup();
             for (AbstractComponent<?, ?> component : startOrder) {
                 startComponent(component);
             }
@@ -116,11 +113,24 @@ public final class EnvironmentRuntime {
     }
 
     public synchronized EnvironmentDiagnostics diagnostics() {
-        return diagnostics.capture(state, components, this::componentState);
+        return diagnostics.capture(
+            state,
+            components,
+            this::componentState,
+            connections.snapshots()
+        );
     }
 
     public ScenarioJournalSnapshot journalSnapshot() {
         return journal.snapshot();
+    }
+
+    public synchronized List<RuntimeConnectionSnapshot> connectionSnapshots() {
+        return connections.snapshots();
+    }
+
+    public synchronized RuntimeConnectionSnapshot connectionSnapshot(ConnectionId id) {
+        return connections.snapshot(id);
     }
 
     public synchronized void close() {
@@ -128,6 +138,7 @@ public final class EnvironmentRuntime {
             return;
         }
         if (state == EnvironmentState.DECLARED) {
+            connections.stopRemaining();
             transitionEnvironment(EnvironmentState.STOPPED);
             return;
         }
@@ -165,6 +176,7 @@ public final class EnvironmentRuntime {
             diagnostics.add(component, runtime.diagnostics());
             transitionComponent(component, ComponentState.RUNNING);
         } catch (RuntimeException | Error failure) {
+            bindings.providerStartFailure(component, failure);
             transitionComponent(component, ComponentState.FAILED);
             eventLog.componentStartupFailure(component, failure);
             if (runtime != null) {
@@ -186,17 +198,21 @@ public final class EnvironmentRuntime {
         for (AbstractComponent<?, ?> component : reverse) {
             transitionComponent(component, ComponentState.STOPPING);
             try {
+                bindings.beginDetach(component);
                 bindings.runtime(component).close();
+                bindings.completeDetach(component);
                 transitionComponent(component, ComponentState.STOPPED);
             } catch (Exception | Error failure) {
+                bindings.failDetach(component, failure);
                 transitionComponent(component, ComponentState.FAILED);
                 eventLog.componentCleanupFailure(component, failure);
                 firstFailure = accumulate(firstFailure, failure);
             } finally {
-                bindings.detach(component);
+                bindings.detachRuntime(component);
             }
         }
         started.clear();
+        connections.stopRemaining();
         if (driverServices != null) {
             firstFailure = accumulate(firstFailure, driverServices.closeSharedResources());
         }

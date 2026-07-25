@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 
 /** Free-form diagnostic text with a structured subject and severity. */
@@ -36,9 +37,12 @@ public record DiagnosticEvent(
     }
 
     /** A diagnostic subject identified by the stable logical connection identity. */
-    public record ConnectionSubject(String connectionId) implements Subject {
+    public record ConnectionSubject(ConnectionId connectionId) implements Subject {
         public ConnectionSubject {
-            connectionId = requireText(connectionId, "connectionId");
+            connectionId = Objects.requireNonNull(
+                connectionId,
+                "connectionId must not be null"
+            );
         }
     }
 

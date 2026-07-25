@@ -27,6 +27,7 @@ import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvid
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 
@@ -215,12 +216,11 @@ class ScenarioJournalTest {
         ))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessage("resourceName must not be blank");
-        assertThatThrownBy(() -> new InteractionMetadata(
-            Optional.of("connection" + System.lineSeparator() + "payload"),
-            Optional.empty()
+        assertThatThrownBy(() -> ConnectionId.of(
+            "connection" + System.lineSeparator() + "payload"
         ))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageStartingWith("Invalid connectionId:");
+            .hasMessageStartingWith("Invalid connection id:");
         assertThat(journal.snapshot().isEmpty()).isTrue();
     }
 
