@@ -9,7 +9,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
@@ -17,7 +16,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class SmsIngestionTestcontainersDriver
-    extends TestcontainersDriver<Runtime, Void, SmsIngestionComponent> {
+    extends TestcontainersDriver<SmsIngestionConfig, Void, SmsIngestionComponent> {
     private final Driver configuration;
 
     public SmsIngestionTestcontainersDriver(@NonNull Driver configuration) {

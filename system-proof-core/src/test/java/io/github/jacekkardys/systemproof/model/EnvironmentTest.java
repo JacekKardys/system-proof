@@ -150,10 +150,6 @@ class EnvironmentTest {
             api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return CLIENT;
-        }
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -164,9 +160,5 @@ class EnvironmentTest {
             api = provides("api", contract, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 }

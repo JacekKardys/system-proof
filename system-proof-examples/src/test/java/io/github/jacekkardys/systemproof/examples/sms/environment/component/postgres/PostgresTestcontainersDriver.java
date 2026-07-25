@@ -6,7 +6,6 @@ import lombok.NonNull;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.PostgresConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.PostgresConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
@@ -15,7 +14,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.StartedContain
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class PostgresTestcontainersDriver
-    extends TestcontainersDriver<Runtime, SmsDatabaseOperations, PostgresComponent> {
+    extends TestcontainersDriver<PostgresConfig, SmsDatabaseOperations, PostgresComponent> {
     private final Driver configuration;
 
     public PostgresTestcontainersDriver(@NonNull Driver configuration) {
@@ -25,7 +24,7 @@ public final class PostgresTestcontainersDriver
 
     @Override
     protected ContainerPlan create(PostgresComponent component, DriverContext context) {
-        Runtime componentConfiguration = component.configuration();
+        PostgresConfig componentConfiguration = component.configuration();
         PortBinding jdbcPort = port(configuration.jdbcPort());
         DockerImageName dockerImage = DockerImageName.parse(configuration.image())
             .asCompatibleSubstituteFor(configuration.compatibleImage());

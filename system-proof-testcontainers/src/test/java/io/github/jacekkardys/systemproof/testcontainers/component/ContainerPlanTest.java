@@ -109,10 +109,6 @@ class ContainerPlanTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 
     private static final class ExternalOperationsDriver

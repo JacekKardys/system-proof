@@ -618,10 +618,6 @@ class EnvironmentLifecycleTest {
             api = requiresAtStartup("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return CLIENT;
-        }
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -632,10 +628,6 @@ class EnvironmentLifecycleTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 
     private static final class CollisionClient
@@ -680,10 +672,6 @@ class EnvironmentLifecycleTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return type;
-        }
     }
 
     private static final class CollisionProvider
@@ -711,9 +699,5 @@ class EnvironmentLifecycleTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 }

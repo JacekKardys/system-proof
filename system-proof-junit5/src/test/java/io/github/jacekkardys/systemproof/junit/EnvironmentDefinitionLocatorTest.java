@@ -161,9 +161,5 @@ class EnvironmentDefinitionLocatorTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 }

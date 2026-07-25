@@ -13,7 +13,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
 import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
 import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
@@ -25,7 +24,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.StartedContain
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class JasminTestcontainersDriver
-    extends TestcontainersDriver<Runtime, Void, JasminComponent> {
+    extends TestcontainersDriver<JasminConfig, Void, JasminComponent> {
     private final Driver configuration;
 
     public JasminTestcontainersDriver(@NonNull Driver configuration) {

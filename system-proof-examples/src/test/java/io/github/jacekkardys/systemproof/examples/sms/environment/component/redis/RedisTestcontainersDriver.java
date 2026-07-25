@@ -7,7 +7,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.redis.RedisConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.redis.RedisConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
@@ -15,7 +14,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class RedisTestcontainersDriver
-    extends TestcontainersDriver<Runtime, Void, RedisComponent> {
+    extends TestcontainersDriver<RedisConfig, Void, RedisComponent> {
     private final Driver configuration;
 
     public RedisTestcontainersDriver(@NonNull Driver configuration) {

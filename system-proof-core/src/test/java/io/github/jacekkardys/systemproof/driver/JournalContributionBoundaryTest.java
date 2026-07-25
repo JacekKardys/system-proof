@@ -269,10 +269,6 @@ class JournalContributionBoundaryTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 
     private static final class ProviderComponent
@@ -294,10 +290,6 @@ class JournalContributionBoundaryTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return PROVIDER;
-        }
     }
 
     private static final class TestComponent extends AbstractComponent<EmptyConfig, Void> {
@@ -319,9 +311,5 @@ class JournalContributionBoundaryTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 }

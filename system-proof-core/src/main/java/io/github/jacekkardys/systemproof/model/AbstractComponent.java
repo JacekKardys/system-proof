@@ -2,9 +2,6 @@ package io.github.jacekkardys.systemproof.model;
 
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationValidator.validate;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -39,16 +36,28 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
         C configuration,
         ComponentDriver<C, O> driver
     ) {
-        T component = instantiate(componentClass);
-        AbstractComponent<C, O> declaration = component;
-        declaration.initialize(
-            ComponentId.component(declaration.componentType(), qualifier),
+        return ComponentMetadata.<C, O, T>analyze(componentClass)
+            .materialize(qualifier, configuration, driver);
+    }
+
+    public static <
+        C extends RuntimeConfig,
+        O,
+        T extends AbstractComponent<C, O>
+    > T component(
+        Class<T> componentClass,
+        ComponentType componentType,
+        String qualifier,
+        C configuration,
+        ComponentDriver<C, O> driver
+    ) {
+        return ComponentMetadata.materialize(
+            componentClass,
+            componentType,
+            qualifier,
             configuration,
-            operationsType(componentClass),
-            driver,
-            true
+            driver
         );
-        return component;
     }
 
     @Override
@@ -83,8 +92,6 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
         }
         return operationsType.cast(operations);
     }
-
-    protected abstract ComponentType componentType();
 
     protected final <T> RequiredPort<T> requires(
         String name,
@@ -127,7 +134,7 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
         return port;
     }
 
-    private void initialize(
+    final void initialize(
         ComponentId id,
         C configuration,
         Class<O> operationsType,
@@ -141,53 +148,11 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
         }
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.configuration = validate(configuration);
-        this.operationsType = operationsType;
+        this.operationsType = operationsType == Void.class ? null : operationsType;
         this.driver = Objects.requireNonNull(driver, "driver must not be null");
         if (materializeDeclaredPorts) {
             PortDeclarations.initialize(this);
         }
     }
 
-    private static <T> T instantiate(Class<T> componentClass) {
-        Objects.requireNonNull(componentClass, "componentClass must not be null");
-        try {
-            Constructor<T> constructor = componentClass.getDeclaredConstructor();
-            if (!constructor.trySetAccessible()) {
-                throw new IllegalArgumentException(
-                    "Cannot access component constructor " + componentClass.getName() + "()"
-                );
-            }
-            return constructor.newInstance();
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalArgumentException(
-                "Cannot create component " + componentClass.getName()
-                    + ": a no-argument constructor is required",
-                exception
-            );
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <O> Class<O> operationsType(Class<?> componentClass) {
-        Type operationsType = typeArgument(componentClass, 1);
-        if (!(operationsType instanceof Class<?> operationsClass)) {
-            throw new IllegalArgumentException(
-                "Component " + componentClass.getName()
-                    + " must directly declare a concrete runtime operations type"
-            );
-        }
-        return operationsClass == Void.class ? null : (Class<O>) operationsClass;
-    }
-
-    private static Type typeArgument(Class<?> componentClass, int index) {
-        Type genericSuperclass = componentClass.getGenericSuperclass();
-        if (!(genericSuperclass instanceof ParameterizedType declaration)
-            || declaration.getRawType() != AbstractComponent.class) {
-            throw new IllegalArgumentException(
-                "Component " + componentClass.getName()
-                    + " must directly declare a concrete AbstractComponent<C, O> type"
-            );
-        }
-        return declaration.getActualTypeArguments()[index];
-    }
 }

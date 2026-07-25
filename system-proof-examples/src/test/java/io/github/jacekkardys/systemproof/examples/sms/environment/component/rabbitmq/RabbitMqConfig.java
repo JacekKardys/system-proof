@@ -9,37 +9,34 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.Secret;
 
 public interface RabbitMqConfig
-    extends ComponentConfig<RabbitMqConfig.Runtime, RabbitMqConfig.Driver> {
+    extends ComponentConfig<RabbitMqConfig.Driver> {
 
-    public interface Runtime extends RuntimeConfig {
-        @NotBlank(message = "RabbitMQ username must not be blank")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_USERNAME",
-            defaultValue = "jasmin"
-        )
-        String username();
+    @NotBlank(message = "RabbitMQ username must not be blank")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_USERNAME",
+        defaultValue = "jasmin"
+    )
+    String username();
 
-        @NotNull(message = "RabbitMQ password must not be null")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_PASSWORD",
-            defaultValue = "jasmin-test-password"
-        )
-        Secret<String> password();
+    @NotNull(message = "RabbitMQ password must not be null")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_PASSWORD",
+        defaultValue = "jasmin-test-password"
+    )
+    Secret<String> password();
 
-        @NotBlank(message = "RabbitMQ virtual host must not be blank")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_VIRTUAL_HOST",
-            defaultValue = "/jasmin"
-        )
-        String virtualHost();
-    }
+    @NotBlank(message = "RabbitMQ virtual host must not be blank")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_RABBITMQ_VIRTUAL_HOST",
+        defaultValue = "/jasmin"
+    )
+    String virtualHost();
 
     public interface Driver extends DriverConfig {
         @NotBlank(message = "RabbitMQ image must not be blank")

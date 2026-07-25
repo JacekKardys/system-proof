@@ -266,10 +266,6 @@ class ConnectionIdTest {
             second = requires("second->api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return CLIENT;
-        }
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -280,10 +276,6 @@ class ConnectionIdTest {
             shared = provides("shared.api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 
     private static final class NamedClient extends AbstractComponent<EmptyConfig, Void> {
@@ -296,10 +288,6 @@ class ConnectionIdTest {
             api = requires(portName, API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return type;
-        }
     }
 
     private static final class NamedServer extends AbstractComponent<EmptyConfig, Void> {
@@ -312,10 +300,6 @@ class ConnectionIdTest {
             api = provides(portName, API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return type;
-        }
     }
 
     private static final class DelimitedClient extends AbstractComponent<EmptyConfig, Void> {
@@ -328,9 +312,5 @@ class ConnectionIdTest {
             encodedText = requires("api%2Epart", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return CLIENT;
-        }
     }
 }

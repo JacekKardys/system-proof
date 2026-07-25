@@ -66,9 +66,5 @@ class ConfigurationValidatorTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return ComponentType.of("test");
-        }
     }
 }

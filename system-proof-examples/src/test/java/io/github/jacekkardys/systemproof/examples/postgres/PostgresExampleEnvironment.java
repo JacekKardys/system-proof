@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.examples.postgres;
 
 import io.github.jacekkardys.systemproof.junit.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.Environment;
 
 final class PostgresExampleEnvironment extends Environment {
@@ -14,11 +13,11 @@ final class PostgresExampleEnvironment extends Environment {
 
     @EnvironmentDefinition
     static PostgresExampleEnvironment define() {
-        ComponentFactory components = ComponentFactory.system();
-        PostgresComponent database = PostgresComponent.define(components);
+        Environment.Builder environment = Environment.environment();
+        PostgresComponent database = environment.component(PostgresComponent.class);
 
         return new PostgresExampleEnvironment(
-            Environment.environment().components(database),
+            environment,
             database
         );
     }

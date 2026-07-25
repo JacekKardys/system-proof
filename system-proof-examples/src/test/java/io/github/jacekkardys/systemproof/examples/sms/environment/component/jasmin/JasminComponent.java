@@ -17,20 +17,20 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.Accessors;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Communication;
-import io.github.jacekkardys.systemproof.model.ComponentFactory;
-import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.PortContract;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 import io.github.jacekkardys.systemproof.model.StartupPrerequisite;
+import io.github.jacekkardys.systemproof.model.SystemComponent;
 import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
 import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
 import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
 
+@SystemComponent(type = "jasmin", driver = JasminTestcontainersDriver.class)
 @Getter
 @Accessors(fluent = true)
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-public final class JasminComponent extends AbstractComponent<JasminConfig.Runtime, Void> {
+public final class JasminComponent extends AbstractComponent<JasminConfig, Void> {
 
     @Getter
     @Accessors(fluent = true)
@@ -78,16 +78,4 @@ public final class JasminComponent extends AbstractComponent<JasminConfig.Runtim
     @Communication.Tcp
     private ProvidedPort<InetSocketAddress> administration;
 
-    public static JasminComponent define(@NonNull ComponentFactory components) {
-        return components.create(
-            JasminComponent.class,
-            JasminConfig.class,
-            JasminTestcontainersDriver::new
-        );
-    }
-
-    @Override
-    protected ComponentType componentType() {
-        return ComponentType.of("jasmin");
-    }
 }
