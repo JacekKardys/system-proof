@@ -102,7 +102,8 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
   not rendered and arbitrary payload `toString()` is not a diagnostic contract.
 - Journal sequence, elapsed time, line order, and checkpoint/barrier records remain local reported
   facts and do not establish external order or causality.
-- Runtime connections, `InteractionGateway`, protocol evidence, barriers, and fault injection
-  remain separate roadmap tasks.
+- Runtime connections now materialize logical connections and record their lifecycle in the same
+  journal. `InteractionGateway`, routed or observed endpoints, protocol evidence, barriers, and
+  fault injection remain separate roadmap tasks.
 - A future T1 test that lacks any required evidence above is incomplete even if it is repeatably
   green.

@@ -45,7 +45,16 @@ final class DriverServices {
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
     }
 
-    <T> T resolve(RequiredPort<T> required) {
+    <T> T resolve(Component owner, RequiredPort<T> required) {
+        requireContained(owner);
+        Objects.requireNonNull(required, "required must not be null");
+        if (required.owner() != owner) {
+            throw new IllegalArgumentException(
+                "Driver for component '" + owner.id()
+                    + "' cannot resolve required port '" + required.qualifiedName()
+                    + "' owned by component '" + required.owner().id() + "'"
+            );
+        }
         return bindings.resolve(required);
     }
 
@@ -132,7 +141,7 @@ final class DriverServices {
 
         @Override
         public <T> T resolve(RequiredPort<T> required) {
-            return DriverServices.this.resolve(required);
+            return DriverServices.this.resolve(owner, required);
         }
 
         @Override
@@ -178,6 +187,15 @@ final class DriverServices {
             EvidenceCodec<T> codec,
             T evidence
         ) {
+            Objects.requireNonNull(metadata, "metadata must not be null");
+            metadata.connectionId().ifPresent(connectionId -> {
+                if (!bindings.containsConnection(connectionId)) {
+                    throw new IllegalArgumentException(
+                        "Interaction metadata references connection '" + connectionId
+                            + "' outside the environment"
+                    );
+                }
+            });
             eventLog.interaction(owner, metadata, codec, evidence);
         }
 

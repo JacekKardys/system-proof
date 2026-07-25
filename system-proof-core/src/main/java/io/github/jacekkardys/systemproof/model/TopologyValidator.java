@@ -31,7 +31,7 @@ final class TopologyValidator {
         }
 
         IdentityHashMap<RequiredPort<?>, ConnectionRef> connected = new IdentityHashMap<>();
-        Map<String, ConnectionRef> connectionsById = new HashMap<>();
+        Map<ConnectionId, ConnectionRef> connectionsById = new HashMap<>();
         for (ConnectionRef connection : connections) {
             Objects.requireNonNull(connection, "connection must not be null");
             requireRegistered(connection.from(), registeredPorts);

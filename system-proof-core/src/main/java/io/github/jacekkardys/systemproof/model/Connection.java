@@ -10,13 +10,13 @@ import lombok.experimental.Accessors;
 public final class Connection<C> implements ConnectionRef {
     private final RequiredPort<C> from;
     private final ProvidedPort<C> to;
-    private final String id;
+    private final ConnectionId id;
 
     private Connection(RequiredPort<C> from, ProvidedPort<C> to) {
         this.from = Objects.requireNonNull(from, "from must not be null");
         this.to = Objects.requireNonNull(to, "to must not be null");
         validateCompatibility(from, to);
-        this.id = from.qualifiedName() + "->" + to.qualifiedName();
+        this.id = ConnectionId.between(from, to);
     }
 
     public static <C> Connection<C> connect(

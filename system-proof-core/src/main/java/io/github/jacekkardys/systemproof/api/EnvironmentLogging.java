@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.Connection;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.Environment;
 import io.github.jacekkardys.systemproof.model.LogLevel;
@@ -19,7 +20,7 @@ public final class EnvironmentLogging {
     private final LogLevel defaultComponentLevel;
     private final LogLevel defaultConnectionLevel;
     private final Map<Component, LogLevel> componentLevels;
-    private final Map<String, LogLevel> connectionLevels;
+    private final Map<ConnectionId, LogLevel> connectionLevels;
 
     private EnvironmentLogging(Builder builder) {
         frameworkLevel = builder.frameworkLevel;
@@ -48,7 +49,15 @@ public final class EnvironmentLogging {
     }
 
     public LogLevel connectionLevel(ConnectionRef connection) {
-        return connectionLevels.getOrDefault(connection.id(), defaultConnectionLevel);
+        Objects.requireNonNull(connection, "connection must not be null");
+        return connectionLevel(connection.id());
+    }
+
+    public LogLevel connectionLevel(ConnectionId connectionId) {
+        return connectionLevels.getOrDefault(
+            Objects.requireNonNull(connectionId, "connectionId must not be null"),
+            defaultConnectionLevel
+        );
     }
 
     public void validateAgainst(Environment environment) {
@@ -75,7 +84,7 @@ public final class EnvironmentLogging {
         private LogLevel defaultComponentLevel = LogLevel.INFO;
         private LogLevel defaultConnectionLevel = LogLevel.INFO;
         private final IdentityHashMap<Component, LogLevel> componentLevels = new IdentityHashMap<>();
-        private final Map<String, LogLevel> connectionLevels = new LinkedHashMap<>();
+        private final Map<ConnectionId, LogLevel> connectionLevels = new LinkedHashMap<>();
 
         private Builder() {}
 

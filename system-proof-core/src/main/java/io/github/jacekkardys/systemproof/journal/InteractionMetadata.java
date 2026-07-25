@@ -1,8 +1,8 @@
 package io.github.jacekkardys.systemproof.journal;
 
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 
 /**
  * Protocol-neutral stable metadata for one interaction observation.
@@ -10,14 +10,14 @@ import java.util.Optional;
  * <p>Direction is relative to the observing component.
  */
 public record InteractionMetadata(
-    Optional<String> connectionId,
+    Optional<ConnectionId> connectionId,
     Optional<Direction> direction
 ) {
     public InteractionMetadata {
         connectionId = Objects.requireNonNull(
             connectionId,
             "connectionId must not be null"
-        ).map(InteractionMetadata::requireConnectionId);
+        );
         direction = Objects.requireNonNull(direction, "direction must not be null");
     }
 
@@ -26,7 +26,7 @@ public record InteractionMetadata(
     }
 
     public static InteractionMetadata onConnection(
-        String connectionId,
+        ConnectionId connectionId,
         Direction direction
     ) {
         return new InteractionMetadata(
@@ -40,13 +40,4 @@ public record InteractionMetadata(
         OUTBOUND
     }
 
-    private static String requireConnectionId(String value) {
-        Objects.requireNonNull(value, "connectionId must not be null");
-        if (!value.matches(
-            "[a-zA-Z0-9][a-zA-Z0-9_.:/-]*(->[a-zA-Z0-9][a-zA-Z0-9_.:/-]*)?"
-        )) {
-            throw new IllegalArgumentException("Invalid connectionId: " + value);
-        }
-        return value.toLowerCase(Locale.ROOT);
-    }
 }

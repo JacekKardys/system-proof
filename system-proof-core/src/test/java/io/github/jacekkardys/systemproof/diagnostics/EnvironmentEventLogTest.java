@@ -14,6 +14,7 @@ import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvid
 import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
@@ -27,8 +28,12 @@ import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
+import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
+import io.github.jacekkardys.systemproof.model.RoutingMode;
 
 class EnvironmentEventLogTest {
     @Test
@@ -184,10 +189,28 @@ class EnvironmentEventLogTest {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         EnvironmentEventLog eventLog = view(journal);
         ComponentId component = ComponentId.component(ComponentType.of("service"));
+        ConnectionId connectionId = ConnectionId.of("client.api->server.api");
+        ConnectionDescriptor connection = new ConnectionDescriptor(
+            connectionId,
+            ComponentId.component(ComponentType.of("client")),
+            "api",
+            ComponentId.component(ComponentType.of("server")),
+            "api",
+            "api",
+            String.class.getName(),
+            "invocation",
+            "http",
+            "http"
+        );
         FailureDetails failure = FailureDetails.from(new IllegalStateException("broken"));
 
         journal.append(new EnvironmentLifecycleEvent(EnvironmentState.FAILED));
         journal.append(new ComponentLifecycleEvent(component, ComponentState.FAILED));
+        journal.append(new ConnectionLifecycleEvent(
+            connection,
+            ConnectionState.RUNNING,
+            RoutingMode.DIRECT
+        ));
         journal.append(new DiagnosticEvent(
             DiagnosticEvent.EnvironmentSubject.INSTANCE,
             LogLevel.WARN,
@@ -196,6 +219,8 @@ class EnvironmentEventLogTest {
         journal.append(new FailureEvent.EnvironmentStartup(failure));
         journal.append(new FailureEvent.ComponentStartup(component, failure));
         journal.append(new FailureEvent.ComponentCleanup(component, failure));
+        journal.append(new FailureEvent.ConnectionMaterialization(connectionId, failure));
+        journal.append(new FailureEvent.ConnectionCleanup(connectionId, failure));
         journal.append(new FailureEvent.DriverResourceCleanup("shared-resource", failure));
         EvidenceSnapshot evidence = EvidenceSnapshot.capture(
             MutableInteractionEvidence.codec(),
@@ -207,7 +232,7 @@ class EnvironmentEventLogTest {
         journal.append(new InteractionObservationEvent(
             component,
             new InteractionMetadata(
-                Optional.of("client.api->server.api"),
+                Optional.of(connectionId),
                 Optional.of(InteractionMetadata.Direction.OUTBOUND)
             ),
             evidence
@@ -228,10 +253,16 @@ class EnvironmentEventLogTest {
             .contains(
                 "Environment failed",
                 "Component failed",
+                "[CONNECTION] [client.api->server.api] Direct target available "
+                    + "source=client.api target=server.api contract=api "
+                    + "contractType=java.lang.String interaction=invocation "
+                    + "protocol=http scheme=http state=RUNNING mode=DIRECT",
                 "diagnostic",
                 "Environment startup failed: IllegalStateException - broken",
                 "Component startup failed: IllegalStateException - broken",
                 "Component cleanup failed: IllegalStateException - broken",
+                "Connection materialization failed: IllegalStateException - broken",
+                "Connection cleanup failed: IllegalStateException - broken",
                 "Driver resource 'shared-resource' cleanup failed: "
                     + "IllegalStateException - broken",
                 "[INTERACTION] [service] [connection=client.api->server.api] "
@@ -245,6 +276,7 @@ class EnvironmentEventLogTest {
             .doesNotContain(
                 "EnvironmentLifecycleEvent[",
                 "ComponentLifecycleEvent[",
+                "ConnectionLifecycleEvent[",
                 "DiagnosticEvent[",
                 "FailureDetails[",
                 "InteractionObservationEvent[",

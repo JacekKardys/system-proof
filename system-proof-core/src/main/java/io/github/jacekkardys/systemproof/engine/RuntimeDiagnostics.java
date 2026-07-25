@@ -11,7 +11,9 @@ import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentState;
+import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
+import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
 
 /** Captures lifecycle events and component-owned diagnostic sources without running cleanup. */
 final class RuntimeDiagnostics {
@@ -31,8 +33,10 @@ final class RuntimeDiagnostics {
     EnvironmentDiagnostics capture(
         EnvironmentState environmentState,
         List<AbstractComponent<?, ?>> components,
-        Function<Component, ComponentState> componentState
+        Function<Component, ComponentState> componentState,
+        List<RuntimeConnectionSnapshot> connections
     ) {
+        List<RuntimeConnectionSnapshot> connectionSnapshot = List.copyOf(connections);
         ScenarioJournalSnapshot snapshot = journal.snapshot();
         StringBuilder content = new StringBuilder();
         content.append("[STATE] environment=").append(environmentState);
@@ -41,6 +45,23 @@ final class RuntimeDiagnostics {
                 .append("[STATE] component=").append(component.id())
                 .append(" type=").append(component.type())
                 .append(" state=").append(componentState.apply(component));
+        }
+        for (RuntimeConnectionSnapshot connection : connectionSnapshot) {
+            ConnectionDescriptor descriptor = connection.descriptor();
+            content.append(System.lineSeparator())
+                .append("[STATE] connection=").append(connection.id())
+                .append(" source=").append(descriptor.sourcePortQualifiedName())
+                .append(" target=").append(descriptor.targetPortQualifiedName())
+                .append(" contract=").append(descriptor.contractId())
+                .append(" contractType=").append(descriptor.contractTypeName())
+                .append(" interaction=").append(descriptor.interactionId())
+                .append(" protocol=").append(descriptor.protocolId())
+                .append(" scheme=").append(descriptor.protocolScheme())
+                .append(" mode=").append(connection.routingMode())
+                .append(" state=").append(connection.state())
+                .append(" directTargetAvailable=").append(
+                    connection.directTargetAvailable()
+                );
         }
         String renderedJournal = eventLog.render(snapshot).content();
         if (!renderedJournal.isBlank()) {

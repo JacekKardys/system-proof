@@ -16,6 +16,7 @@ import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
@@ -47,6 +48,11 @@ class EnvironmentLifecycleTest {
             .components(client, server)
             .connect(client.api, server.api)
             .build();
+        RuntimeConnectionSnapshot declared = environment.runtimeConnections().getFirst();
+        assertThat(declared.id()).isEqualTo(environment.connections().getFirst().id());
+        assertThat(declared.state()).isEqualTo(ConnectionState.DECLARED);
+        assertThat(declared.routingMode()).isEqualTo(RoutingMode.DIRECT);
+        assertThat(declared.directTargetAvailable()).isFalse();
 
         assertThatThrownBy(() -> environment.operations(client))
             .isInstanceOf(ComponentLifecycleException.class)
@@ -55,10 +61,37 @@ class EnvironmentLifecycleTest {
         assertThat(environment.start()).isSameAs(environment);
         assertThat(environment.operations(client)).isEqualTo("http://server.test:8080/api");
         assertThat(environment.componentState(client)).isEqualTo(ComponentState.RUNNING);
+        assertThat(environment.runtimeConnection(declared.id()))
+            .satisfies(connection -> {
+                assertThat(connection.state()).isEqualTo(ConnectionState.RUNNING);
+                assertThat(connection.directTargetAvailable()).isTrue();
+            });
+        assertThat(environment.diagnostics().content())
+            .contains(
+                "[STATE] connection=" + declared.id(),
+                "source=client.api",
+                "target=server.api",
+                "contract=api",
+                "protocol=http",
+                "mode=DIRECT",
+                "state=RUNNING",
+                "directTargetAvailable=true"
+            )
+            .doesNotContain(
+                "http://server.test:8080/api",
+                "http://localhost:49152/api"
+            );
 
         environment.close();
 
         assertThat(cleanup).containsExactly("client", "server");
+        assertThat(declared.state()).isEqualTo(ConnectionState.DECLARED);
+        assertThat(declared.directTargetAvailable()).isFalse();
+        assertThat(environment.runtimeConnection(declared.id()))
+            .satisfies(connection -> {
+                assertThat(connection.state()).isEqualTo(ConnectionState.STOPPED);
+                assertThat(connection.directTargetAvailable()).isFalse();
+            });
         assertThatThrownBy(() -> environment.operations(client))
             .isInstanceOf(ComponentLifecycleException.class)
             .hasMessageContaining("client", "STOPPED", "RUNNING");
@@ -82,20 +115,15 @@ class EnvironmentLifecycleTest {
                 "server:STOPPING",
                 "server:STOPPED"
             );
-        assertThat(events(environment, DiagnosticEvent.class))
-            .filteredOn(event ->
-                event.subject() instanceof DiagnosticEvent.ConnectionSubject
-            )
-            .singleElement()
-            .satisfies(event -> {
-                assertThat(event.subject()).isEqualTo(
-                    new DiagnosticEvent.ConnectionSubject(
-                        environment.connections().getFirst().id()
-                    )
-                );
-                assertThat(event.level()).isEqualTo(LogLevel.INFO);
-                assertThat(event.message()).contains("client.api -> server.api");
-            });
+        assertThat(events(environment, ConnectionLifecycleEvent.class))
+            .extracting(ConnectionLifecycleEvent::state)
+            .containsExactly(
+                ConnectionState.DECLARED,
+                ConnectionState.STARTING,
+                ConnectionState.RUNNING,
+                ConnectionState.STOPPING,
+                ConnectionState.STOPPED
+            );
     }
 
     @Test
@@ -189,6 +217,19 @@ class EnvironmentLifecycleTest {
             .satisfies(event -> {
                 assertThat(event.resourceName()).isEqualTo("shared-network");
                 assertThat(event.failure().message()).contains("shared cleanup failed");
+            });
+        assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
+            .singleElement()
+            .satisfies(event -> {
+                assertThat(event.connectionId())
+                    .isEqualTo(environment.connections().getFirst().id());
+                assertThat(event.failure().message()).contains("server cleanup failed");
+            });
+        assertThat(environment.runtimeConnections())
+            .singleElement()
+            .satisfies(connection -> {
+                assertThat(connection.state()).isEqualTo(ConnectionState.FAILED);
+                assertThat(connection.directTargetAvailable()).isFalse();
             });
     }
 
@@ -330,6 +371,123 @@ class EnvironmentLifecycleTest {
         environment.close();
     }
 
+    @Test
+    void shouldStructureAConnectionFailureWhenAProviderOmitsItsPort() {
+        Server server = new Server(
+            (component, context) -> io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                .<Void>runtime()
+                .build()
+        );
+        Client client = new Client(
+            (component, context) -> io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                .<String>runtime()
+                .operations("unused")
+                .build()
+        );
+        Environment environment = Environment.environment()
+            .components(client, server)
+            .connect(client.api, server.api)
+            .build();
+
+        assertThatThrownBy(environment::start)
+            .isInstanceOf(EnvironmentStartException.class)
+            .hasRootCauseMessage(
+                "Driver for component 'server' did not materialize port 'server.api'"
+            );
+
+        assertThat(environment.runtimeConnections())
+            .singleElement()
+            .satisfies(connection -> {
+                assertThat(connection.state()).isEqualTo(ConnectionState.FAILED);
+                assertThat(connection.directTargetAvailable()).isFalse();
+            });
+        assertThat(events(environment, FailureEvent.ConnectionMaterialization.class))
+            .singleElement()
+            .satisfies(event -> {
+                assertThat(event.connectionId())
+                    .isEqualTo(environment.connections().getFirst().id());
+                assertThat(event.failure().message())
+                    .contains(
+                        "Driver for component 'server' did not materialize port 'server.api'"
+                    );
+            });
+    }
+
+    @Test
+    void shouldRejectResolvingARequiredPortOwnedByAnotherComponent() {
+        AtomicReference<Client> other = new AtomicReference<>();
+        Client intruder = new Client("intruder", (component, context) ->
+            io.github.jacekkardys.systemproof.driver.ComponentRuntime.<String>runtime()
+                .operations(context.resolve(other.get().api).value())
+                .build()
+        );
+        Client victim = new Client(
+            "victim",
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime.<String>runtime()
+                    .operations("unused")
+                    .build()
+        );
+        other.set(victim);
+        Server server = new Server((component, context) ->
+            io.github.jacekkardys.systemproof.driver.ComponentRuntime.<Void>runtime()
+                .provides(
+                    ((Server) component).api,
+                    binding(
+                        new ApiEndpoint("http://server.internal"),
+                        new ApiEndpoint("http://server.external")
+                    )
+                )
+                .build()
+        );
+        Environment environment = Environment.environment()
+            .components(intruder, victim, server)
+            .connect(intruder.api, server.api)
+            .connect(victim.api, server.api)
+            .build();
+
+        assertThatThrownBy(environment::start)
+            .isInstanceOf(EnvironmentStartException.class)
+            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+            .hasRootCauseMessage(
+                "Driver for component 'client-intruder' cannot resolve required port "
+                    + "'client-victim.api' owned by component 'client-victim'"
+            );
+    }
+
+    @Test
+    void shouldStopDeclaredConnectionsWhenClosedBeforeStartup() {
+        Client client = new Client(
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime.<String>runtime()
+                    .build()
+        );
+        Server server = new Server((component, context) ->
+            io.github.jacekkardys.systemproof.driver.ComponentRuntime.<Void>runtime()
+                .provides(
+                    ((Server) component).api,
+                    binding(
+                        new ApiEndpoint("http://server.internal"),
+                        new ApiEndpoint("http://server.external")
+                    )
+                )
+                .build()
+        );
+        Environment environment = Environment.environment()
+            .components(client, server)
+            .connect(client.api, server.api)
+            .build();
+
+        environment.close();
+
+        assertThat(environment.runtimeConnections())
+            .singleElement()
+            .satisfies(connection -> {
+                assertThat(connection.state()).isEqualTo(ConnectionState.STOPPED);
+                assertThat(connection.directTargetAvailable()).isFalse();
+            });
+    }
+
     private enum Invocation implements InteractionSpec {
         INSTANCE;
         public String id() { return "invocation"; }
@@ -366,7 +524,19 @@ class EnvironmentLifecycleTest {
         private final RequiredPort<ApiEndpoint> api;
 
         private Client(ComponentDriver<EmptyConfig, String> driver) {
-            super(ComponentId.component(CLIENT), new EmptyConfig(), String.class, driver);
+            this(null, driver);
+        }
+
+        private Client(
+            String qualifier,
+            ComponentDriver<EmptyConfig, String> driver
+        ) {
+            super(
+                ComponentId.component(CLIENT, qualifier),
+                new EmptyConfig(),
+                String.class,
+                driver
+            );
             api = requiresAtStartup("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 

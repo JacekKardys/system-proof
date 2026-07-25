@@ -50,6 +50,10 @@ public class Environment implements AutoCloseable {
         return topology.connectionFrom(port);
     }
 
+    public final ConnectionRef connection(ConnectionId id) {
+        return topology.connection(id);
+    }
+
     public final Environment start() {
         runtime.start();
         return this;
@@ -66,6 +70,16 @@ public class Environment implements AutoCloseable {
     /** Captures a detached immutable snapshot of the scenario's structured journal. */
     public final ScenarioJournalSnapshot journalSnapshot() {
         return runtime.journalSnapshot();
+    }
+
+    /** Captures detached immutable runtime-connection state in topology declaration order. */
+    public final List<RuntimeConnectionSnapshot> runtimeConnections() {
+        return runtime.connectionSnapshots();
+    }
+
+    /** Captures one detached immutable runtime-connection state by semantic identity. */
+    public final RuntimeConnectionSnapshot runtimeConnection(ConnectionId id) {
+        return runtime.connectionSnapshot(id);
     }
 
     protected final <C extends RuntimeConfig, O> O operations(

@@ -2,6 +2,8 @@ package io.github.jacekkardys.systemproof.driver;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static io.github.jacekkardys.systemproof.model.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
 
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -25,12 +27,20 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
+import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.LogLevel;
+import io.github.jacekkardys.systemproof.model.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.RequiredPort;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 class JournalContributionBoundaryTest {
     private static final ComponentType TYPE = ComponentType.of("observer");
+    private static final ComponentType PROVIDER = ComponentType.of("provider");
+    private static final Contract<String> API = contract("api", String.class);
 
     @Test
     void shouldCaptureExternalTypedEvidenceThroughAComponentScopedDriverCapability() {
@@ -39,11 +49,15 @@ class JournalContributionBoundaryTest {
             new ArrayList<>(List.of("original-attribute"))
         );
         AtomicReference<String> renderedByDriver = new AtomicReference<>();
-        TestComponent component = new TestComponent((current, context) -> {
+        ProviderComponent provider = new ProviderComponent();
+        ConnectedObserver component = new ConnectedObserver((current, context) -> {
             JournalContributions contributions = context.journalContributions();
             contributions.observeInteraction(
                 new InteractionMetadata(
-                    Optional.of("client.api->server.api"),
+                    Optional.of(ConnectionId.between(
+                        ((ConnectedObserver) current).api,
+                        provider.api
+                    )),
                     Optional.of(InteractionMetadata.Direction.OUTBOUND)
                 ),
                 MutableInteractionEvidence.codec(),
@@ -62,7 +76,8 @@ class JournalContributionBoundaryTest {
             return ComponentRuntime.<Void>runtime().build();
         });
         Environment environment = Environment.environment()
-            .components(component)
+            .components(component, provider)
+            .connect(component.api, provider.api)
             .build()
             .start();
 
@@ -81,7 +96,7 @@ class JournalContributionBoundaryTest {
 
         assertThat(interaction.observingComponentId()).isEqualTo(component.id());
         assertThat(interaction.metadata().connectionId())
-            .contains("client.api->server.api");
+            .contains(environment.connections().getFirst().id());
         assertThat(decoded.payload())
             .containsExactly("sensitive-binary".getBytes(StandardCharsets.UTF_8));
         assertThat(decoded.attributes()).containsExactly("original-attribute");
@@ -110,9 +125,9 @@ class JournalContributionBoundaryTest {
             });
         assertThat(renderedByDriver.get())
             .containsSubsequence(
-                "[INTERACTION] [observer]",
-                "[CHECKPOINT] [observer] [request-recorded]",
-                "[DISRUPTION] [observer] [latency-window]"
+                "[INTERACTION] [observer-connected]",
+                "[CHECKPOINT] [observer-connected] [request-recorded]",
+                "[DISRUPTION] [observer-connected] [latency-window]"
             )
             .contains("schema=test.external:interaction", "encodedBytes=")
             .doesNotContain("sensitive-binary", "original-attribute");
@@ -173,6 +188,32 @@ class JournalContributionBoundaryTest {
         assertThat(environment.diagnostics().content()).doesNotContain("forged diagnostic");
     }
 
+    @Test
+    void shouldRejectInteractionMetadataForAConnectionOutsideTheEnvironment() {
+        TestComponent component = new TestComponent((current, context) -> {
+            context.journalContributions().observeInteraction(
+                InteractionMetadata.onConnection(
+                    ConnectionId.of("missing.required->missing.provided"),
+                    InteractionMetadata.Direction.OUTBOUND
+                ),
+                MutableInteractionEvidence.codec(),
+                new MutableInteractionEvidence(new byte[] {1}, new ArrayList<>())
+            );
+            return ComponentRuntime.<Void>runtime().build();
+        });
+        Environment environment = Environment.environment()
+            .components(component)
+            .build();
+
+        assertThatThrownBy(environment::start)
+            .isInstanceOf(EnvironmentStartException.class)
+            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+            .hasRootCauseMessage(
+                "Interaction metadata references connection "
+                    + "'missing.required->missing.provided' outside the environment"
+            );
+    }
+
     private static <T extends ScenarioEvent> List<T> events(
         io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot snapshot,
         Class<T> eventType
@@ -185,6 +226,79 @@ class JournalContributionBoundaryTest {
     }
 
     private record EmptyConfig() implements RuntimeConfig {}
+
+    private enum Invocation implements InteractionSpec {
+        INSTANCE;
+
+        @Override
+        public String id() {
+            return "invocation";
+        }
+    }
+
+    private enum Http implements ProtocolSpec {
+        INSTANCE;
+
+        @Override
+        public String id() {
+            return "http";
+        }
+
+        @Override
+        public String scheme() {
+            return "http";
+        }
+    }
+
+    private static final class ConnectedObserver
+        extends AbstractComponent<EmptyConfig, Void> {
+        private final RequiredPort<String> api;
+
+        private ConnectedObserver(ComponentDriver<EmptyConfig, Void> driver) {
+            super(
+                ComponentId.component(TYPE, "connected"),
+                new EmptyConfig(),
+                Void.class,
+                driver
+            );
+            api = requiresAtStartup(
+                "api",
+                API,
+                Invocation.INSTANCE,
+                Http.INSTANCE
+            );
+        }
+
+        @Override
+        protected ComponentType componentType() {
+            return TYPE;
+        }
+    }
+
+    private static final class ProviderComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        private final ProvidedPort<String> api;
+
+        private ProviderComponent() {
+            super(
+                ComponentId.component(PROVIDER),
+                new EmptyConfig(),
+                Void.class,
+                (component, context) -> ComponentRuntime.<Void>runtime()
+                    .provides(
+                        ((ProviderComponent) component).api,
+                        binding("provider.internal", "provider.external")
+                    )
+                    .build()
+            );
+            api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
+        }
+
+        @Override
+        protected ComponentType componentType() {
+            return PROVIDER;
+        }
+    }
 
     private static final class TestComponent extends AbstractComponent<EmptyConfig, Void> {
         private TestComponent(ComponentDriver<EmptyConfig, Void> driver) {
