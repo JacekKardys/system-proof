@@ -10,7 +10,8 @@ Public composition API:
 - `ContainerPlan`: prepared container plus provided-port bindings.
 - `PortBinding.port(port)`: known internal container port selection.
 - `StartedContainer`: restricted mapped-address view for operations and bootstrap hooks.
-- `DriverContext`: typed dependency resolution and component event logging.
+- component-scoped `DriverContext`: typed dependency resolution, journal-backed diagnostics, and
+  the restricted typed `JournalContributions` capability without exposing `ScenarioJournal`.
 
 The base driver obtains one environment-scoped network, applies aliases and wait strategies,
 forwards container logs, starts the container, materializes runtime bindings, creates optional

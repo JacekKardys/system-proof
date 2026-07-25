@@ -6,6 +6,8 @@ import java.util.function.Function;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentState;
@@ -13,15 +15,13 @@ import io.github.jacekkardys.systemproof.model.EnvironmentState;
 
 /** Captures lifecycle events and component-owned diagnostic sources without running cleanup. */
 final class RuntimeDiagnostics {
+    private final ScenarioJournal journal;
     private final EnvironmentEventLog eventLog;
     private final List<OwnedDiagnosticSource> sources = new ArrayList<>();
 
-    RuntimeDiagnostics(EnvironmentEventLog eventLog) {
+    RuntimeDiagnostics(ScenarioJournal journal, EnvironmentEventLog eventLog) {
+        this.journal = journal;
         this.eventLog = eventLog;
-    }
-
-    EnvironmentEventLog eventLog() {
-        return eventLog;
     }
 
     void add(Component component, List<DiagnosticSource> diagnostics) {
@@ -33,6 +33,7 @@ final class RuntimeDiagnostics {
         List<AbstractComponent<?, ?>> components,
         Function<Component, ComponentState> componentState
     ) {
+        ScenarioJournalSnapshot snapshot = journal.snapshot();
         StringBuilder content = new StringBuilder();
         content.append("[STATE] environment=").append(environmentState);
         for (AbstractComponent<?, ?> component : components) {
@@ -41,8 +42,9 @@ final class RuntimeDiagnostics {
                 .append(" type=").append(component.type())
                 .append(" state=").append(componentState.apply(component));
         }
-        if (!eventLog.snapshot().content().isBlank()) {
-            content.append(System.lineSeparator()).append(eventLog.snapshot().content());
+        String renderedJournal = eventLog.render(snapshot).content();
+        if (!renderedJournal.isBlank()) {
+            content.append(System.lineSeparator()).append(renderedJournal);
         }
         for (OwnedDiagnosticSource owned : sources) {
             String captured;

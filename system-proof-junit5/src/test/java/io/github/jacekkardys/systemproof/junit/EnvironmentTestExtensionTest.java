@@ -52,7 +52,45 @@ class EnvironmentTestExtensionTest {
             assertThat(Recording.closes).hasValue(1);
             assertThat(Files.readString(
                 artifacts.resolve("FailingScenario-fails").resolve("environment.log")
-            )).contains("runtime-before-close").doesNotContain("runtime-after-close");
+            ))
+                .contains(
+                    "runtime-before-close",
+                    "[FRAMEWORK] [environment] Starting environment",
+                    "[COMPONENT] [recording] Component ready"
+                )
+                .doesNotContain("runtime-after-close");
+        } finally {
+            if (previous == null) {
+                System.clearProperty(property);
+            } else {
+                System.setProperty(property, previous);
+            }
+        }
+    }
+
+    @Test
+    void shouldCaptureStructuredCleanupFailureDiagnosticsAfterClose(@TempDir Path artifacts)
+        throws IOException {
+        String property = EnvironmentDiagnosticsWriter.ARTIFACTS_DIRECTORY_PROPERTY;
+        String previous = System.getProperty(property);
+        System.setProperty(property, artifacts.toString());
+
+        try {
+            var execution = EngineTestKit.engine("junit-jupiter")
+                .selectors(selectClass(CleanupFailingScenario.class))
+                .execute();
+
+            execution.testEvents().assertStatistics(statistics -> statistics.started(1).failed(1));
+            assertThat(Files.readString(
+                artifacts.resolve("CleanupFailingScenario-passes")
+                    .resolve("environment.log")
+            )).contains(
+                "[STATE] component=cleanup type=cleanup state=FAILED",
+                "[COMPONENT] [cleanup] Component cleanup failed",
+                "cleanup exploded",
+                "[FRAMEWORK] [environment] Environment failed",
+                "[FRAMEWORK] [environment] Environment stopped"
+            );
         } finally {
             if (previous == null) {
                 System.clearProperty(property);
@@ -85,6 +123,14 @@ class EnvironmentTestExtensionTest {
         }
     }
 
+    @EnvironmentTest(environment = CleanupFailingEnvironment.class)
+    static class CleanupFailingScenario {
+        @Test
+        void passes(CleanupFailingEnvironment environment) {
+            assertThat(environment.isRunning()).isTrue();
+        }
+    }
+
     private static final class RecordingEnvironment extends Environment {
         private RecordingEnvironment() {
             super(Environment.environment().components(new RecordingComponent()));
@@ -93,6 +139,17 @@ class EnvironmentTestExtensionTest {
         @EnvironmentDefinition
         private static RecordingEnvironment define() {
             return Recording.create();
+        }
+    }
+
+    private static final class CleanupFailingEnvironment extends Environment {
+        private CleanupFailingEnvironment() {
+            super(Environment.environment().components(new CleanupFailingComponent()));
+        }
+
+        @EnvironmentDefinition
+        private static CleanupFailingEnvironment define() {
+            return new CleanupFailingEnvironment();
         }
     }
 
@@ -117,6 +174,27 @@ class EnvironmentTestExtensionTest {
                         ))
                         .build();
                 }
+            );
+        }
+
+        @Override
+        protected ComponentType componentType() {
+            return TYPE;
+        }
+    }
+
+    private static final class CleanupFailingComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        private static final ComponentType TYPE = ComponentType.of("cleanup");
+
+        private CleanupFailingComponent() {
+            super(
+                ComponentId.component(TYPE),
+                new EmptyConfig(),
+                Void.class,
+                (component, context) -> ComponentRuntime.<Void>runtime(() -> {
+                    throw new IllegalStateException("cleanup exploded");
+                }).build()
             );
         }
 

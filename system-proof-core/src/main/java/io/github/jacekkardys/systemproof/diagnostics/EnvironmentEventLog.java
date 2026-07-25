@@ -1,100 +1,404 @@
 package io.github.jacekkardys.systemproof.diagnostics;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
+import io.github.jacekkardys.systemproof.journal.CheckpointId;
+import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
+import io.github.jacekkardys.systemproof.journal.DisruptionId;
+import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.journal.FailureDetails;
+import io.github.jacekkardys.systemproof.journal.FailureEvent;
+import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
+import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
+import io.github.jacekkardys.systemproof.journal.JournalEntry;
+import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.Component;
+import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 
-/** One monotonic T+ timeline shared by framework, driver, connection, and component events. */
+/**
+ * Appending and textual rendering view over one supplied {@link ScenarioJournal}.
+ *
+ * <p>This view owns no independent history. Logging thresholds affect only SLF4J emission; every
+ * event is appended before the threshold is evaluated.
+ */
 public final class EnvironmentEventLog {
     private static final Logger LOGGER = LoggerFactory.getLogger(EnvironmentEventLog.class);
 
+    private final ScenarioJournal journal;
     private final EnvironmentLogging configuration;
-    private final LongSupplier nanoTime;
-    private final long startedAt;
-    private final List<Event> events = new ArrayList<>();
 
-    public EnvironmentEventLog(EnvironmentLogging configuration) {
-        this(configuration, System::nanoTime);
+    public EnvironmentEventLog(ScenarioJournal journal, EnvironmentLogging configuration) {
+        this.journal = Objects.requireNonNull(journal, "journal must not be null");
+        this.configuration = Objects.requireNonNull(
+            configuration,
+            "configuration must not be null"
+        );
     }
 
-    EnvironmentEventLog(EnvironmentLogging configuration, LongSupplier nanoTime) {
-        this.configuration = Objects.requireNonNull(configuration, "configuration must not be null");
-        this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime must not be null");
-        startedAt = nanoTime.getAsLong();
+    public void environmentLifecycle(EnvironmentState state) {
+        LogLevel level = state == EnvironmentState.FAILED ? LogLevel.ERROR : LogLevel.INFO;
+        append(
+            new EnvironmentLifecycleEvent(state),
+            configuration.frameworkLevel(),
+            level
+        );
+    }
+
+    public void componentLifecycle(Component component, ComponentState state) {
+        Objects.requireNonNull(component, "component must not be null");
+        LogLevel level = state == ComponentState.FAILED ? LogLevel.ERROR : LogLevel.INFO;
+        append(
+            new ComponentLifecycleEvent(component.id(), state),
+            configuration.componentLevel(component),
+            level
+        );
+    }
+
+    public void environmentStartupFailure(Throwable failure) {
+        append(
+            new FailureEvent.EnvironmentStartup(FailureDetails.from(failure)),
+            configuration.frameworkLevel(),
+            LogLevel.ERROR
+        );
+    }
+
+    public void componentStartupFailure(Component component, Throwable failure) {
+        Objects.requireNonNull(component, "component must not be null");
+        append(
+            new FailureEvent.ComponentStartup(component.id(), FailureDetails.from(failure)),
+            configuration.componentLevel(component),
+            LogLevel.ERROR
+        );
+    }
+
+    public void componentCleanupFailure(Component component, Throwable failure) {
+        Objects.requireNonNull(component, "component must not be null");
+        append(
+            new FailureEvent.ComponentCleanup(component.id(), FailureDetails.from(failure)),
+            configuration.componentLevel(component),
+            LogLevel.ERROR
+        );
+    }
+
+    public void driverResourceCleanupFailure(String resourceName, Throwable failure) {
+        append(
+            new FailureEvent.DriverResourceCleanup(
+                resourceName,
+                FailureDetails.from(failure)
+            ),
+            configuration.frameworkLevel(),
+            LogLevel.ERROR
+        );
     }
 
     public void framework(LogLevel level, String message) {
-        append(configuration.frameworkLevel(), level, "[FRAMEWORK] [environment]", null, message);
+        append(
+            new DiagnosticEvent(
+                DiagnosticEvent.EnvironmentSubject.INSTANCE,
+                level,
+                message
+            ),
+            configuration.frameworkLevel(),
+            level
+        );
     }
 
     public void connection(ConnectionRef connection, LogLevel level, String message) {
+        Objects.requireNonNull(connection, "connection must not be null");
         append(
+            new DiagnosticEvent(
+                new DiagnosticEvent.ConnectionSubject(connection.id()),
+                level,
+                message
+            ),
             configuration.connectionLevel(connection),
-            level,
-            "[CONNECTION] [" + connection.id() + "]",
-            null,
-            message
+            level
         );
     }
 
     public void component(Component component, LogLevel level, String message) {
+        Objects.requireNonNull(component, "component must not be null");
         append(
+            new DiagnosticEvent(
+                new DiagnosticEvent.ComponentSubject(component.id()),
+                level,
+                message
+            ),
             configuration.componentLevel(component),
-            level,
-            "[COMPONENT] [" + component.id() + "]",
-            component,
-            message
+            level
         );
     }
 
-    public synchronized EnvironmentDiagnostics snapshot() {
-        return EnvironmentDiagnostics.diagnostics(render(events));
-    }
-
-    public synchronized String componentSnapshot(Component component) {
-        return render(events.stream().filter(event -> event.component() == component).toList());
-    }
-
-    private synchronized void append(
-        LogLevel threshold,
-        LogLevel level,
-        String labels,
+    /**
+     * Captures externally typed evidence before appending its core-owned interaction envelope.
+     */
+    public <T> void interaction(
         Component component,
-        String message
+        InteractionMetadata metadata,
+        EvidenceCodec<T> codec,
+        T evidence
     ) {
-        Objects.requireNonNull(level, "level must not be null");
-        Objects.requireNonNull(message, "message must not be null");
-        message.lines().forEach(line -> {
-            String rendered = timestamp() + " " + labels + " " + line;
-            events.add(new Event(rendered, component));
-            if (threshold.includes(level)) {
-                emit(level, rendered);
-            }
-        });
+        Objects.requireNonNull(component, "component must not be null");
+        EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, evidence);
+        append(
+            new InteractionObservationEvent(component.id(), metadata, snapshot),
+            configuration.componentLevel(component),
+            LogLevel.INFO
+        );
     }
 
-    private String timestamp() {
-        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(nanoTime.getAsLong() - startedAt);
+    public void checkpoint(
+        Component component,
+        CheckpointId checkpointId,
+        CheckpointEvent.Kind kind,
+        CheckpointEvent.Stage stage
+    ) {
+        Objects.requireNonNull(component, "component must not be null");
+        append(
+            new CheckpointEvent(component.id(), checkpointId, kind, stage),
+            configuration.componentLevel(component),
+            LogLevel.INFO
+        );
+    }
+
+    public void disruption(
+        Component component,
+        DisruptionId disruptionId,
+        DisruptionLifecycleEvent.Stage stage
+    ) {
+        Objects.requireNonNull(component, "component must not be null");
+        LogLevel level = stage == DisruptionLifecycleEvent.Stage.FAILED
+            ? LogLevel.WARN
+            : LogLevel.INFO;
+        append(
+            new DisruptionLifecycleEvent(component.id(), disruptionId, stage),
+            configuration.componentLevel(component),
+            level
+        );
+    }
+
+    public EnvironmentDiagnostics snapshot() {
+        return render(journal.snapshot());
+    }
+
+    /**
+     * Renders exactly one supplied immutable snapshot.
+     *
+     * <p>Line order is journal storage order only and carries no causal meaning.
+     */
+    public EnvironmentDiagnostics render(ScenarioJournalSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        return EnvironmentDiagnostics.diagnostics(renderEntries(snapshot.entries()));
+    }
+
+    public String componentSnapshot(ComponentId componentId) {
+        return componentSnapshot(journal.snapshot(), componentId);
+    }
+
+    /**
+     * Renders entries associated with one stable component identity from one supplied snapshot.
+     */
+    public String componentSnapshot(
+        ScenarioJournalSnapshot snapshot,
+        ComponentId componentId
+    ) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
+        Objects.requireNonNull(componentId, "componentId must not be null");
+        return renderEntries(snapshot.entries().stream()
+            .filter(entry -> concerns(entry.event(), componentId))
+            .toList());
+    }
+
+    private void append(ScenarioEvent event, LogLevel threshold, LogLevel emissionLevel) {
+        Objects.requireNonNull(threshold, "threshold must not be null");
+        Objects.requireNonNull(emissionLevel, "emissionLevel must not be null");
+        JournalEntry entry = journal.append(event);
+        if (threshold.includes(emissionLevel)) {
+            renderedLines(entry).forEach(line -> emit(emissionLevel, line));
+        }
+    }
+
+    private static String renderEntries(List<JournalEntry> entries) {
+        return entries.stream()
+            .flatMap(entry -> renderedLines(entry).stream())
+            .reduce((left, right) -> left + System.lineSeparator() + right)
+            .orElse("");
+    }
+
+    private static List<String> renderedLines(JournalEntry entry) {
+        RenderedEvent rendered = describe(entry.event());
+        String prefix = timestamp(entry.diagnosticElapsedTime().orElse(null))
+            + " " + rendered.labels() + " ";
+        return rendered.message().lines().map(line -> prefix + line).toList();
+    }
+
+    private static RenderedEvent describe(ScenarioEvent event) {
+        return switch (event) {
+            case EnvironmentLifecycleEvent lifecycle -> new RenderedEvent(
+                "[FRAMEWORK] [environment]",
+                environmentLifecycleMessage(lifecycle.state())
+            );
+            case ComponentLifecycleEvent lifecycle -> new RenderedEvent(
+                componentLabels(lifecycle.componentId()),
+                componentLifecycleMessage(lifecycle.state())
+            );
+            case DiagnosticEvent diagnostic -> new RenderedEvent(
+                diagnosticLabels(diagnostic.subject()),
+                diagnostic.message()
+            );
+            case FailureEvent.EnvironmentStartup failure -> new RenderedEvent(
+                "[FRAMEWORK] [environment]",
+                "Environment startup failed: " + failureMessage(failure.failure())
+            );
+            case FailureEvent.ComponentStartup failure -> new RenderedEvent(
+                componentLabels(failure.componentId()),
+                "Component startup failed: " + failureMessage(failure.failure())
+            );
+            case FailureEvent.ComponentCleanup failure -> new RenderedEvent(
+                componentLabels(failure.componentId()),
+                "Component cleanup failed: " + failureMessage(failure.failure())
+            );
+            case FailureEvent.DriverResourceCleanup failure -> new RenderedEvent(
+                "[FRAMEWORK] [environment]",
+                "Driver resource '" + failure.resourceName() + "' cleanup failed: "
+                    + failureMessage(failure.failure())
+            );
+            case InteractionObservationEvent observation -> new RenderedEvent(
+                interactionLabels(observation),
+                interactionMessage(observation)
+            );
+            case CheckpointEvent checkpoint -> new RenderedEvent(
+                "[CHECKPOINT] [" + checkpoint.observingComponentId() + "] ["
+                    + checkpoint.checkpointId().value() + "]",
+                "Recorded " + checkpoint.kind().name().toLowerCase(Locale.ROOT)
+                    + " stage=" + checkpoint.stage()
+            );
+            case DisruptionLifecycleEvent disruption -> new RenderedEvent(
+                "[DISRUPTION] [" + disruption.observingComponentId() + "] ["
+                    + disruption.disruptionId().value() + "]",
+                "Recorded disruption stage=" + disruption.stage()
+            );
+        };
+    }
+
+    private static boolean concerns(ScenarioEvent event, ComponentId componentId) {
+        return switch (event) {
+            case ComponentLifecycleEvent lifecycle ->
+                lifecycle.componentId().equals(componentId);
+            case DiagnosticEvent diagnostic ->
+                diagnostic.subject() instanceof DiagnosticEvent.ComponentSubject subject
+                    && subject.componentId().equals(componentId);
+            case FailureEvent.ComponentStartup failure ->
+                failure.componentId().equals(componentId);
+            case FailureEvent.ComponentCleanup failure ->
+                failure.componentId().equals(componentId);
+            case InteractionObservationEvent observation ->
+                observation.observingComponentId().equals(componentId);
+            case CheckpointEvent checkpoint ->
+                checkpoint.observingComponentId().equals(componentId);
+            case DisruptionLifecycleEvent disruption ->
+                disruption.observingComponentId().equals(componentId);
+            case EnvironmentLifecycleEvent lifecycle -> false;
+            case FailureEvent.EnvironmentStartup failure -> false;
+            case FailureEvent.DriverResourceCleanup failure -> false;
+        };
+    }
+
+    private static String diagnosticLabels(DiagnosticEvent.Subject subject) {
+        return switch (subject) {
+            case DiagnosticEvent.EnvironmentSubject environment ->
+                "[FRAMEWORK] [environment]";
+            case DiagnosticEvent.ComponentSubject component ->
+                componentLabels(component.componentId());
+            case DiagnosticEvent.ConnectionSubject connection ->
+                "[CONNECTION] [" + connection.connectionId() + "]";
+        };
+    }
+
+    private static String componentLabels(ComponentId componentId) {
+        return "[COMPONENT] [" + componentId + "]";
+    }
+
+    private static String interactionLabels(InteractionObservationEvent observation) {
+        return "[INTERACTION] [" + observation.observingComponentId() + "]"
+            + observation.metadata().connectionId()
+                .map(connectionId -> " [connection=" + connectionId + "]")
+                .orElse("");
+    }
+
+    private static String interactionMessage(InteractionObservationEvent observation) {
+        EvidenceSchemaId schemaId = observation.evidence().schemaId();
+        return "Observed typed evidence"
+            + observation.metadata().direction()
+                .map(direction -> " direction=" + direction)
+                .orElse("")
+            + " schema=" + schemaId.namespace() + ":" + schemaId.name()
+            + " version=" + schemaId.version()
+            + " encodedBytes=" + observation.evidence().encodedSize();
+    }
+
+    private static String environmentLifecycleMessage(EnvironmentState state) {
+        return switch (state) {
+            case DECLARED -> "Environment declared";
+            case STARTING -> "Starting environment";
+            case RUNNING -> "Environment started";
+            case STOPPING -> "Stopping environment";
+            case STOPPED -> "Environment stopped";
+            case FAILED -> "Environment failed";
+        };
+    }
+
+    private static String componentLifecycleMessage(ComponentState state) {
+        return switch (state) {
+            case DECLARED -> "Component declared";
+            case STARTING -> "Starting component";
+            case RUNNING -> "Component ready";
+            case STOPPING -> "Stopping component";
+            case STOPPED -> "Component stopped";
+            case FAILED -> "Component failed";
+        };
+    }
+
+    private static String failureMessage(FailureDetails failure) {
+        return failure.failureType()
+            + failure.message().map(message -> " - " + message).orElse("");
+    }
+
+    private static String timestamp(Duration elapsed) {
+        if (elapsed == null) {
+            return "T+--:--:--.---";
+        }
+        long elapsedMillis = elapsed.toMillis();
         long hours = elapsedMillis / TimeUnit.HOURS.toMillis(1);
         long minutes = elapsedMillis / TimeUnit.MINUTES.toMillis(1) % 60;
         long seconds = elapsedMillis / TimeUnit.SECONDS.toMillis(1) % 60;
         long millis = elapsedMillis % 1_000;
-        return String.format(Locale.ROOT, "T+%02d:%02d:%02d.%03d", hours, minutes, seconds, millis);
-    }
-
-    private static String render(List<Event> selected) {
-        return selected.stream().map(Event::rendered)
-            .reduce((left, right) -> left + System.lineSeparator() + right)
-            .orElse("");
+        return String.format(
+            Locale.ROOT,
+            "T+%02d:%02d:%02d.%03d",
+            hours,
+            minutes,
+            seconds,
+            millis
+        );
     }
 
     private static void emit(LogLevel level, String message) {
@@ -105,10 +409,11 @@ public final class EnvironmentEventLog {
             case DEBUG -> LOGGER.debug(message);
             case TRACE -> LOGGER.trace(message);
             case OFF -> {
-                // OFF events are filtered before emission.
+                // OFF events remain in the journal but are never emitted.
             }
         }
     }
 
-    private record Event(String rendered, Component component) {}
+    private record RenderedEvent(String labels, String message) {
+    }
 }

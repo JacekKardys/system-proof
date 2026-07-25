@@ -4,7 +4,7 @@ import java.util.Objects;
 import lombok.Value;
 import lombok.experimental.Accessors;
 
-/** Ordered runtime-neutral environment event snapshot. */
+/** Rendered runtime state, one journal snapshot, and capture-on-demand diagnostic sources. */
 @Value
 @Accessors(fluent = true)
 public class EnvironmentDiagnostics {

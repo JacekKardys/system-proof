@@ -1,0 +1,18 @@
+package io.github.jacekkardys.systemproof.journal;
+
+/**
+ * One core-owned immutable envelope retained in a scenario journal.
+ *
+ * <p>The hierarchy is closed so that a journal cannot retain arbitrary externally implemented,
+ * mutable event objects. Protocol modules contribute typed values through a copy boundary that
+ * produces a framework-owned {@link EvidenceSnapshot}; their value and codec are never retained.
+ */
+public sealed interface ScenarioEvent permits
+    EnvironmentLifecycleEvent,
+    ComponentLifecycleEvent,
+    FailureEvent,
+    DiagnosticEvent,
+    InteractionObservationEvent,
+    CheckpointEvent,
+    DisruptionLifecycleEvent {
+}

@@ -11,20 +11,27 @@ import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
+import io.github.jacekkardys.systemproof.driver.JournalContributions;
+import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
+import io.github.jacekkardys.systemproof.journal.CheckpointId;
+import io.github.jacekkardys.systemproof.journal.DisruptionId;
+import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 
 /** Driver-facing typed bindings, diagnostics, and environment-scoped shared resources. */
-final class DriverServices implements DriverContext {
+final class DriverServices {
     private final RuntimeBindings bindings;
     private final Predicate<Component> contains;
     private final Function<Component, ComponentState> componentState;
     private final EnvironmentEventLog eventLog;
     private final IdentityHashMap<DriverResourceKey<?>, AutoCloseable> sharedResources =
         new IdentityHashMap<>();
-    private final List<AutoCloseable> sharedResourceOrder = new ArrayList<>();
+    private final List<SharedResource> sharedResourceOrder = new ArrayList<>();
 
     DriverServices(
         RuntimeBindings bindings,
@@ -38,13 +45,11 @@ final class DriverServices implements DriverContext {
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
     }
 
-    @Override
-    public <T> T resolve(RequiredPort<T> required) {
+    <T> T resolve(RequiredPort<T> required) {
         return bindings.resolve(required);
     }
 
-    @Override
-    public synchronized <R extends AutoCloseable> R sharedResource(
+    synchronized <R extends AutoCloseable> R sharedResource(
         DriverResourceKey<R> key,
         Supplier<? extends R> factory
     ) {
@@ -56,41 +61,39 @@ final class DriverServices implements DriverContext {
         }
         R resource = Objects.requireNonNull(factory.get(), "shared resource factory returned null");
         sharedResources.put(key, resource);
-        sharedResourceOrder.add(resource);
+        sharedResourceOrder.add(new SharedResource(key.name(), resource));
         return resource;
     }
 
-    @Override
-    public void log(Component component, LogLevel level, String message) {
+    private void log(Component component, LogLevel level, String message) {
         requireContained(component);
         eventLog.component(component, level, message);
     }
 
-    @Override
-    public String componentEvents(Component component) {
+    private String componentEvents(Component component) {
         requireContained(component);
-        return eventLog.componentSnapshot(component);
+        return eventLog.componentSnapshot(component.id());
     }
 
-    @Override
-    public ComponentState state(Component component) {
+    private ComponentState state(Component component) {
         requireContained(component);
         return componentState.apply(component);
     }
 
+    DriverContext contextFor(Component component) {
+        requireContained(component);
+        return new ScopedDriverContext(component);
+    }
+
     synchronized Throwable closeSharedResources() {
         Throwable firstFailure = null;
-        List<AutoCloseable> reverse = new ArrayList<>(sharedResourceOrder);
+        List<SharedResource> reverse = new ArrayList<>(sharedResourceOrder);
         Collections.reverse(reverse);
-        for (AutoCloseable resource : reverse) {
+        for (SharedResource resource : reverse) {
             try {
-                resource.close();
+                resource.value().close();
             } catch (Exception | Error failure) {
-                eventLog.framework(
-                    LogLevel.ERROR,
-                    "Driver resource cleanup failed: " + failure.getClass().getSimpleName()
-                        + EnvironmentRuntime.messageSuffix(failure)
-                );
+                eventLog.driverResourceCleanupFailure(resource.name(), failure);
                 firstFailure = EnvironmentRuntime.accumulate(firstFailure, failure);
             }
         }
@@ -100,10 +103,101 @@ final class DriverServices implements DriverContext {
     }
 
     private void requireContained(Component component) {
+        Objects.requireNonNull(component, "component must not be null");
         if (!contains.test(component)) {
             throw new IllegalArgumentException(
                 "Component '" + component.id() + "' is outside the environment"
             );
         }
     }
+
+    private void requireOwner(Component owner, Component requested) {
+        requireContained(requested);
+        if (requested != owner) {
+            throw new IllegalArgumentException(
+                "Driver for component '" + owner.id()
+                    + "' cannot write diagnostics for component '" + requested.id() + "'"
+            );
+        }
+    }
+
+    private final class ScopedDriverContext implements DriverContext {
+        private final Component owner;
+        private final JournalContributions journalContributions;
+
+        private ScopedDriverContext(Component owner) {
+            this.owner = owner;
+            journalContributions = new ScopedJournalContributions(owner);
+        }
+
+        @Override
+        public <T> T resolve(RequiredPort<T> required) {
+            return DriverServices.this.resolve(required);
+        }
+
+        @Override
+        public <R extends AutoCloseable> R sharedResource(
+            DriverResourceKey<R> key,
+            Supplier<? extends R> factory
+        ) {
+            return DriverServices.this.sharedResource(key, factory);
+        }
+
+        @Override
+        public void log(Component component, LogLevel level, String message) {
+            requireOwner(owner, component);
+            DriverServices.this.log(owner, level, message);
+        }
+
+        @Override
+        public JournalContributions journalContributions() {
+            return journalContributions;
+        }
+
+        @Override
+        public String componentEvents(Component component) {
+            return DriverServices.this.componentEvents(component);
+        }
+
+        @Override
+        public ComponentState state(Component component) {
+            return DriverServices.this.state(component);
+        }
+    }
+
+    private final class ScopedJournalContributions implements JournalContributions {
+        private final Component owner;
+
+        private ScopedJournalContributions(Component owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public <T> void observeInteraction(
+            InteractionMetadata metadata,
+            EvidenceCodec<T> codec,
+            T evidence
+        ) {
+            eventLog.interaction(owner, metadata, codec, evidence);
+        }
+
+        @Override
+        public void recordCheckpoint(
+            CheckpointId checkpointId,
+            CheckpointEvent.Kind kind,
+            CheckpointEvent.Stage stage
+        ) {
+            eventLog.checkpoint(owner, checkpointId, kind, stage);
+        }
+
+        @Override
+        public void recordDisruption(
+            DisruptionId disruptionId,
+            DisruptionLifecycleEvent.Stage stage
+        ) {
+            eventLog.disruption(owner, disruptionId, stage);
+        }
+    }
+
+    private record SharedResource(String name, AutoCloseable value) {}
 }

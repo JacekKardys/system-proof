@@ -10,7 +10,7 @@ import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 
-/** Sends container output into the environment's existing event timeline. */
+/** Sends container output into the environment's structured diagnostic journal. */
 public final class ContainerLogConsumer implements Consumer<OutputFrame> {
     private static final Pattern LEVEL_MARKER = Pattern.compile(
         "(?i)(?:\\\"(?:level|severity)\\\"\\s*:\\s*\\\"|(?:^|[\\s\\[(:]))"
