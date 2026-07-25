@@ -44,7 +44,16 @@ class EnvironmentTopologyTest {
         assertThatThrownBy(() -> TopologyValidator.validate(
             List.of(client, declared),
             List.of(Connection.connect(client.api, outside.api))
-        )).hasMessage("Port 'server-outside.api' is not owned by a component in this environment");
+        ))
+            .hasMessageContaining(
+                "provided port [component='server-outside'",
+                "localName='api'",
+                "contractId='api'",
+                "contractType='" + Api.class.getName() + "'",
+                "interaction='invocation'",
+                "protocol='http'"
+            )
+            .hasMessageContaining("is not owned by a component in this environment");
     }
 
     private enum Invocation implements InteractionSpec {

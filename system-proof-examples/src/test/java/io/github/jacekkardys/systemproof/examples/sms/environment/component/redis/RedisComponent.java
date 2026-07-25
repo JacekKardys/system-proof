@@ -1,5 +1,7 @@
 package io.github.jacekkardys.systemproof.examples.sms.environment.component.redis;
 
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.JASMIN_REDIS;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NonNull;
@@ -9,6 +11,7 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Communication;
 import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.PortContract;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
 
@@ -17,6 +20,7 @@ import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RedisComponent extends AbstractComponent<RedisConfig.Runtime, Void> {
 
+    @PortContract(JASMIN_REDIS)
     @Communication.Redis
     private ProvidedPort<RedisEndpoint> redis;
 

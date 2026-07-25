@@ -42,14 +42,29 @@ class EnvironmentTest {
         Server second = new Server("second", API);
 
         assertThatThrownBy(() -> Environment.environment().components(client, first).build())
-            .hasMessage("Required port 'client.api' is not connected");
+            .hasMessageContaining(
+                "required port [component='client'",
+                "localName='api'",
+                "contractId='api'",
+                "contractType='" + Api.class.getName() + "'",
+                "interaction='invocation'",
+                "protocol='http'"
+            )
+            .hasMessageContaining("is not connected");
 
         assertThatThrownBy(() -> Environment.environment()
             .components(client, first, second)
             .connect(client.api, first.api)
             .connect(client.api, second.api)
             .build())
-            .hasMessage("Required port 'client.api' is connected more than once");
+            .hasMessageContaining(
+                "required port [component='client'",
+                "localName='api'",
+                "contractId='api'",
+                "provided port [component='server-first'",
+                "provided port [component='server-second'",
+                "is connected more than once"
+            );
     }
 
     @Test
@@ -62,7 +77,17 @@ class EnvironmentTest {
             .components(client, server)
             .connect((RequiredPort) client.api, (ProvidedPort) server.api))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("client.api", "server.api", "contract id mismatch");
+            .hasMessageContaining(
+                "component='client'",
+                "component='server'",
+                "localName='api'",
+                "contractId='api'",
+                "contractId='different-api'",
+                "contractType='" + Api.class.getName() + "'",
+                "interaction='invocation'",
+                "protocol='http'",
+                "contract id mismatch"
+            );
     }
 
     @Test

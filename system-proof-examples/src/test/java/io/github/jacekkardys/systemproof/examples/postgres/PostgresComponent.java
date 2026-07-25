@@ -4,12 +4,14 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Communication;
 import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.PortContract;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
 
 final class PostgresComponent
     extends AbstractComponent<PostgresConfig.Runtime, DatabaseOperations> {
 
+    @PortContract("jdbc")
     @Communication.JdbcPostgresql
     private ProvidedPort<JdbcEndpoint> jdbc;
 

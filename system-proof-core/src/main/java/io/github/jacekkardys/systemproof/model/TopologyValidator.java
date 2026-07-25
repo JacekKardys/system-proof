@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.model;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -30,7 +31,7 @@ final class TopologyValidator {
         }
 
         IdentityHashMap<RequiredPort<?>, ConnectionRef> connected = new IdentityHashMap<>();
-        Set<String> connectionIds = new HashSet<>();
+        Map<String, ConnectionRef> connectionsById = new HashMap<>();
         for (ConnectionRef connection : connections) {
             Objects.requireNonNull(connection, "connection must not be null");
             requireRegistered(connection.from(), registeredPorts);
@@ -41,13 +42,22 @@ final class TopologyValidator {
                     "Connection '" + connection.id() + "' must be REQUIRED -> PROVIDED"
                 );
             }
-            if (!connectionIds.add(connection.id())) {
-                throw new IllegalArgumentException("Duplicate connection '" + connection.id() + "'");
+            ConnectionRef duplicate = connectionsById.putIfAbsent(connection.id(), connection);
+            if (duplicate != null) {
+                throw new IllegalArgumentException(
+                    "Duplicate connection '" + connection.id() + "': existing "
+                        + Connection.describe(duplicate) + "; conflicting "
+                        + Connection.describe(connection)
+                );
             }
             RequiredPort<?> required = (RequiredPort<?>) connection.from();
-            if (connected.put(required, connection) != null) {
+            ConnectionRef existing = connected.putIfAbsent(required, connection);
+            if (existing != null) {
                 throw new IllegalArgumentException(
-                    "Required port '" + required.qualifiedName() + "' is connected more than once"
+                    Connection.describePort("required", required)
+                        + " is connected more than once: existing "
+                        + Connection.describe(existing) + "; conflicting "
+                        + Connection.describe(connection)
                 );
             }
         }
@@ -60,7 +70,7 @@ final class TopologyValidator {
             .findFirst()
             .ifPresent(required -> {
                 throw new IllegalArgumentException(
-                    "Required port '" + required.qualifiedName() + "' is not connected"
+                    Connection.describePort("required", required) + " is not connected"
                 );
             });
         return Collections.unmodifiableMap(connected);
@@ -70,7 +80,11 @@ final class TopologyValidator {
         if (!registered.contains(port)
             || port.owner().ports().stream().noneMatch(candidate -> candidate == port)) {
             throw new IllegalArgumentException(
-                "Port '" + port.qualifiedName() + "' is not owned by a component in this environment"
+                Connection.describePort(
+                    port.direction() == PortDirection.REQUIRED ? "required" : "provided",
+                    port
+                )
+                    + " is not owned by a component in this environment"
             );
         }
     }

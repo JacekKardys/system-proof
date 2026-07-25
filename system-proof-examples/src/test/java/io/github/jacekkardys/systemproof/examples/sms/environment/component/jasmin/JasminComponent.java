@@ -1,5 +1,11 @@
 package io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin;
 
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.JASMIN_ADMINISTRATION;
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.JASMIN_AMQP;
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.JASMIN_REDIS;
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.SMSC_SMPP;
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.SMS_INGESTION;
+
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.Locale;
@@ -13,6 +19,7 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Communication;
 import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.PortContract;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 import io.github.jacekkardys.systemproof.model.StartupPrerequisite;
@@ -48,21 +55,26 @@ public final class JasminComponent extends AbstractComponent<JasminConfig.Runtim
     }
 
     @StartupPrerequisite
+    @PortContract(SMSC_SMPP)
     @Communication.Smpp
     private RequiredPort<SmppEndpoint> smpp;
 
     @StartupPrerequisite
+    @PortContract(SMS_INGESTION)
     @Communication.Http
     private RequiredPort<URI> sms;
 
     @StartupPrerequisite
+    @PortContract(JASMIN_AMQP)
     @Communication.Amqp
     private RequiredPort<AmqpEndpoint> amqp;
 
     @StartupPrerequisite
+    @PortContract(JASMIN_REDIS)
     @Communication.Redis
     private RequiredPort<RedisEndpoint> redis;
 
+    @PortContract(JASMIN_ADMINISTRATION)
     @Communication.Tcp
     private ProvidedPort<InetSocketAddress> administration;
 

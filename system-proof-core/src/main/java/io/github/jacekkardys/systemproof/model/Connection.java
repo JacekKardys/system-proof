@@ -41,13 +41,23 @@ public final class Connection<C> implements ConnectionRef {
     private static void reject(boolean rejected, PortRef from, PortRef to, String reason) {
         if (rejected) {
             throw new IllegalArgumentException(
-                "Cannot connect component '" + from.owner().id() + "' port '" + from.qualifiedName()
-                    + "' [contract=" + from.contractId() + ", interaction=" + from.interaction().id()
-                    + ", protocol=" + from.protocol().id() + "] to component '" + to.owner().id()
-                    + "' port '" + to.qualifiedName() + "' [contract=" + to.contractId()
-                    + ", interaction=" + to.interaction().id() + ", protocol=" + to.protocol().id()
-                    + "]: " + reason
+                "Cannot connect " + describePort("required", from)
+                    + " to " + describePort("provided", to) + ": " + reason
             );
         }
+    }
+
+    static String describe(ConnectionRef connection) {
+        return describePort("required", connection.from())
+            + " to " + describePort("provided", connection.to());
+    }
+
+    static String describePort(String role, PortRef port) {
+        return role + " port [component='" + port.owner().id()
+            + "', localName='" + port.name()
+            + "', contractId='" + port.contractId()
+            + "', contractType='" + port.contractType().getName()
+            + "', interaction='" + port.interaction().id()
+            + "', protocol='" + port.protocol().id() + "']";
     }
 }

@@ -1,5 +1,7 @@
 package io.github.jacekkardys.systemproof.examples.sms.environment.component.rabbitmq;
 
+import static io.github.jacekkardys.systemproof.examples.sms.environment.SmsContractIds.JASMIN_AMQP;
+
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NonNull;
@@ -9,6 +11,7 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Communication;
 import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.PortContract;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
 
@@ -18,6 +21,7 @@ import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
 public final class RabbitMqComponent
     extends AbstractComponent<RabbitMqConfig.Runtime, Void> {
 
+    @PortContract(JASMIN_AMQP)
     @Communication.Amqp
     private ProvidedPort<AmqpEndpoint> amqp;
 
