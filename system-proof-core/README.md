@@ -11,8 +11,8 @@ Public contracts:
   topology without runtime addresses.
 - `ComponentDriver<C, O>`, `DriverContext`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
-- `ScenarioJournal`, typed `ScenarioEvent` categories, and immutable snapshots: the single
-  authoritative structured scenario history.
+- `ScenarioJournal`, its sealed framework-owned `ScenarioEvent` hierarchy, and immutable
+  snapshots: the single authoritative structured scenario history.
 - `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: rendered
   journal views and failure reporting.
 
@@ -29,5 +29,9 @@ state, and expected state.
 
 `journalSequence` is local storage/rendering order only. Diagnostic elapsed time and rendered log
 order are not causal evidence.
+
+The journal accepts only concrete immutable event value types owned by core. Future evidence work
+may deliberately extend the sealed hierarchy when its real contracts are known; arbitrary adapter
+objects are not appendable and must not create a second history.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

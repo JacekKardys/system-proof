@@ -3,7 +3,12 @@ package io.github.jacekkardys.systemproof.journal;
 import java.util.List;
 import java.util.Objects;
 
-/** Detached immutable storage-order snapshot of one scenario journal. */
+/**
+ * Detached immutable storage-order snapshot of one scenario journal.
+ *
+ * <p>The list is unmodifiable and every retained event belongs to the closed structurally
+ * immutable {@link ScenarioEvent} hierarchy.
+ */
 public final class ScenarioJournalSnapshot {
     private final List<JournalEntry> entries;
 

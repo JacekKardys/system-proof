@@ -8,14 +8,11 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
-import io.github.jacekkardys.systemproof.journal.DisruptionEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionObservation;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
@@ -197,86 +194,65 @@ public final class EnvironmentEventLog {
     }
 
     private static RenderedEvent describe(ScenarioEvent event) {
-        if (event instanceof EnvironmentLifecycleEvent lifecycle) {
-            return new RenderedEvent(
+        return switch (event) {
+            case EnvironmentLifecycleEvent lifecycle -> new RenderedEvent(
                 "[FRAMEWORK] [environment]",
                 environmentLifecycleMessage(lifecycle.state())
             );
-        }
-        if (event instanceof ComponentLifecycleEvent lifecycle) {
-            return new RenderedEvent(
+            case ComponentLifecycleEvent lifecycle -> new RenderedEvent(
                 componentLabels(lifecycle.componentId()),
                 componentLifecycleMessage(lifecycle.state())
             );
-        }
-        if (event instanceof DiagnosticEvent diagnostic) {
-            return new RenderedEvent(
+            case DiagnosticEvent diagnostic -> new RenderedEvent(
                 diagnosticLabels(diagnostic.subject()),
                 diagnostic.message()
             );
-        }
-        if (event instanceof FailureEvent.EnvironmentStartup failure) {
-            return new RenderedEvent(
+            case FailureEvent.EnvironmentStartup failure -> new RenderedEvent(
                 "[FRAMEWORK] [environment]",
                 "Environment startup failed: " + failureMessage(failure.failure())
             );
-        }
-        if (event instanceof FailureEvent.ComponentStartup failure) {
-            return new RenderedEvent(
+            case FailureEvent.ComponentStartup failure -> new RenderedEvent(
                 componentLabels(failure.componentId()),
                 "Component startup failed: " + failureMessage(failure.failure())
             );
-        }
-        if (event instanceof FailureEvent.ComponentCleanup failure) {
-            return new RenderedEvent(
+            case FailureEvent.ComponentCleanup failure -> new RenderedEvent(
                 componentLabels(failure.componentId()),
                 "Component cleanup failed: " + failureMessage(failure.failure())
             );
-        }
-        if (event instanceof FailureEvent.DriverResourceCleanup failure) {
-            return new RenderedEvent(
+            case FailureEvent.DriverResourceCleanup failure -> new RenderedEvent(
                 "[FRAMEWORK] [environment]",
                 "Driver resource '" + failure.resourceName() + "' cleanup failed: "
                     + failureMessage(failure.failure())
             );
-        }
-        if (event instanceof InteractionObservation) {
-            return new RenderedEvent("[INTERACTION] [observation]", event.toString());
-        }
-        if (event instanceof CheckpointEvent) {
-            return new RenderedEvent("[CHECKPOINT] [scenario]", event.toString());
-        }
-        if (event instanceof DisruptionEvent) {
-            return new RenderedEvent("[DISRUPTION] [scenario]", event.toString());
-        }
-        return new RenderedEvent("[JOURNAL] [scenario]", event.toString());
+        };
     }
 
     private static boolean concerns(ScenarioEvent event, ComponentId componentId) {
-        if (event instanceof ComponentLifecycleEvent lifecycle) {
-            return lifecycle.componentId().equals(componentId);
-        }
-        if (event instanceof DiagnosticEvent diagnostic
-            && diagnostic.subject() instanceof DiagnosticEvent.ComponentSubject subject) {
-            return subject.componentId().equals(componentId);
-        }
-        if (event instanceof FailureEvent.ComponentStartup failure) {
-            return failure.componentId().equals(componentId);
-        }
-        return event instanceof FailureEvent.ComponentCleanup failure
-            && failure.componentId().equals(componentId);
+        return switch (event) {
+            case ComponentLifecycleEvent lifecycle ->
+                lifecycle.componentId().equals(componentId);
+            case DiagnosticEvent diagnostic ->
+                diagnostic.subject() instanceof DiagnosticEvent.ComponentSubject subject
+                    && subject.componentId().equals(componentId);
+            case FailureEvent.ComponentStartup failure ->
+                failure.componentId().equals(componentId);
+            case FailureEvent.ComponentCleanup failure ->
+                failure.componentId().equals(componentId);
+            case EnvironmentLifecycleEvent lifecycle -> false;
+            case FailureEvent.EnvironmentStartup failure -> false;
+            case FailureEvent.DriverResourceCleanup failure -> false;
+        };
     }
 
     private static String diagnosticLabels(DiagnosticEvent.Subject subject) {
-        if (subject instanceof DiagnosticEvent.EnvironmentSubject) {
-            return "[FRAMEWORK] [environment]";
-        }
-        if (subject instanceof DiagnosticEvent.ComponentSubject component) {
-            return componentLabels(component.componentId());
-        }
-        DiagnosticEvent.ConnectionSubject connection =
-            (DiagnosticEvent.ConnectionSubject) subject;
-        return "[CONNECTION] [" + connection.connectionId() + "]";
+        return switch (subject) {
+            case DiagnosticEvent.EnvironmentSubject environment ->
+                "[FRAMEWORK] [environment]";
+            case DiagnosticEvent.ComponentSubject component ->
+                componentLabels(component.componentId());
+            case DiagnosticEvent.ConnectionSubject connection ->
+                "[CONNECTION] [" + connection.connectionId() + "]";
+        };
     }
 
     private static String componentLabels(ComponentId componentId) {

@@ -3,8 +3,12 @@ package io.github.jacekkardys.systemproof.journal;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 
-/** Category for structured scenario failures. */
-public non-sealed interface FailureEvent extends ScenarioEvent {
+/** Closed category of framework-owned immutable scenario failure values. */
+public sealed interface FailureEvent extends ScenarioEvent permits
+    FailureEvent.EnvironmentStartup,
+    FailureEvent.ComponentStartup,
+    FailureEvent.ComponentCleanup,
+    FailureEvent.DriverResourceCleanup {
     FailureDetails failure();
 
     /** The environment could not complete startup. */

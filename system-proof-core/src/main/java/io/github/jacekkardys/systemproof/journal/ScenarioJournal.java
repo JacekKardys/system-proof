@@ -11,7 +11,8 @@ import java.util.function.LongSupplier;
  * The single append-only structured history for one scenario runtime.
  *
  * <p>Sequence assignment and insertion share one synchronization boundary. Snapshots are detached
- * immutable copies in storage order.
+ * immutable copies in storage order. The sealed {@link ScenarioEvent} hierarchy restricts stored
+ * values to framework-owned immutable event types.
  */
 public final class ScenarioJournal {
     private final List<JournalEntry> entries = new ArrayList<>();

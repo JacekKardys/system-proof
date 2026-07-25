@@ -80,9 +80,8 @@ public final class EnvironmentRuntime {
             if (cleanupFailure != null) {
                 failure.addSuppressed(cleanupFailure);
             }
-            eventLog.framework(LogLevel.INFO, "Environment stopped after startup failure");
-            EnvironmentDiagnostics captured = diagnostics();
             transitionEnvironment(EnvironmentState.STOPPED);
+            EnvironmentDiagnostics captured = diagnostics();
             throw new EnvironmentStartException(failure, captured);
         }
     }

@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
+import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.FailureDetails;
+import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
@@ -123,7 +126,80 @@ class EnvironmentEventLogTest {
         assertThat(journal.snapshot().entries()).hasSize(1);
     }
 
+    @Test
+    void shouldFreezeMutableThrowableDataBeforeAppendingTheFailure() {
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        EnvironmentEventLog eventLog = view(journal);
+        MutableMessageFailure failure = new MutableMessageFailure("original failure");
+
+        eventLog.environmentStartupFailure(failure);
+        var captured = journal.snapshot();
+        failure.changeMessage("mutated failure");
+
+        FailureEvent.EnvironmentStartup stored =
+            (FailureEvent.EnvironmentStartup) captured.entries().getFirst().event();
+        assertThat(stored.failure().message()).contains("original failure");
+        assertThat(eventLog.render(captured).content())
+            .contains("original failure")
+            .doesNotContain("mutated failure");
+    }
+
+    @Test
+    void shouldDeliberatelyRenderEveryAcceptedEventKind() {
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        EnvironmentEventLog eventLog = view(journal);
+        ComponentId component = ComponentId.component(ComponentType.of("service"));
+        FailureDetails failure = FailureDetails.from(new IllegalStateException("broken"));
+
+        journal.append(new EnvironmentLifecycleEvent(EnvironmentState.FAILED));
+        journal.append(new ComponentLifecycleEvent(component, ComponentState.FAILED));
+        journal.append(new DiagnosticEvent(
+            DiagnosticEvent.EnvironmentSubject.INSTANCE,
+            LogLevel.WARN,
+            "diagnostic"
+        ));
+        journal.append(new FailureEvent.EnvironmentStartup(failure));
+        journal.append(new FailureEvent.ComponentStartup(component, failure));
+        journal.append(new FailureEvent.ComponentCleanup(component, failure));
+        journal.append(new FailureEvent.DriverResourceCleanup("shared-resource", failure));
+
+        assertThat(eventLog.snapshot().content())
+            .contains(
+                "Environment failed",
+                "Component failed",
+                "diagnostic",
+                "Environment startup failed: IllegalStateException - broken",
+                "Component startup failed: IllegalStateException - broken",
+                "Component cleanup failed: IllegalStateException - broken",
+                "Driver resource 'shared-resource' cleanup failed: "
+                    + "IllegalStateException - broken"
+            )
+            .doesNotContain(
+                "EnvironmentLifecycleEvent[",
+                "ComponentLifecycleEvent[",
+                "DiagnosticEvent[",
+                "FailureDetails["
+            );
+    }
+
     private static EnvironmentEventLog view(ScenarioJournal journal) {
         return new EnvironmentEventLog(journal, EnvironmentLogging.defaults());
+    }
+
+    private static final class MutableMessageFailure extends RuntimeException {
+        private String currentMessage;
+
+        private MutableMessageFailure(String message) {
+            currentMessage = message;
+        }
+
+        private void changeMessage(String message) {
+            currentMessage = message;
+        }
+
+        @Override
+        public String getMessage() {
+            return currentMessage;
+        }
     }
 }

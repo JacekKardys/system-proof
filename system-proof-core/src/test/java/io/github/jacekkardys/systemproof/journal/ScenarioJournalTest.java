@@ -3,10 +3,17 @@ package io.github.jacekkardys.systemproof.journal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -23,6 +30,13 @@ import io.github.jacekkardys.systemproof.model.LogLevel;
 class ScenarioJournalTest {
     private static final ComponentId COMPONENT =
         ComponentId.component(ComponentType.of("service"));
+
+    @Test
+    void shouldExposeOnlyAClosedStructurallyImmutableEventHierarchy() {
+        assertThat(ScenarioEvent.class.isSealed()).isTrue();
+
+        assertClosedImmutableHierarchy(ScenarioEvent.class, new HashSet<>());
+    }
 
     @Test
     void shouldAssignOneBasedStorageSequencesAndReturnTheStoredTypedEntries() {
@@ -159,5 +173,66 @@ class ScenarioJournalTest {
             LogLevel.INFO,
             message
         );
+    }
+
+    private static void assertClosedImmutableHierarchy(
+        Class<?> type,
+        Set<Class<?>> inspected
+    ) {
+        if (!inspected.add(type)) {
+            return;
+        }
+        if (type.isPrimitive() || type.isEnum() || type == String.class) {
+            return;
+        }
+        if (type.isSealed()) {
+            assertThat(type.getPermittedSubclasses())
+                .as("%s permitted types", type.getName())
+                .isNotEmpty()
+                .allSatisfy(permitted -> {
+                    assertThat(
+                        permitted.isSealed() || permitted.isRecord() || permitted.isEnum()
+                    )
+                        .as("%s must remain sealed or be an immutable value", permitted.getName())
+                        .isTrue();
+                    assertClosedImmutableHierarchy(permitted, inspected);
+                });
+            return;
+        }
+
+        assertThat(type.isRecord())
+            .as("%s must be an immutable record", type.getName())
+            .isTrue();
+        for (RecordComponent component : type.getRecordComponents()) {
+            assertImmutableType(component.getGenericType(), inspected);
+        }
+    }
+
+    private static void assertImmutableType(Type type, Set<Class<?>> inspected) {
+        if (type instanceof ParameterizedType parameterized) {
+            assertThat(parameterized.getRawType())
+                .as("%s must use a supported immutable container", type.getTypeName())
+                .isEqualTo(Optional.class);
+            for (Type argument : parameterized.getActualTypeArguments()) {
+                assertImmutableType(argument, inspected);
+            }
+            return;
+        }
+
+        assertThat(type).isInstanceOf(Class.class);
+        Class<?> valueType = (Class<?>) type;
+        assertThat(valueType.isArray())
+            .as("%s must not expose mutable array state", valueType.getName())
+            .isFalse();
+        assertThat(Collection.class.isAssignableFrom(valueType))
+            .as("%s must not expose mutable collection state", valueType.getName())
+            .isFalse();
+        assertThat(Map.class.isAssignableFrom(valueType))
+            .as("%s must not expose mutable map state", valueType.getName())
+            .isFalse();
+        if (valueType.isPrimitive() || valueType.isEnum() || valueType == String.class) {
+            return;
+        }
+        assertClosedImmutableHierarchy(valueType, inspected);
     }
 }

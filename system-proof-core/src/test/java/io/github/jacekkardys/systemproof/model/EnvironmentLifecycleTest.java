@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static io.github.jacekkardys.systemproof.driver.ComponentRuntime.runtime;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static io.github.jacekkardys.systemproof.model.EndpointAddress.address;
@@ -98,17 +99,23 @@ class EnvironmentLifecycleTest {
     }
 
     @Test
-    void shouldCleanupPartialStartupAndSuppressCleanupFailureOnThePrimaryCause() {
+    void shouldCaptureStoppedStartupFailureAfterAllCleanupFailures() {
         IllegalStateException cleanupFailure = new IllegalStateException("server cleanup failed");
-        Server server = new Server((component, context) ->
-            io.github.jacekkardys.systemproof.driver.ComponentRuntime.<Void>runtime(() -> { throw cleanupFailure; })
+        IllegalStateException sharedFailure = new IllegalStateException("shared cleanup failed");
+        DriverResourceKey<FailingResource> key =
+            DriverResourceKey.resourceKey("shared-network", FailingResource.class);
+        Server server = new Server((component, context) -> {
+            context.sharedResource(key, () -> new FailingResource(sharedFailure));
+            return io.github.jacekkardys.systemproof.driver.ComponentRuntime.<Void>runtime(() -> {
+                throw cleanupFailure;
+            })
                 .provides(((Server) component).api,
                     binding(
                         new ApiEndpoint(address("http", "server.test", 8080).value()),
                         new ApiEndpoint(address("http", "localhost", 49152).value())
                     ))
-                .build()
-        );
+                .build();
+        });
         Client client = new Client((component, context) -> {
             throw new IllegalStateException("client failed");
         });
@@ -117,20 +124,34 @@ class EnvironmentLifecycleTest {
             .connect(client.api, server.api)
             .build();
 
-        assertThatThrownBy(environment::start)
-            .isInstanceOfSatisfying(EnvironmentStartException.class, failure -> {
-                assertThat(failure.getCause()).hasMessage("client failed");
-                assertThat(failure.getCause().getSuppressed()).containsExactly(cleanupFailure);
-            });
-        assertThat(environment.diagnostics().content())
+        EnvironmentStartException failure = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(failure.getCause()).hasMessage("client failed");
+        assertThat(failure.getCause().getSuppressed()).containsExactly(cleanupFailure);
+        assertThat(cleanupFailure.getSuppressed()).containsExactly(sharedFailure);
+        assertThat(failure.diagnostics()).isEqualTo(environment.diagnostics());
+        assertThat(failure.diagnostics().content())
             .contains(
+                "[STATE] environment=STOPPED",
                 "Environment startup failed",
                 "Component startup failed",
                 "client failed",
                 "server cleanup failed",
+                "shared-network",
+                "shared cleanup failed",
                 "component=server",
-                "state=FAILED"
+                "state=FAILED",
+                "Environment failed",
+                "Environment stopped"
+            )
+            .doesNotContain(
+                "[STATE] environment=FAILED",
+                "Environment stopped after startup failure"
             );
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
         assertThat(events(environment, EnvironmentLifecycleEvent.class))
             .extracting(EnvironmentLifecycleEvent::state)
             .containsExactly(
@@ -163,6 +184,12 @@ class EnvironmentLifecycleTest {
         assertThat(events(environment, FailureEvent.EnvironmentStartup.class))
             .singleElement()
             .satisfies(event -> assertThat(event.failure().message()).contains("client failed"));
+        assertThat(events(environment, FailureEvent.DriverResourceCleanup.class))
+            .singleElement()
+            .satisfies(event -> {
+                assertThat(event.resourceName()).isEqualTo("shared-network");
+                assertThat(event.failure().message()).contains("shared cleanup failed");
+            });
     }
 
     @Test
