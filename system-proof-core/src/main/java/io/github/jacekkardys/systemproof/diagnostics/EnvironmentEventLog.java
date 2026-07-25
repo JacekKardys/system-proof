@@ -8,11 +8,20 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
+import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
+import io.github.jacekkardys.systemproof.journal.DisruptionId;
+import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
+import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
+import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
@@ -138,6 +147,54 @@ public final class EnvironmentEventLog {
         );
     }
 
+    /**
+     * Captures externally typed evidence before appending its core-owned interaction envelope.
+     */
+    public <T> void interaction(
+        Component component,
+        InteractionMetadata metadata,
+        EvidenceCodec<T> codec,
+        T evidence
+    ) {
+        Objects.requireNonNull(component, "component must not be null");
+        EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, evidence);
+        append(
+            new InteractionObservationEvent(component.id(), metadata, snapshot),
+            configuration.componentLevel(component),
+            LogLevel.INFO
+        );
+    }
+
+    public void checkpoint(
+        Component component,
+        CheckpointId checkpointId,
+        CheckpointEvent.Kind kind,
+        CheckpointEvent.Stage stage
+    ) {
+        Objects.requireNonNull(component, "component must not be null");
+        append(
+            new CheckpointEvent(component.id(), checkpointId, kind, stage),
+            configuration.componentLevel(component),
+            LogLevel.INFO
+        );
+    }
+
+    public void disruption(
+        Component component,
+        DisruptionId disruptionId,
+        DisruptionLifecycleEvent.Stage stage
+    ) {
+        Objects.requireNonNull(component, "component must not be null");
+        LogLevel level = stage == DisruptionLifecycleEvent.Stage.FAILED
+            ? LogLevel.WARN
+            : LogLevel.INFO;
+        append(
+            new DisruptionLifecycleEvent(component.id(), disruptionId, stage),
+            configuration.componentLevel(component),
+            level
+        );
+    }
+
     public EnvironmentDiagnostics snapshot() {
         return render(journal.snapshot());
     }
@@ -224,6 +281,21 @@ public final class EnvironmentEventLog {
                 "Driver resource '" + failure.resourceName() + "' cleanup failed: "
                     + failureMessage(failure.failure())
             );
+            case InteractionObservationEvent observation -> new RenderedEvent(
+                interactionLabels(observation),
+                interactionMessage(observation)
+            );
+            case CheckpointEvent checkpoint -> new RenderedEvent(
+                "[CHECKPOINT] [" + checkpoint.observingComponentId() + "] ["
+                    + checkpoint.checkpointId().value() + "]",
+                "Recorded " + checkpoint.kind().name().toLowerCase(Locale.ROOT)
+                    + " stage=" + checkpoint.stage()
+            );
+            case DisruptionLifecycleEvent disruption -> new RenderedEvent(
+                "[DISRUPTION] [" + disruption.observingComponentId() + "] ["
+                    + disruption.disruptionId().value() + "]",
+                "Recorded disruption stage=" + disruption.stage()
+            );
         };
     }
 
@@ -238,6 +310,12 @@ public final class EnvironmentEventLog {
                 failure.componentId().equals(componentId);
             case FailureEvent.ComponentCleanup failure ->
                 failure.componentId().equals(componentId);
+            case InteractionObservationEvent observation ->
+                observation.observingComponentId().equals(componentId);
+            case CheckpointEvent checkpoint ->
+                checkpoint.observingComponentId().equals(componentId);
+            case DisruptionLifecycleEvent disruption ->
+                disruption.observingComponentId().equals(componentId);
             case EnvironmentLifecycleEvent lifecycle -> false;
             case FailureEvent.EnvironmentStartup failure -> false;
             case FailureEvent.DriverResourceCleanup failure -> false;
@@ -257,6 +335,24 @@ public final class EnvironmentEventLog {
 
     private static String componentLabels(ComponentId componentId) {
         return "[COMPONENT] [" + componentId + "]";
+    }
+
+    private static String interactionLabels(InteractionObservationEvent observation) {
+        return "[INTERACTION] [" + observation.observingComponentId() + "]"
+            + observation.metadata().connectionId()
+                .map(connectionId -> " [connection=" + connectionId + "]")
+                .orElse("");
+    }
+
+    private static String interactionMessage(InteractionObservationEvent observation) {
+        EvidenceSchemaId schemaId = observation.evidence().schemaId();
+        return "Observed typed evidence"
+            + observation.metadata().direction()
+                .map(direction -> " direction=" + direction)
+                .orElse("")
+            + " schema=" + schemaId.namespace() + ":" + schemaId.name()
+            + " version=" + schemaId.version()
+            + " encodedBytes=" + observation.evidence().encodedSize();
     }
 
     private static String environmentLifecycleMessage(EnvironmentState state) {

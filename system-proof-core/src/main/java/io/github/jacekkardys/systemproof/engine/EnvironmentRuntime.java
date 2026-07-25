@@ -157,7 +157,7 @@ public final class EnvironmentRuntime {
         ComponentRuntime<O> runtime = null;
         try {
             runtime = Objects.requireNonNull(
-                component.driver().start(component, driverServices),
+                component.driver().start(component, driverServices.contextFor(component)),
                 "Driver for component '" + component.id() + "' returned null runtime"
             );
             bindings.attach(component, runtime);

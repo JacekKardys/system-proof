@@ -2,15 +2,27 @@ package io.github.jacekkardys.systemproof.diagnostics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
+import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
+import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
+import io.github.jacekkardys.systemproof.journal.DisruptionId;
+import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
+import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
+import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
@@ -84,11 +96,34 @@ class EnvironmentEventLogTest {
             LogLevel.INFO,
             "second output"
         ));
+        EvidenceSnapshot evidence = EvidenceSnapshot.capture(
+            MutableInteractionEvidence.codec(),
+            new MutableInteractionEvidence(new byte[] {1}, new ArrayList<>())
+        );
+        journal.append(new InteractionObservationEvent(
+            first,
+            InteractionMetadata.unscoped(),
+            evidence
+        ));
+        journal.append(new CheckpointEvent(
+            second,
+            new CheckpointId("second-checkpoint"),
+            CheckpointEvent.Kind.CHECKPOINT,
+            CheckpointEvent.Stage.OBSERVED
+        ));
         var snapshot = journal.snapshot();
 
         assertThat(eventLog.componentSnapshot(snapshot, first))
-            .contains("[COMPONENT] [service-first] Starting component", "first output")
-            .doesNotContain("service-second", "second output");
+            .contains(
+                "[COMPONENT] [service-first] Starting component",
+                "first output",
+                "[INTERACTION] [service-first]"
+            )
+            .doesNotContain(
+                "service-second",
+                "second output",
+                "second-checkpoint"
+            );
     }
 
     @Test
@@ -162,6 +197,32 @@ class EnvironmentEventLogTest {
         journal.append(new FailureEvent.ComponentStartup(component, failure));
         journal.append(new FailureEvent.ComponentCleanup(component, failure));
         journal.append(new FailureEvent.DriverResourceCleanup("shared-resource", failure));
+        EvidenceSnapshot evidence = EvidenceSnapshot.capture(
+            MutableInteractionEvidence.codec(),
+            new MutableInteractionEvidence(
+                "sensitive-binary".getBytes(StandardCharsets.UTF_8),
+                new ArrayList<>(List.of("secret-attribute"))
+            )
+        );
+        journal.append(new InteractionObservationEvent(
+            component,
+            new InteractionMetadata(
+                Optional.of("client.api->server.api"),
+                Optional.of(InteractionMetadata.Direction.OUTBOUND)
+            ),
+            evidence
+        ));
+        journal.append(new CheckpointEvent(
+            component,
+            new CheckpointId("request-visible"),
+            CheckpointEvent.Kind.BARRIER,
+            CheckpointEvent.Stage.OBSERVED
+        ));
+        journal.append(new DisruptionLifecycleEvent(
+            component,
+            new DisruptionId("latency-window"),
+            DisruptionLifecycleEvent.Stage.ACTIVE
+        ));
 
         assertThat(eventLog.snapshot().content())
             .contains(
@@ -172,13 +233,25 @@ class EnvironmentEventLogTest {
                 "Component startup failed: IllegalStateException - broken",
                 "Component cleanup failed: IllegalStateException - broken",
                 "Driver resource 'shared-resource' cleanup failed: "
-                    + "IllegalStateException - broken"
+                    + "IllegalStateException - broken",
+                "[INTERACTION] [service] [connection=client.api->server.api] "
+                    + "Observed typed evidence direction=OUTBOUND "
+                    + "schema=test.external:interaction version=1 encodedBytes=",
+                "[CHECKPOINT] [service] [request-visible] "
+                    + "Recorded barrier stage=OBSERVED",
+                "[DISRUPTION] [service] [latency-window] "
+                    + "Recorded disruption stage=ACTIVE"
             )
             .doesNotContain(
                 "EnvironmentLifecycleEvent[",
                 "ComponentLifecycleEvent[",
                 "DiagnosticEvent[",
-                "FailureDetails["
+                "FailureDetails[",
+                "InteractionObservationEvent[",
+                "CheckpointEvent[",
+                "DisruptionLifecycleEvent[",
+                "sensitive-binary",
+                "secret-attribute"
             );
     }
 

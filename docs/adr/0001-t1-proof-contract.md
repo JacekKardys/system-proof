@@ -87,10 +87,21 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
 
 - `SmsIngestionSmokeIT` remains a smoke/baseline test and must not be presented as proof of T1.
 - This baseline task changes no production behavior and no public framework API.
-- `ScenarioJournal` now supplies one closed, immutable structured history for current lifecycle,
-  failure, and diagnostic events, without claiming causality from storage sequence or diagnostic
-  time. Later evidence work must deliberately add immutable event types to that sealed model
-  rather than accept arbitrary implementations or create a parallel history.
+- `ScenarioJournal` supplies one closed, immutable structured history. Core owns sealed envelopes
+  for framework lifecycle/failure/diagnostic events and for contributed interaction,
+  checkpoint/barrier, and disruption records.
+- Protocol modules contribute typed values through a schema-specific `EvidenceCodec<T>`. Core
+  copies the encoded representation into `EvidenceSnapshot` before append and retains neither the
+  source value nor codec. This lets later SMPP and PostgreSQL modules remain outside core without
+  reopening `ScenarioEvent`, accepting arbitrary event implementations, or creating another
+  history.
+- Drivers receive a component-scoped `JournalContributions` capability rather than
+  `ScenarioJournal`. The capability cannot forge framework lifecycle, cleanup failure, or
+  diagnostic events under another component identity.
+- Contributed observations are rendered explicitly from stable envelope metadata. Raw evidence is
+  not rendered and arbitrary payload `toString()` is not a diagnostic contract.
+- Journal sequence, elapsed time, line order, and checkpoint/barrier records remain local reported
+  facts and do not establish external order or causality.
 - Runtime connections, `InteractionGateway`, protocol evidence, barriers, and fault injection
   remain separate roadmap tasks.
 - A future T1 test that lacks any required evidence above is incomplete even if it is repeatably

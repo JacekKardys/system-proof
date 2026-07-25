@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.output.OutputFrame;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
+import io.github.jacekkardys.systemproof.driver.JournalContributions;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
@@ -111,6 +112,11 @@ class ContainerLogConsumerTest {
             this.component = component;
             this.level = level;
             this.message = message;
+        }
+
+        @Override
+        public JournalContributions journalContributions() {
+            throw new UnsupportedOperationException();
         }
 
         @Override

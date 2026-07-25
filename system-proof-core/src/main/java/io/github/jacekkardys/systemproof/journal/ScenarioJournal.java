@@ -12,7 +12,8 @@ import java.util.function.LongSupplier;
  *
  * <p>Sequence assignment and insertion share one synchronization boundary. Snapshots are detached
  * immutable copies in storage order. The sealed {@link ScenarioEvent} hierarchy restricts stored
- * values to framework-owned immutable event types.
+ * values to core-owned immutable event types. Externally typed evidence crosses a detached
+ * {@link EvidenceSnapshot} boundary before an event reaches this journal.
  */
 public final class ScenarioJournal {
     private final List<JournalEntry> entries = new ArrayList<>();
