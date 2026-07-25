@@ -41,7 +41,7 @@ public final class SmsDatabaseOperations {
                 FROM raw_sms_event
                 WHERE source_address = ?
                   AND destination_address = ?
-                  AND content LIKE ?
+                  AND content = ?
             )
             SELECT
                 (SELECT COUNT(*) FROM matching_raw) AS raw_count,
@@ -58,7 +58,7 @@ public final class SmsDatabaseOperations {
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, message.sourceAddress());
             statement.setString(2, message.destinationAddress());
-            statement.setString(3, "%" + message.content() + "%");
+            statement.setString(3, message.content());
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
                 SmsPersistence observed = new SmsPersistence(

@@ -11,7 +11,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.function.Supplier;
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionTimeoutException;
@@ -47,7 +46,7 @@ public final class UkarimSmscOperations {
             .build();
     }
 
-    public ScenarioControlId send(TestSms message) {
+    public void send(TestSms message) {
         Objects.requireNonNull(message, "message must not be null");
         awaitBoundSession();
         String body = formField("sender", message.sourceAddress())
@@ -67,7 +66,6 @@ public final class UkarimSmscOperations {
                 "SMSC control plane did not confirm MO submission: " + lastPostResult + "; " + diagnostics()
             );
         }
-        return new ScenarioControlId("smsc-control-" + UUID.randomUUID());
     }
 
     private void awaitBoundSession() {
@@ -128,12 +126,4 @@ public final class UkarimSmscOperations {
         return value;
     }
 
-    /**
-     * Local test-control correlation only. This value is not an SMPP sequence number or SMSC message ID.
-     */
-    public record ScenarioControlId(String value) {
-        public ScenarioControlId {
-            requireText(value, "scenario control ID");
-        }
-    }
 }

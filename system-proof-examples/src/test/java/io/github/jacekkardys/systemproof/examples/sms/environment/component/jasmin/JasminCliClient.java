@@ -20,6 +20,12 @@ final class JasminCliClient implements Closeable {
     private static final int WONT = 252;
     private static final int DO = 253;
     private static final int DONT = 254;
+    private static final int ECHO = 1;
+    private static final int SUPPRESS_GO_AHEAD = 3;
+    private static final int WINDOW_SIZE = 31;
+    private static final int LINE_MODE = 34;
+    private static final int DEFAULT_WINDOW_WIDTH = 80;
+    private static final int DEFAULT_WINDOW_HEIGHT = 24;
 
     private final Socket socket = new Socket();
     private final Duration timeout;
@@ -139,9 +145,7 @@ final class JasminCliClient implements Closeable {
             } else if (command == DO || command == DONT || command == WILL || command == WONT) {
                 if (index < length) {
                     int option = Byte.toUnsignedInt(data[index++]);
-                    int response = command == DO || command == DONT ? WONT : DONT;
-                    socket.getOutputStream().write(new byte[]{(byte) IAC, (byte) response, (byte) option});
-                    socket.getOutputStream().flush();
+                    negotiate(command, option);
                 }
             } else if (command == SB) {
                 while (index + 1 < length) {
@@ -154,6 +158,43 @@ final class JasminCliClient implements Closeable {
             }
         }
         return output.toString(StandardCharsets.UTF_8);
+    }
+
+    private void negotiate(int command, int option) throws IOException {
+        int response = switch (command) {
+            case DO -> supportsLocal(option) ? WILL : WONT;
+            case DONT -> WONT;
+            case WILL -> supportsRemote(option) ? DO : DONT;
+            case WONT -> DONT;
+            default -> throw new IllegalArgumentException("Unsupported Telnet negotiation command: " + command);
+        };
+        socket.getOutputStream().write(new byte[]{(byte) IAC, (byte) response, (byte) option});
+        if (command == DO && option == WINDOW_SIZE && response == WILL) {
+            sendWindowSize();
+        }
+        socket.getOutputStream().flush();
+    }
+
+    private void sendWindowSize() throws IOException {
+        socket.getOutputStream().write(new byte[]{
+            (byte) IAC,
+            (byte) SB,
+            (byte) WINDOW_SIZE,
+            0,
+            (byte) DEFAULT_WINDOW_WIDTH,
+            0,
+            (byte) DEFAULT_WINDOW_HEIGHT,
+            (byte) IAC,
+            (byte) SE
+        });
+    }
+
+    private static boolean supportsLocal(int option) {
+        return option == LINE_MODE || option == WINDOW_SIZE || option == SUPPRESS_GO_AHEAD;
+    }
+
+    private static boolean supportsRemote(int option) {
+        return option == ECHO;
     }
 
     private void sendLine(String line) {

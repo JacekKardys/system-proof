@@ -27,6 +27,13 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>system-proof-ingestion-service</artifactId>
+            <version>${project.version}</version>
+            <classifier>exec</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
             <scope>test</scope>
@@ -44,6 +51,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -66,6 +79,34 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-reference-ingestion-service</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>${project.groupId}</groupId>
+                                    <artifactId>system-proof-ingestion-service</artifactId>
+                                    <version>${project.version}</version>
+                                    <classifier>exec</classifier>
+                                    <type>jar</type>
+                                    <outputDirectory>
+                                        ${project.build.directory}/reference-images
+                                    </outputDirectory>
+                                    <destFileName>system-proof-ingestion-service.jar</destFileName>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>${maven.failsafe.version}</version>
                 <executions>
@@ -79,6 +120,9 @@
                 <configuration>
                     <systemPropertyVariables>
                         <system.proof.artifacts>${project.build.directory}/system-proof-artifacts</system.proof.artifacts>
+                        <system.proof.ingestion.jar>
+                            ${project.build.directory}/reference-images/system-proof-ingestion-service.jar
+                        </system.proof.ingestion.jar>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

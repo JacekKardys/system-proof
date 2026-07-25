@@ -22,11 +22,10 @@ final class SmsIngestionSmokeIT {
     @Test
     void shouldIngestAndPersistOneSms(SmsExampleEnvironment environment) {
         TestSms message = TestSms.unique();
-        var scenario = environment.smsc().send(message);
+        environment.smsc().send(message);
 
         SmsPersistence persisted = environment.database().await().rawAndOutboxVisible(message);
 
-        assertThat(scenario.value()).isNotBlank();
         assertThat(persisted.rawCount()).isEqualTo(1);
         assertThat(persisted.outboxCount()).isEqualTo(1);
         assertThat(persisted.rawId()).isEqualTo(persisted.outboxAggregateId());

@@ -36,6 +36,7 @@
         <testcontainers.version>1.21.3</testcontainers.version>
         <maven.clean.version>3.4.1</maven.clean.version>
         <maven.compiler.version>3.14.0</maven.compiler.version>
+        <maven.dependency.version>3.9.0</maven.dependency.version>
         <maven.enforcer.version>3.6.1</maven.enforcer.version>
         <maven.failsafe.version>3.5.3</maven.failsafe.version>
         <maven.jar.version>3.4.2</maven.jar.version>
@@ -139,6 +140,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-clean-plugin</artifactId>
                     <version>${maven.clean.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven.dependency.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

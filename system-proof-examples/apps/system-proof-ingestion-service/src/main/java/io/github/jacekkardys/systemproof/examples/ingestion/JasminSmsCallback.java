@@ -33,12 +33,11 @@ record JasminSmsCallback(
     }
 
     private static String content(MultiValueMap<String, String> form) {
-        String content = required(form, "content");
         if (!isUcs2(form.getFirst("coding"))) {
-            return content;
+            return requiredPresent(form, "content");
         }
 
-        String binary = required(form, "binary");
+        String binary = requiredPresent(form, "binary");
         try {
             byte[] bytes = HexFormat.of().parseHex(binary);
             if (bytes.length % 2 != 0) {
@@ -60,6 +59,14 @@ record JasminSmsCallback(
 
     private static String required(MultiValueMap<String, String> form, String name) {
         return firstText(form, List.of(name));
+    }
+
+    private static String requiredPresent(MultiValueMap<String, String> form, String name) {
+        String value = form.getFirst(name);
+        if (value == null) {
+            throw badRequest("Required form field is missing: " + name);
+        }
+        return value;
     }
 
     private static String firstText(MultiValueMap<String, String> form, List<String> names) {
