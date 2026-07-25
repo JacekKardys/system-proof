@@ -81,12 +81,20 @@ public final class EnvironmentEventLog {
         ConnectionRef connection,
         ConnectionDescriptor descriptor,
         ConnectionState state,
-        RoutingMode routingMode
+        RoutingMode routingMode,
+        boolean directTargetAvailable,
+        boolean consumerTargetAvailable
     ) {
         Objects.requireNonNull(connection, "connection must not be null");
         LogLevel level = state == ConnectionState.FAILED ? LogLevel.ERROR : LogLevel.INFO;
         append(
-            new ConnectionLifecycleEvent(descriptor, state, routingMode),
+            new ConnectionLifecycleEvent(
+                descriptor,
+                state,
+                routingMode,
+                directTargetAvailable,
+                consumerTargetAvailable
+            ),
             configuration.connectionLevel(connection),
             level
         );
@@ -450,7 +458,7 @@ public final class EnvironmentEventLog {
         String action = switch (lifecycle.state()) {
             case DECLARED -> "Connection materialized and validated";
             case STARTING -> "Starting connection";
-            case RUNNING -> "Direct target available";
+            case RUNNING -> "Consumer target available";
             case STOPPING -> "Stopping connection";
             case STOPPED -> "Connection stopped";
             case FAILED -> "Connection failed";
@@ -464,7 +472,9 @@ public final class EnvironmentEventLog {
             + " protocol=" + connection.protocolId()
             + " scheme=" + connection.protocolScheme()
             + " state=" + lifecycle.state()
-            + " mode=" + lifecycle.routingMode();
+            + " mode=" + lifecycle.routingMode()
+            + " directTargetAvailable=" + lifecycle.directTargetAvailable()
+            + " consumerTargetAvailable=" + lifecycle.consumerTargetAvailable();
     }
 
     private static String failureMessage(FailureDetails failure) {

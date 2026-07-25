@@ -7,18 +7,23 @@ import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Connection;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.Contract;
@@ -76,9 +81,9 @@ class RuntimeConnectionRegistryTest {
                 binding("internal-secret-endpoint", "external-secret-endpoint")
             )
             .build();
-        var prepared = registry.prepareDirectTargets(server, provider);
+        var prepared = registry.prepareTargets(server, provider);
         assertThat(prepared).hasSize(2);
-        registry.bindDirectTargets(prepared);
+        registry.bindTargets(prepared);
 
         assertThat(registry.resolve(first.api)).isEqualTo("internal-secret-endpoint");
         assertThat(registry.resolve(second.api)).isEqualTo("internal-secret-endpoint");
@@ -87,22 +92,26 @@ class RuntimeConnectionRegistryTest {
                 assertThat(target.internal()).isEqualTo("internal-secret-endpoint");
                 assertThat(target.external()).isEqualTo("external-secret-endpoint");
             });
+        assertThat(registry.connection(firstDeclaration.id()).consumerTarget())
+            .isEqualTo(registry.connection(firstDeclaration.id()).directTarget());
         assertThat(registry.snapshots())
             .allSatisfy(connection -> {
                 assertThat(connection.state()).isEqualTo(ConnectionState.RUNNING);
                 assertThat(connection.routingMode()).isEqualTo(RoutingMode.DIRECT);
                 assertThat(connection.directTargetAvailable()).isTrue();
+                assertThat(connection.consumerTargetAvailable()).isTrue();
             });
         assertThat(declared)
             .allSatisfy(connection -> {
                 assertThat(connection.state()).isEqualTo(ConnectionState.DECLARED);
                 assertThat(connection.directTargetAvailable()).isFalse();
+                assertThat(connection.consumerTargetAvailable()).isFalse();
             });
-        assertThatThrownBy(() -> registry.prepareDirectTargets(server, provider))
+        assertThatThrownBy(() -> registry.prepareTargets(server, provider))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("cannot bind a direct target from state RUNNING");
 
-        registry.beginProviderCleanup(server);
+        assertThat(registry.beginProviderCleanup(server)).isNull();
         assertThatThrownBy(() -> registry.resolve(first.api))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining(firstDeclaration.id().toString(), "STOPPING");
@@ -112,6 +121,7 @@ class RuntimeConnectionRegistryTest {
             .allSatisfy(connection -> {
                 assertThat(connection.state()).isEqualTo(ConnectionState.STOPPED);
                 assertThat(connection.directTargetAvailable()).isFalse();
+                assertThat(connection.consumerTargetAvailable()).isFalse();
             });
         assertThat(journal.snapshot().entries())
             .map(entry -> entry.event())
@@ -141,11 +151,17 @@ class RuntimeConnectionRegistryTest {
             .extracting(Method::getName)
             .doesNotContain(
                 "beginStartup",
-                "bindDirectTarget",
+                "prepareTargets",
+                "bindTargets",
                 "beginStopping",
+                "closeRoute",
+                "invalidateDirectTarget",
                 "completeStopping",
                 "fail"
             );
+        assertThat(ConnectionRoute.class.getMethods())
+            .extracting(Method::getName)
+            .doesNotContain("consumerTarget", "close");
     }
 
     @Test
@@ -161,10 +177,18 @@ class RuntimeConnectionRegistryTest {
         connection.beginStartup();
         assertThatThrownBy(connection::beginStartup)
             .hasMessageContaining("cannot transition from STARTING to STARTING");
-        connection.bindDirectTarget(binding("internal", "external"));
-        assertThatThrownBy(() -> connection.bindDirectTarget(binding("other", "other")))
+        RuntimeConnection.PreparedTargets<String> prepared =
+            connection.prepareTargets(binding("internal", "external"));
+        connection.bindTargets(prepared);
+        assertThatThrownBy(() -> connection.prepareTargets(binding("other", "other")))
             .hasMessageContaining("cannot bind a direct target from state RUNNING");
         connection.beginStopping();
+        try {
+            connection.closeRoute();
+        } catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
+        connection.invalidateDirectTarget();
         connection.completeStopping();
         assertThatThrownBy(connection::beginStartup)
             .hasMessageContaining("cannot transition from STOPPED to STARTING");
@@ -178,6 +202,225 @@ class RuntimeConnectionRegistryTest {
             .hasMessageContaining("state FAILED");
         assertThatThrownBy(failed::fail)
             .hasMessageContaining("cannot transition from FAILED to FAILED");
+    }
+
+    @Test
+    void shouldPrepareIsolatedRoutedTargetsAndCloseThemInReverseOrder() {
+        Client first = new Client("first");
+        Client second = new Client("second");
+        Server server = new Server();
+        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
+        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        AtomicReference<RuntimeConnectionRegistry> registryRef = new AtomicReference<>();
+        List<String> receivedDirectTargets = new ArrayList<>();
+        List<ConnectionId> cleanupOrder = new ArrayList<>();
+        ConnectionRouting routing = ConnectionRouting.routed(
+            String.class,
+            (descriptor, directTarget) -> {
+                receivedDirectTargets.add(directTarget.internal());
+                String routeEndpoint = "route-secret-" + descriptor.sourceComponentId();
+                return ConnectionRoute.routed(
+                    binding(routeEndpoint, routeEndpoint + "-external"),
+                    () -> {
+                        RuntimeConnectionSnapshot snapshot =
+                            registryRef.get().snapshot(descriptor.id());
+                        assertThat(snapshot.state()).isEqualTo(ConnectionState.STOPPING);
+                        assertThat(snapshot.directTargetAvailable()).isTrue();
+                        assertThat(snapshot.consumerTargetAvailable()).isFalse();
+                        cleanupOrder.add(descriptor.id());
+                    }
+                );
+            }
+        );
+        RuntimeConnectionRegistry registry = registry(
+            List.of(firstDeclaration, secondDeclaration),
+            journal,
+            routing
+        );
+        registryRef.set(registry);
+        RuntimeConnectionSnapshot declared = registry.snapshot(firstDeclaration.id());
+
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(
+                server.api,
+                binding("direct-secret-internal", "direct-secret-external")
+            )
+            .build();
+        var prepared = registry.prepareTargets(server, provider);
+        registry.bindTargets(prepared);
+
+        assertThat(receivedDirectTargets)
+            .containsExactly("direct-secret-internal", "direct-secret-internal");
+        assertThat(registry.resolve(first.api)).isEqualTo("route-secret-client-first");
+        assertThat(registry.resolve(second.api)).isEqualTo("route-secret-client-second");
+        assertThat(registry.connection(firstDeclaration.id()).directTarget().internal())
+            .isEqualTo("direct-secret-internal");
+        assertThat(registry.connection(firstDeclaration.id()).consumerTarget().internal())
+            .isEqualTo("route-secret-client-first");
+        assertThat(registry.snapshots())
+            .allSatisfy(snapshot -> {
+                assertThat(snapshot.routingMode()).isEqualTo(RoutingMode.ROUTED);
+                assertThat(snapshot.state()).isEqualTo(ConnectionState.RUNNING);
+                assertThat(snapshot.directTargetAvailable()).isTrue();
+                assertThat(snapshot.consumerTargetAvailable()).isTrue();
+            });
+        assertThat(declared)
+            .satisfies(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo(ConnectionState.DECLARED);
+                assertThat(snapshot.directTargetAvailable()).isFalse();
+                assertThat(snapshot.consumerTargetAvailable()).isFalse();
+            });
+
+        assertThat(registry.beginProviderCleanup(server)).isNull();
+        assertThat(cleanupOrder)
+            .containsExactly(secondDeclaration.id(), firstDeclaration.id());
+        registry.completeProviderCleanup(server);
+
+        assertThat(registry.snapshots())
+            .allSatisfy(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo(ConnectionState.STOPPED);
+                assertThat(snapshot.directTargetAvailable()).isFalse();
+                assertThat(snapshot.consumerTargetAvailable()).isFalse();
+            });
+        assertThat(new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
+            .snapshot()
+            .content())
+            .contains(
+                "mode=ROUTED",
+                "directTargetAvailable=true",
+                "consumerTargetAvailable=true"
+            )
+            .doesNotContain(
+                "direct-secret-internal",
+                "direct-secret-external",
+                "route-secret-client-first",
+                "route-secret-client-second"
+            );
+    }
+
+    @Test
+    void shouldRollBackPreparedRoutesWhenLaterRouteCreationFails() {
+        Client first = new Client("first");
+        Client second = new Client("second");
+        Client third = new Client("third");
+        Server server = new Server();
+        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
+        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        Connection<String> thirdDeclaration = Connection.connect(third.api, server.api);
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        IllegalStateException startupFailure =
+            new IllegalStateException("route creation failed");
+        IllegalStateException cleanupFailure =
+            new IllegalStateException("route cleanup failed");
+        AtomicInteger preparations = new AtomicInteger();
+        List<ConnectionId> cleanupOrder = new ArrayList<>();
+        ConnectionRouting routing = ConnectionRouting.routed(
+            String.class,
+            (descriptor, directTarget) -> {
+                if (preparations.incrementAndGet() == 3) {
+                    throw startupFailure;
+                }
+                return ConnectionRoute.routed(
+                    binding("route-secret", "route-secret-external"),
+                    () -> {
+                        cleanupOrder.add(descriptor.id());
+                        if (descriptor.id().equals(firstDeclaration.id())) {
+                            throw cleanupFailure;
+                        }
+                    }
+                );
+            }
+        );
+        RuntimeConnectionRegistry registry = registry(
+            List.of(firstDeclaration, secondDeclaration, thirdDeclaration),
+            journal,
+            routing
+        );
+        RuntimeBindings bindings = new RuntimeBindings(registry);
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct-secret", "direct-secret-external"))
+            .build();
+        registry.beginStartup();
+
+        assertThatThrownBy(() -> bindings.attach(server, provider))
+            .isSameAs(startupFailure)
+            .satisfies(failure ->
+                assertThat(failure.getSuppressed()).containsExactly(cleanupFailure)
+            );
+
+        assertThat(cleanupOrder)
+            .containsExactly(secondDeclaration.id(), firstDeclaration.id());
+        assertThat(registry.snapshots())
+            .allSatisfy(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+                assertThat(snapshot.directTargetAvailable()).isFalse();
+                assertThat(snapshot.consumerTargetAvailable()).isFalse();
+            });
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(FailureEvent.ConnectionMaterialization.class::isInstance)
+            .hasSize(3);
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
+            .hasSize(1);
+        assertThat(new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
+            .snapshot()
+            .content())
+            .doesNotContain(
+                "direct-secret",
+                "direct-secret-external",
+                "route-secret",
+                "route-secret-external"
+            );
+    }
+
+    @Test
+    void shouldFailOneConnectionAndCloseItsRouteExactlyOnce() {
+        Client client = new Client("cleanup");
+        Server server = new Server();
+        Connection<String> declaration = Connection.connect(client.api, server.api);
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        IllegalStateException cleanupFailure =
+            new IllegalStateException("owned route cleanup failed");
+        AtomicInteger cleanupCalls = new AtomicInteger();
+        RuntimeConnectionRegistry registry = registry(
+            List.of(declaration),
+            journal,
+            ConnectionRouting.routed(
+                String.class,
+                (descriptor, directTarget) -> ConnectionRoute.routed(
+                    binding("route", "route-external"),
+                    () -> {
+                        cleanupCalls.incrementAndGet();
+                        throw cleanupFailure;
+                    }
+                )
+            )
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+        registry.bindTargets(registry.prepareTargets(server, provider));
+
+        assertThat(registry.beginProviderCleanup(server)).isSameAs(cleanupFailure);
+        assertThat(registry.stopRemaining()).isNull();
+        registry.completeProviderCleanup(server);
+
+        assertThat(cleanupCalls).hasValue(1);
+        assertThat(registry.snapshot(declaration.id()))
+            .satisfies(snapshot -> {
+                assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+                assertThat(snapshot.directTargetAvailable()).isFalse();
+                assertThat(snapshot.consumerTargetAvailable()).isFalse();
+            });
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
+            .hasSize(1);
     }
 
     @Test
@@ -236,6 +479,18 @@ class RuntimeConnectionRegistryTest {
         return new RuntimeConnectionRegistry(
             declarations,
             new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
+        );
+    }
+
+    private static RuntimeConnectionRegistry registry(
+        List<ConnectionRef> declarations,
+        ScenarioJournal journal,
+        ConnectionRouting routing
+    ) {
+        return new RuntimeConnectionRegistry(
+            declarations,
+            new EnvironmentEventLog(journal, EnvironmentLogging.defaults()),
+            routing
         );
     }
 

@@ -31,13 +31,23 @@ final class RuntimeConnectionRegistry {
     private final IdentityHashMap<ProvidedPort<?>, List<RuntimeConnection<?>>> connectionsByProvided =
         new IdentityHashMap<>();
     private final EnvironmentEventLog eventLog;
+    private final ConnectionRouting routing;
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
         EnvironmentEventLog eventLog
     ) {
+        this(declarations, eventLog, ConnectionRouting.direct());
+    }
+
+    RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventLog eventLog,
+        ConnectionRouting routing
+    ) {
         Objects.requireNonNull(declarations, "declarations must not be null");
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.routing = Objects.requireNonNull(routing, "routing must not be null");
 
         List<RuntimeConnection<?>> materialized = new ArrayList<>(declarations.size());
         Map<ConnectionId, RuntimeConnection<?>> byId = new LinkedHashMap<>();
@@ -119,23 +129,30 @@ final class RuntimeConnectionRegistry {
         return connection.resolve(required);
     }
 
-    synchronized List<PreparedDirectTarget<?>> prepareDirectTargets(
+    synchronized List<RuntimeConnection.PreparedTargets<?>> prepareTargets(
         Component provider,
         ComponentRuntime<?> runtime
     ) {
         Objects.requireNonNull(provider, "provider must not be null");
         Objects.requireNonNull(runtime, "runtime must not be null");
-        List<PreparedDirectTarget<?>> prepared = new ArrayList<>();
-        for (RuntimeConnection<?> connection : targeting(provider)) {
-            prepared.add(prepareDirectTarget(connection, runtime));
+        List<RuntimeConnection.PreparedTargets<?>> prepared = new ArrayList<>();
+        try {
+            for (RuntimeConnection<?> connection : targeting(provider)) {
+                prepared.add(prepareTargets(connection, runtime));
+            }
+        } catch (RuntimeException | Error failure) {
+            rollbackPreparedRoutes(prepared, failure);
+            throw failure;
         }
         return List.copyOf(prepared);
     }
 
-    synchronized void bindDirectTargets(List<PreparedDirectTarget<?>> preparedTargets) {
+    synchronized void bindTargets(
+        List<RuntimeConnection.PreparedTargets<?>> preparedTargets
+    ) {
         Objects.requireNonNull(preparedTargets, "preparedTargets must not be null");
         Set<RuntimeConnection<?>> unique = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (PreparedDirectTarget<?> prepared : preparedTargets) {
+        for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
             Objects.requireNonNull(prepared, "prepared target must not be null");
             RuntimeConnection<?> registered = connectionsById.get(prepared.connection().id());
             if (registered != prepared.connection()) {
@@ -150,9 +167,9 @@ final class RuntimeConnectionRegistry {
                         + "' was prepared more than once"
                 );
             }
-            prepared.connection().validateCanBindDirectTarget();
+            validatePrepared(prepared);
         }
-        for (PreparedDirectTarget<?> prepared : preparedTargets) {
+        for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
             bindPrepared(prepared);
         }
         preparedTargets.forEach(prepared -> recordLifecycle(prepared.connection()));
@@ -174,14 +191,18 @@ final class RuntimeConnectionRegistry {
         }
     }
 
-    synchronized void beginProviderCleanup(Component provider) {
-        for (RuntimeConnection<?> connection : targeting(provider)) {
+    synchronized Throwable beginProviderCleanup(Component provider) {
+        List<RuntimeConnection<?>> targeted = targeting(provider);
+        for (RuntimeConnection<?> connection : targeted) {
             if (connection.state() == ConnectionState.RUNNING
                 || connection.state() == ConnectionState.STARTING) {
                 connection.beginStopping();
                 recordLifecycle(connection);
             }
         }
+        Throwable failure = closeRoutesReverse(targeted);
+        invalidateDirectTargets(targeted);
+        return failure;
     }
 
     synchronized void completeProviderCleanup(Component provider) {
@@ -203,7 +224,7 @@ final class RuntimeConnectionRegistry {
         }
     }
 
-    synchronized void stopRemaining() {
+    synchronized Throwable stopRemaining() {
         for (RuntimeConnection<?> connection : connections) {
             switch (connection.state()) {
                 case DECLARED -> {
@@ -213,18 +234,22 @@ final class RuntimeConnectionRegistry {
                 case STARTING, RUNNING -> {
                     connection.beginStopping();
                     recordLifecycle(connection);
-                    connection.completeStopping();
-                    recordLifecycle(connection);
                 }
-                case STOPPING -> {
-                    connection.completeStopping();
-                    recordLifecycle(connection);
-                }
+                case STOPPING -> {}
                 case FAILED, STOPPED -> {
                     // Failed connections are already terminal and unavailable.
                 }
             }
         }
+        Throwable failure = closeRoutesReverse(connections);
+        invalidateDirectTargets(connections);
+        for (RuntimeConnection<?> connection : connections) {
+            if (connection.state() == ConnectionState.STOPPING) {
+                connection.completeStopping();
+                recordLifecycle(connection);
+            }
+        }
+        return failure;
     }
 
     private RuntimeConnection<?> requireConnection(ConnectionId id) {
@@ -264,42 +289,56 @@ final class RuntimeConnectionRegistry {
             connection.declaration(),
             connection.descriptor(),
             connection.state(),
-            connection.routingMode()
+            connection.routingMode(),
+            connection.directTargetAvailable(),
+            connection.consumerTargetAvailable()
         );
     }
 
-    private static RuntimeConnection<?> materialize(ConnectionRef declaration) {
+    private RuntimeConnection<?> materialize(ConnectionRef declaration) {
         return switch (declaration) {
             case Connection<?> connection -> materializeTyped(connection);
         };
     }
 
-    private static <C> RuntimeConnection<C> materializeTyped(Connection<C> declaration) {
-        return new RuntimeConnection<>(declaration);
+    private <C> RuntimeConnection<C> materializeTyped(Connection<C> declaration) {
+        return new RuntimeConnection<>(declaration, routing.select(declaration));
     }
 
-    private static PreparedDirectTarget<?> prepareDirectTarget(
+    private static RuntimeConnection.PreparedTargets<?> prepareTargets(
         RuntimeConnection<?> connection,
         ComponentRuntime<?> runtime
     ) {
         return prepareTyped(connection, runtime);
     }
 
-    private static <C> PreparedDirectTarget<C> prepareTyped(
+    private static <C> RuntimeConnection.PreparedTargets<C> prepareTyped(
         RuntimeConnection<C> connection,
         ComponentRuntime<?> runtime
     ) {
         connection.validateCanBindDirectTarget();
         EndpointBinding<C> target = runtime.binding(connection.declaration().to());
-        return new PreparedDirectTarget<>(connection, target);
+        return connection.prepareTargets(target);
     }
 
-    private static void bindPrepared(PreparedDirectTarget<?> prepared) {
+    private static void validatePrepared(
+        RuntimeConnection.PreparedTargets<?> prepared
+    ) {
+        validatePreparedTyped(prepared);
+    }
+
+    private static <C> void validatePreparedTyped(
+        RuntimeConnection.PreparedTargets<C> prepared
+    ) {
+        prepared.connection().validateCanBind(prepared);
+    }
+
+    private static void bindPrepared(RuntimeConnection.PreparedTargets<?> prepared) {
         bindTyped(prepared);
     }
 
-    private static <C> void bindTyped(PreparedDirectTarget<C> prepared) {
-        prepared.connection().bindDirectTarget(prepared.target());
+    private static <C> void bindTyped(RuntimeConnection.PreparedTargets<C> prepared) {
+        prepared.connection().bindTargets(prepared);
     }
 
     private static void requireState(
@@ -314,13 +353,56 @@ final class RuntimeConnectionRegistry {
         }
     }
 
-    record PreparedDirectTarget<C>(
-        RuntimeConnection<C> connection,
-        EndpointBinding<C> target
+    private void rollbackPreparedRoutes(
+        List<RuntimeConnection.PreparedTargets<?>> prepared,
+        Throwable startupFailure
     ) {
-        PreparedDirectTarget {
-            connection = Objects.requireNonNull(connection, "connection must not be null");
-            target = Objects.requireNonNull(target, "target must not be null");
+        List<RuntimeConnection.PreparedTargets<?>> reverse = new ArrayList<>(prepared);
+        Collections.reverse(reverse);
+        for (RuntimeConnection.PreparedTargets<?> targets : reverse) {
+            try {
+                targets.closeRoute();
+            } catch (Exception | Error cleanupFailure) {
+                startupFailure.addSuppressed(cleanupFailure);
+                eventLog.connectionCleanupFailure(
+                    targets.connection().declaration(),
+                    cleanupFailure
+                );
+            }
+        }
+    }
+
+    private Throwable closeRoutesReverse(List<RuntimeConnection<?>> targeted) {
+        Throwable firstFailure = null;
+        List<RuntimeConnection<?>> reverse = new ArrayList<>(targeted);
+        Collections.reverse(reverse);
+        for (RuntimeConnection<?> connection : reverse) {
+            if (connection.state() != ConnectionState.STOPPING) {
+                continue;
+            }
+            try {
+                connection.closeRoute();
+            } catch (Exception | Error cleanupFailure) {
+                connection.fail();
+                recordLifecycle(connection);
+                eventLog.connectionCleanupFailure(
+                    connection.declaration(),
+                    cleanupFailure
+                );
+                firstFailure = EnvironmentRuntime.accumulate(
+                    firstFailure,
+                    cleanupFailure
+                );
+            }
+        }
+        return firstFailure;
+    }
+
+    private static void invalidateDirectTargets(List<RuntimeConnection<?>> targeted) {
+        for (RuntimeConnection<?> connection : targeted) {
+            if (connection.state() == ConnectionState.STOPPING) {
+                connection.invalidateDirectTarget();
+            }
         }
     }
 }

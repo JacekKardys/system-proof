@@ -58,6 +58,7 @@ class EnvironmentLifecycleTest {
         assertThat(declared.state()).isEqualTo(ConnectionState.DECLARED);
         assertThat(declared.routingMode()).isEqualTo(RoutingMode.DIRECT);
         assertThat(declared.directTargetAvailable()).isFalse();
+        assertThat(declared.consumerTargetAvailable()).isFalse();
 
         assertThatThrownBy(() -> environment.operations(client))
             .isInstanceOf(ComponentLifecycleException.class)
@@ -70,6 +71,7 @@ class EnvironmentLifecycleTest {
             .satisfies(connection -> {
                 assertThat(connection.state()).isEqualTo(ConnectionState.RUNNING);
                 assertThat(connection.directTargetAvailable()).isTrue();
+                assertThat(connection.consumerTargetAvailable()).isTrue();
             });
         assertThat(environment.diagnostics().content())
             .contains(
@@ -80,7 +82,8 @@ class EnvironmentLifecycleTest {
                 "protocol=http",
                 "mode=DIRECT",
                 "state=RUNNING",
-                "directTargetAvailable=true"
+                "directTargetAvailable=true",
+                "consumerTargetAvailable=true"
             )
             .doesNotContain(
                 "http://server.test:8080/api",
@@ -92,10 +95,12 @@ class EnvironmentLifecycleTest {
         assertThat(cleanup).containsExactly("client", "server");
         assertThat(declared.state()).isEqualTo(ConnectionState.DECLARED);
         assertThat(declared.directTargetAvailable()).isFalse();
+        assertThat(declared.consumerTargetAvailable()).isFalse();
         assertThat(environment.runtimeConnection(declared.id()))
             .satisfies(connection -> {
                 assertThat(connection.state()).isEqualTo(ConnectionState.STOPPED);
                 assertThat(connection.directTargetAvailable()).isFalse();
+                assertThat(connection.consumerTargetAvailable()).isFalse();
             });
         assertThatThrownBy(() -> environment.operations(client))
             .isInstanceOf(ComponentLifecycleException.class)

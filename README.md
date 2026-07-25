@@ -154,23 +154,34 @@ object identity, hash codes, or mapped ports. For example, `client-a[].api` and
 Each environment runtime materializes every logical declaration exactly once as a typed
 `RuntimeConnection<C>`. One environment-owned registry preserves topology declaration order,
 indexes runtime connections by `ConnectionId`, required port, provider, and provided port, and owns
-their lifecycle, routing mode, and direct targets. A provider still publishes an
-`EndpointBinding<C>`, but the registry binds that value once to each targeted runtime connection.
-Consumer resolution then follows the required port to its `RuntimeConnection` and returns the
-direct target's internal typed endpoint; it no longer resolves independently through the provider
-runtime.
+their lifecycle, routing mode, direct provider target, and effective consumer target. A provider
+still publishes one typed `EndpointBinding<C>`. The runtime retains it as `directTarget`, prepares
+the connection's `consumerTarget`, and commits both only after every connection targeting that
+provider is ready. Consumer resolution follows the required port to its `RuntimeConnection` and
+returns only the consumer target's internal typed endpoint; it never resolves independently through
+the provider runtime.
 
 The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
 communication and the external test-host endpoint needed by later gateway work. Endpoint values
 remain internal because they may contain credentials, aliases, or other secrets.
 `Environment.runtimeConnections()` and `Environment.runtimeConnection(ConnectionId)` expose only
-detached immutable snapshots with semantic metadata, lifecycle state, routing mode, and target
-availability.
+detached immutable snapshots with semantic metadata, lifecycle state, routing mode, and separate
+direct/consumer target availability.
 
-`DIRECT` is currently the only routing mode. It means the consumer receives the provider's internal
-endpoint directly; it does not claim gateway interposition or traffic observation. A later
-reroutable consumer endpoint can therefore be added to each existing `RuntimeConnection` without
-creating another connection registry or replacing the direct target.
+`DIRECT` makes the consumer target the direct provider binding and creates no routing resource.
+`ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
+The provider receives that connection's stable descriptor and direct binding, then returns the
+effective binding and an optional connection-owned resource. All routes for one provider are
+prepared before any targeted connection becomes `RUNNING`. Partial creation closes already prepared
+resources in reverse order and retains cleanup failures as suppressed. Normal cleanup first makes
+consumer targets unavailable, then closes routes in reverse order, and invalidates direct targets
+before provider cleanup completes.
+
+`ROUTED` means only that the consumer receives an interposed endpoint; it does not claim that
+traffic was observed. The protected environment runtime seam accepts `ConnectionRouting` without
+adding route or proxy declarations to the topology DSL. Issue #7 will use this seam to prove one
+real JVM `InteractionGateway`, container-to-JVM routing, and Testcontainers host exposure. Those
+transport mechanics, and the later `OBSERVED` semantics from issue #8, are not implemented here.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component

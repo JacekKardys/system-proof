@@ -61,6 +61,9 @@ final class RuntimeDiagnostics {
                 .append(" state=").append(connection.state())
                 .append(" directTargetAvailable=").append(
                     connection.directTargetAvailable()
+                )
+                .append(" consumerTargetAvailable=").append(
+                    connection.consumerTargetAvailable()
                 );
         }
         String renderedJournal = eventLog.render(snapshot).content();

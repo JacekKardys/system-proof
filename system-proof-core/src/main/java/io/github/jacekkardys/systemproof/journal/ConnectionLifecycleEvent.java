@@ -9,7 +9,9 @@ import io.github.jacekkardys.systemproof.model.RoutingMode;
 public record ConnectionLifecycleEvent(
     ConnectionDescriptor connection,
     ConnectionState state,
-    RoutingMode routingMode
+    RoutingMode routingMode,
+    boolean directTargetAvailable,
+    boolean consumerTargetAvailable
 ) implements ScenarioEvent {
     public ConnectionLifecycleEvent {
         connection = Objects.requireNonNull(connection, "connection must not be null");
