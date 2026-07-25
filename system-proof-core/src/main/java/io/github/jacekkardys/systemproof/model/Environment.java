@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
+import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.engine.EnvironmentRuntime;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 
@@ -23,7 +24,11 @@ public class Environment implements AutoCloseable {
     }
 
     public static Builder environment() {
-        return new Builder();
+        return environment(EnvironmentConfiguration.system());
+    }
+
+    public static Builder environment(EnvironmentConfiguration configuration) {
+        return new Builder(configuration);
     }
 
     public final List<Component> components() {
@@ -105,13 +110,73 @@ public class Environment implements AutoCloseable {
     public static class Builder {
         private final List<AbstractComponent<?, ?>> components = new ArrayList<>();
         private final List<ConnectionRef> connections = new ArrayList<>();
+        private final ComponentFactory componentFactory;
         private EnvironmentLogging logging = EnvironmentLogging.defaults();
 
-        protected Builder() {}
+        protected Builder() {
+            this(EnvironmentConfiguration.system());
+        }
+
+        protected Builder(EnvironmentConfiguration configuration) {
+            componentFactory = ComponentFactory.from(
+                Objects.requireNonNull(configuration, "configuration must not be null")
+            );
+        }
+
+        public <
+            C extends RuntimeConfig,
+            O,
+            T extends AbstractComponent<C, O>
+        > T component(Class<T> componentClass) {
+            return register(componentFactory.create(componentClass));
+        }
+
+        public <
+            C extends RuntimeConfig,
+            O,
+            T extends AbstractComponent<C, O>
+        > T component(String qualifier, Class<T> componentClass) {
+            return register(componentFactory.create(componentClass, qualifier));
+        }
+
+        public <
+            C extends RuntimeConfig,
+            O,
+            T extends AbstractComponent<C, O>
+        > T component(
+            Class<T> componentClass,
+            C configuration,
+            ComponentDriver<C, O> driver
+        ) {
+            return component(null, componentClass, configuration, driver);
+        }
+
+        public <
+            C extends RuntimeConfig,
+            O,
+            T extends AbstractComponent<C, O>
+        > T component(
+            String qualifier,
+            Class<T> componentClass,
+            C configuration,
+            ComponentDriver<C, O> driver
+        ) {
+            return register(AbstractComponent.component(
+                componentClass,
+                qualifier,
+                configuration,
+                driver
+            ));
+        }
 
         public Builder components(AbstractComponent<?, ?>... values) {
             components.addAll(List.of(Objects.requireNonNull(values, "components must not be null")));
             return this;
+        }
+
+        private <T extends AbstractComponent<?, ?>> T register(T component) {
+            components.add(component);
+            return component;
         }
 
         public <C> Builder connect(RequiredPort<C> from, ProvidedPort<C> to) {

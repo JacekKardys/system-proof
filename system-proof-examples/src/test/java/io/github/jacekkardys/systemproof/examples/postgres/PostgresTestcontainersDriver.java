@@ -13,7 +13,7 @@ import org.testcontainers.utility.DockerImageName;
 
 final class PostgresTestcontainersDriver
     extends TestcontainersDriver<
-        PostgresConfig.Runtime,
+        PostgresConfig,
         DatabaseOperations,
         PostgresComponent
     > {
@@ -27,7 +27,7 @@ final class PostgresTestcontainersDriver
 
     @Override
     protected ContainerPlan create(PostgresComponent component, DriverContext context) {
-        PostgresConfig.Runtime componentConfiguration = component.configuration();
+        PostgresConfig componentConfiguration = component.configuration();
         PortBinding jdbcPort = port(configuration.jdbcPort());
         DockerImageName dockerImage = DockerImageName.parse(configuration.image())
             .asCompatibleSubstituteFor(configuration.compatibleImage());

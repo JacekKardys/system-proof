@@ -10,38 +10,34 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.Secret;
 
 public interface JasminConfig
-    extends ComponentConfig<JasminConfig.Runtime, JasminConfig.Driver> {
+    extends ComponentConfig<JasminConfig.Driver> {
 
-    interface Runtime extends RuntimeConfig {
+    @NotNull(message = "SMPP bind mode must not be null")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_SMPP_BIND_MODE",
+        defaultValue = "transceiver"
+    )
+    SmppBindMode bindMode();
 
-        @NotNull(message = "SMPP bind mode must not be null")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_SMPP_BIND_MODE",
-            defaultValue = "transceiver"
-        )
-        SmppBindMode bindMode();
+    @NotBlank(message = "Jasmin admin username must not be blank")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_JASMIN_JCLI_USERNAME",
+        defaultValue = "jcliadmin"
+    )
+    String adminUsername();
 
-        @NotBlank(message = "Jasmin admin username must not be blank")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_JASMIN_JCLI_USERNAME",
-            defaultValue = "jcliadmin"
-        )
-        String adminUsername();
-
-        @NotNull(message = "Jasmin admin password must not be null")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_JASMIN_JCLI_PASSWORD",
-            defaultValue = "jclipwd"
-        )
-        Secret<String> adminPassword();
-    }
+    @NotNull(message = "Jasmin admin password must not be null")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_JASMIN_JCLI_PASSWORD",
+        defaultValue = "jclipwd"
+    )
+    Secret<String> adminPassword();
 
     interface Driver extends DriverConfig {
 

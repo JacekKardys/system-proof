@@ -283,10 +283,6 @@ class RuntimeConnectionRegistryTest {
             api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return type;
-        }
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -297,9 +293,5 @@ class RuntimeConnectionRegistryTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 }

@@ -7,12 +7,14 @@ Public contracts:
 - `Environment`: immutable topology, lifecycle, diagnostics, and reverse-order cleanup.
 - `Component` and `AbstractComponent<C, O>`: one component identity, typed immutable configuration,
   owned ports, driver, lifecycle state, and optional typed operations.
+- `@SystemComponent` and `ComponentConfig<D>`: declarative component type, driver, flattened
+  component configuration, and separate driver-only configuration.
 - `RequiredPort<C>`, `ProvidedPort<C>`, `Contract<C>`, `ConnectionId`, and `Connection<C>`:
   directional typed topology without runtime addresses.
 - `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
   runtime materialization per logical connection, without exposing endpoint values.
-- `ComponentDriver<C, O>`, component-scoped `DriverContext`, restricted `JournalContributions`, and
-  `ComponentRuntime<O>`: runtime materialization SPI.
+- `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
+  restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
 - `ScenarioJournal`, its sealed core-owned `ScenarioEvent` envelopes, `EvidenceCodec<T>`,
   `EvidenceSnapshot`, and immutable journal snapshots: the single authoritative structured
@@ -23,6 +25,28 @@ Public contracts:
 Core validates component ID uniqueness, port ownership and direction, contract/interaction/protocol
 compatibility, exactly one provider per required port, logging references, dependency cycles, and
 complete provided-port materialization.
+
+## Declarative component model
+
+Concrete component classes declare their stable `ComponentType` and driver with
+`@SystemComponent`. Core derives the component configuration and operations types from the direct
+`AbstractComponent<C, O>` superclass, then derives `D` from `C extends ComponentConfig<D>`. A single
+metadata boundary resolves these contracts through the driver hierarchy and validates all four
+types, the target declared by `ComponentBoundDriver<C, O, T>` when present, the component
+no-argument constructor, and the unique driver constructor accepting `D`. Testcontainers drivers
+implement this explicit component-bound SPI; unrelated generic base-driver parameters have no
+component-target meaning.
+
+`Environment.environment()` binds from a snapshot of system properties and environment variables.
+`Environment.environment(EnvironmentConfiguration)` accepts an explicit snapshot. Both expose
+`component(ComponentClass.class)` and `component("qualifier", ComponentClass.class)`. Materialization
+binds `C` and `D`, constructs the driver and component, initializes annotated ports, and only then
+adds the exact returned component instance to the builder.
+
+The lower-level `AbstractComponent.component(...)` overloads accept an already materialized
+configuration and `ComponentDriver<C, O>`. The explicit-`ComponentType` overload supports isolated
+tests and programmatically built configurations without adding factory methods or constructor DSLs
+to concrete component classes.
 
 `Connection<C>` is the immutable logical declaration. Its typed `ConnectionId` is derived
 deterministically from both component and local port identities. Each canonical endpoint uses

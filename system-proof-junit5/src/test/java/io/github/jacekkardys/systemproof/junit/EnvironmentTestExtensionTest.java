@@ -177,10 +177,6 @@ class EnvironmentTestExtensionTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 
     private static final class CleanupFailingComponent
@@ -198,10 +194,6 @@ class EnvironmentTestExtensionTest {
             );
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return TYPE;
-        }
     }
 
     private static final class Recording {

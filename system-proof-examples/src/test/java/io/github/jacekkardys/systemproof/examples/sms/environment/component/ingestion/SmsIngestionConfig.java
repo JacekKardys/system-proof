@@ -10,17 +10,14 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 public interface SmsIngestionConfig
-    extends ComponentConfig<SmsIngestionConfig.Runtime, SmsIngestionConfig.Driver> {
+    extends ComponentConfig<SmsIngestionConfig.Driver> {
 
-    public interface Runtime extends RuntimeConfig {
-        @NotBlank(message = "SMS ingestion path must not be blank")
-        @Pattern(regexp = "^/.*", message = "SMS ingestion path must start with '/'")
-        @ConfigurationSource(provider = Literal.class, value = "/v1/ingestion/sms")
-        String smsPath();
-    }
+    @NotBlank(message = "SMS ingestion path must not be blank")
+    @Pattern(regexp = "^/.*", message = "SMS ingestion path must start with '/'")
+    @ConfigurationSource(provider = Literal.class, value = "/v1/ingestion/sms")
+    String smsPath();
 
     public interface Driver extends DriverConfig {
         @NotBlank(message = "SMS ingestion image must not be blank")

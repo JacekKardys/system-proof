@@ -109,9 +109,5 @@ class ComponentStartPlanTest {
             provided = provides ? provides("provided", API, Invocation.INSTANCE, Http.INSTANCE) : null;
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return NODE;
-        }
     }
 }

@@ -22,12 +22,14 @@ class PortDeclarationsTest {
     void shouldConnectDifferentLocalNamesWithTheSameExplicitContract() {
         ClientComponent client = component(
             ClientComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
         );
         ServerComponent server = component(
             ServerComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -55,12 +57,14 @@ class PortDeclarationsTest {
     void shouldRejectEqualLocalNamesWithDifferentExplicitContracts() {
         DifferentContractClient client = component(
             DifferentContractClient.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
         );
         DifferentContractServer server = component(
             DifferentContractServer.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -81,12 +85,14 @@ class PortDeclarationsTest {
     void shouldRejectConnectionsWhoseGenericTypesDoNotMatch() {
         MismatchedContractComponent client = component(
             MismatchedContractComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
         );
         ServerComponent server = component(
             ServerComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -110,12 +116,14 @@ class PortDeclarationsTest {
     void shouldRejectMismatchedInteractionWithCompletePortDiagnostics() {
         MismatchedInteractionComponent client = component(
             MismatchedInteractionComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
         );
         ServerComponent server = component(
             ServerComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -140,12 +148,14 @@ class PortDeclarationsTest {
     void shouldRejectMismatchedProtocolWithCompletePortDiagnostics() {
         MismatchedProtocolComponent client = component(
             MismatchedProtocolComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
         );
         ServerComponent server = component(
             ServerComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -170,6 +180,7 @@ class PortDeclarationsTest {
     void shouldRejectAFieldWithoutConcreteGenericType() {
         assertThatThrownBy(() -> component(
             RawContractComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -184,6 +195,7 @@ class PortDeclarationsTest {
     void shouldRejectPortWithoutCommunication() {
         assertThatThrownBy(() -> component(
             MissingCommunicationComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -196,6 +208,7 @@ class PortDeclarationsTest {
     void shouldRejectPortWithoutExplicitContract() {
         assertThatThrownBy(() -> component(
             MissingContractComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -210,6 +223,7 @@ class PortDeclarationsTest {
     void shouldRejectBlankExplicitContract() {
         assertThatThrownBy(() -> component(
             BlankContractComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -224,6 +238,7 @@ class PortDeclarationsTest {
     void shouldRejectStartupPrerequisiteOnAProvidedPortField() {
         assertThatThrownBy(() -> component(
             InvalidStartupPrerequisiteComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -236,6 +251,7 @@ class PortDeclarationsTest {
     void shouldMaterializeCustomComposedCommunication() {
         CustomCommunicationComponent component = component(
             CustomCommunicationComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -250,6 +266,7 @@ class PortDeclarationsTest {
     void shouldRejectMultipleCommunicationAnnotations() {
         assertThatThrownBy(() -> component(
             AmbiguousCommunicationComponent.class,
+            SERVICE,
             null,
             new EmptyConfig(),
             UNUSED
@@ -273,10 +290,6 @@ class PortDeclarationsTest {
 
         private ClientComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class ServerComponent
@@ -287,10 +300,6 @@ class PortDeclarationsTest {
 
         private ServerComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class MismatchedContractComponent
@@ -301,10 +310,6 @@ class PortDeclarationsTest {
 
         private MismatchedContractComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class MismatchedInteractionComponent
@@ -315,10 +320,6 @@ class PortDeclarationsTest {
 
         private MismatchedInteractionComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class MismatchedProtocolComponent
@@ -329,10 +330,6 @@ class PortDeclarationsTest {
 
         private MismatchedProtocolComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class DifferentContractClient
@@ -343,10 +340,6 @@ class PortDeclarationsTest {
 
         private DifferentContractClient() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class DifferentContractServer
@@ -357,10 +350,6 @@ class PortDeclarationsTest {
 
         private DifferentContractServer() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class InvalidStartupPrerequisiteComponent
@@ -372,10 +361,6 @@ class PortDeclarationsTest {
 
         private InvalidStartupPrerequisiteComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     @SuppressWarnings("rawtypes")
@@ -387,10 +372,6 @@ class PortDeclarationsTest {
 
         private RawContractComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class MissingCommunicationComponent
@@ -400,10 +381,6 @@ class PortDeclarationsTest {
 
         private MissingCommunicationComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class MissingContractComponent
@@ -413,10 +390,6 @@ class PortDeclarationsTest {
 
         private MissingContractComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class BlankContractComponent
@@ -427,10 +400,6 @@ class PortDeclarationsTest {
 
         private BlankContractComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     @Documented
@@ -447,10 +416,6 @@ class PortDeclarationsTest {
 
         private CustomCommunicationComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 
     private static final class AmbiguousCommunicationComponent
@@ -462,9 +427,5 @@ class PortDeclarationsTest {
 
         private AmbiguousCommunicationComponent() {}
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVICE;
-        }
     }
 }

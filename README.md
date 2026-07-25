@@ -50,6 +50,86 @@ static, zero-argument `@EnvironmentDefinition` method returning its own type. Sy
 the closed topology before startup, starts dependencies in order, injects the exact returned object,
 and closes partial or complete startup in reverse order.
 
+## Component declarations
+
+A component is a concrete class. `@SystemComponent` owns its static kind and driver metadata, while
+the `AbstractComponent<C, O>` type arguments declare its component configuration and optional
+runtime operations:
+
+```java
+@SystemComponent(
+    type = "system-proof-smsc-simulator",
+    driver = SmscTestcontainersDriver.class
+)
+@Getter
+@Accessors(fluent = true)
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public final class SmscComponent
+    extends AbstractComponent<SmscConfig, UkarimSmscOperations> {
+
+    @PortContract("smpp")
+    @Communication.Smpp
+    private ProvidedPort<SmppEndpoint> smpp;
+}
+```
+
+Component configuration appears once and contains service-facing runtime values. Its type parameter
+associates a separate driver-only configuration:
+
+```java
+public interface SmscConfig extends ComponentConfig<SmscConfig.Driver> {
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_SMSC_SYSTEM_ID",
+        defaultValue = "sp-test"
+    )
+    String systemId();
+
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_SMSC_PASSWORD",
+        defaultValue = "password"
+    )
+    Secret<String> password();
+
+    interface Driver extends DriverConfig {
+        @ConfigurationSource(
+            provider = EnvironmentVariable.class,
+            key = "SYSTEM_PROOF_SMSC_SIMULATOR_IMAGE",
+            defaultValue = "system-proof-ukarim-smscsim:local"
+        )
+        String image();
+
+        @ConfigurationSource(provider = Literal.class, value = "2775")
+        int smppPort();
+    }
+}
+```
+
+Every configuration method retains its `@ConfigurationSource` and validation annotations. The
+environment builder binds both interfaces from one immutable `EnvironmentConfiguration`, constructs
+the declared driver, creates the component, initializes annotated ports, and registers the component
+only after all steps succeed:
+
+```java
+Environment.Builder environment = Environment.environment();
+SmscComponent smsc = environment.component(SmscComponent.class);
+JasminComponent jasmin = environment.component(JasminComponent.class);
+
+Environment.Builder isolated = Environment.environment(configuration);
+SmscComponent primary = isolated.component("primary", SmscComponent.class);
+SmscComponent secondary = isolated.component("secondary", SmscComponent.class);
+```
+
+The builder returns the exact instance retained by the topology and later runtime. Component classes
+do not know `ComponentFactory` or `Environment.Builder`. Core derives and validates the component
+configuration, operations, driver configuration, and driver through its generic hierarchy before
+binding values. Runtime technologies that bind to one concrete component declare that target
+through `ComponentBoundDriver<C, O, T>`; Testcontainers uses this explicit SPI. Tests and
+programmatic configuration can use the typed low-level
+`AbstractComponent.component(...)` path with an already prepared configuration and driver; this does
+not add a factory method or constructor DSL to the concrete component.
+
 ## Runtime model
 
 Each `AbstractComponent<C, O>` owns:
@@ -92,9 +172,9 @@ endpoint directly; it does not claim gateway interposition or traffic observatio
 reroutable consumer endpoint can therefore be added to each existing `RuntimeConnection` without
 creating another connection registry or replacing the direct target.
 
-External values enter through immutable `EnvironmentConfiguration`. One `ComponentFactory` owns
-that snapshot and binds annotated component and driver configuration interfaces. Secrets use
-`Secret<T>` and are redacted from diagnostics.
+External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
+that snapshot and binds the component and driver configuration interfaces declared by component
+metadata. Secrets use `Secret<T>` and are redacted from diagnostics.
 
 ## Diagnostics
 

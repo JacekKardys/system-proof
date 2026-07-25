@@ -7,7 +7,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.rabbitmq.RabbitMqConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.rabbitmq.RabbitMqConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
@@ -15,7 +14,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class RabbitMqTestcontainersDriver
-    extends TestcontainersDriver<Runtime, Void, RabbitMqComponent> {
+    extends TestcontainersDriver<RabbitMqConfig, Void, RabbitMqComponent> {
     private final Driver configuration;
 
     public RabbitMqTestcontainersDriver(@NonNull Driver configuration) {
@@ -25,7 +24,7 @@ public final class RabbitMqTestcontainersDriver
 
     @Override
     protected ContainerPlan create(RabbitMqComponent component, DriverContext context) {
-        Runtime componentConfiguration = component.configuration();
+        RabbitMqConfig componentConfiguration = component.configuration();
         PortBinding amqpPort = port(configuration.amqpPort());
         GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
             .withEnv(configuration.usernameVariable(), componentConfiguration.username())

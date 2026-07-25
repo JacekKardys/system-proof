@@ -11,7 +11,6 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.component.redi
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.UkarimSmscOperations;
 import io.github.jacekkardys.systemproof.junit.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.Environment;
 
 /** Complete SMS ingestion topology with operations on the exact component instances started by System Proof. */
@@ -43,22 +42,23 @@ public final class SmsExampleEnvironment extends Environment {
 
     @EnvironmentDefinition
     public static SmsExampleEnvironment define() {
-        ComponentFactory components = ComponentFactory.system();
-        SmscComponent smsc = SmscComponent.define(components);
-        JasminComponent jasmin = JasminComponent.define(components);
-        SmsIngestionComponent ingestion = SmsIngestionComponent.define(components);
-        PostgresComponent database = PostgresComponent.define(components);
-        RabbitMqComponent broker = RabbitMqComponent.define(components);
-        RedisComponent state = RedisComponent.define(components);
+        Environment.Builder environment = Environment.environment();
+        SmscComponent smsc = environment.component(SmscComponent.class);
+        JasminComponent jasmin = environment.component(JasminComponent.class);
+        SmsIngestionComponent ingestion = environment.component(SmsIngestionComponent.class);
+        PostgresComponent database = environment.component(PostgresComponent.class);
+        RabbitMqComponent broker = environment.component(RabbitMqComponent.class);
+        RedisComponent state = environment.component(RedisComponent.class);
+
+        environment
+            .connect(jasmin.smpp(), smsc.smpp())
+            .connect(jasmin.sms(), ingestion.sms())
+            .connect(ingestion.jdbc(), database.jdbc())
+            .connect(jasmin.amqp(), broker.amqp())
+            .connect(jasmin.redis(), state.redis());
 
         return new SmsExampleEnvironment(
-            Environment.environment()
-                .components(smsc, jasmin, ingestion, database, broker, state)
-                .connect(jasmin.smpp(), smsc.smpp())
-                .connect(jasmin.sms(), ingestion.sms())
-                .connect(ingestion.jdbc(), database.jdbc())
-                .connect(jasmin.amqp(), broker.amqp())
-                .connect(jasmin.redis(), state.redis()),
+            environment,
             smsc,
             jasmin,
             ingestion,

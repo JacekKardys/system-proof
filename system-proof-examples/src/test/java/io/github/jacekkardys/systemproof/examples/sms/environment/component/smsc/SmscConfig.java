@@ -10,34 +10,31 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.Secret;
 
 public interface SmscConfig
-    extends ComponentConfig<SmscConfig.Runtime, SmscConfig.Driver> {
+    extends ComponentConfig<SmscConfig.Driver> {
 
-    public interface Runtime extends RuntimeConfig {
-        @NotBlank(message = "SMPP system ID must not be blank")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_SMSC_SYSTEM_ID",
-            defaultValue = "sp-test"
-        )
-        String systemId();
+    @NotBlank(message = "SMPP system ID must not be blank")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_SMSC_SYSTEM_ID",
+        defaultValue = "sp-test"
+    )
+    String systemId();
 
-        @NotNull(message = "SMPP password must not be null")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_SMSC_PASSWORD",
-            defaultValue = "password"
-        )
-        Secret<String> password();
+    @NotNull(message = "SMPP password must not be null")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_SMSC_PASSWORD",
+        defaultValue = "password"
+    )
+    Secret<String> password();
 
-        @NotBlank(message = "SMSC control path must not be blank")
-        @Pattern(regexp = "^/.*", message = "SMSC control path must start with '/'")
-        @ConfigurationSource(provider = Literal.class, value = "/")
-        String controlPath();
-    }
+    @NotBlank(message = "SMSC control path must not be blank")
+    @Pattern(regexp = "^/.*", message = "SMSC control path must start with '/'")
+    @ConfigurationSource(provider = Literal.class, value = "/")
+    String controlPath();
 
     public interface Driver extends DriverConfig {
         @NotBlank(message = "SMSC simulator image must not be blank")

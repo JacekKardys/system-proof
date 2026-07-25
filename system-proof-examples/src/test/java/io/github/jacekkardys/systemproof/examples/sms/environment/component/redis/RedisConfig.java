@@ -10,20 +10,17 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 public interface RedisConfig
-    extends ComponentConfig<RedisConfig.Runtime, RedisConfig.Driver> {
+    extends ComponentConfig<RedisConfig.Driver> {
 
-    public interface Runtime extends RuntimeConfig {
-        @PositiveOrZero(message = "Redis database ID must not be negative")
-        @ConfigurationSource(
-            provider = EnvironmentVariable.class,
-            key = "SYSTEM_PROOF_EXAMPLE_REDIS_DATABASE_ID",
-            defaultValue = "1"
-        )
-        int databaseId();
-    }
+    @PositiveOrZero(message = "Redis database ID must not be negative")
+    @ConfigurationSource(
+        provider = EnvironmentVariable.class,
+        key = "SYSTEM_PROOF_EXAMPLE_REDIS_DATABASE_ID",
+        defaultValue = "1"
+    )
+    int databaseId();
 
     public interface Driver extends DriverConfig {
         @NotBlank(message = "Redis image must not be blank")

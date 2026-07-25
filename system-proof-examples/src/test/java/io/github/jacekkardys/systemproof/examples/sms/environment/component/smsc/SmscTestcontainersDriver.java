@@ -10,7 +10,6 @@ import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Driver;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
@@ -19,7 +18,7 @@ import io.github.jacekkardys.systemproof.testcontainers.component.StartedContain
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
 
 public final class SmscTestcontainersDriver
-    extends TestcontainersDriver<Runtime, UkarimSmscOperations, SmscComponent> {
+    extends TestcontainersDriver<SmscConfig, UkarimSmscOperations, SmscComponent> {
     private final Driver configuration;
 
     public SmscTestcontainersDriver(@NonNull Driver configuration) {

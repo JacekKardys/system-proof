@@ -91,10 +91,6 @@ class EnvironmentTopologyTest {
             api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return CLIENT;
-        }
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -105,9 +101,5 @@ class EnvironmentTopologyTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
-        @Override
-        protected ComponentType componentType() {
-            return SERVER;
-        }
     }
 }
