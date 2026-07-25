@@ -9,7 +9,7 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.component.post
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.rabbitmq.RabbitMqComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.redis.RedisComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscComponent;
-import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscOperations;
+import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.UkarimSmscOperations;
 import io.github.jacekkardys.systemproof.junit.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.ComponentFactory;
 import io.github.jacekkardys.systemproof.model.Environment;
@@ -66,7 +66,7 @@ public final class SmsExampleEnvironment extends Environment {
         );
     }
 
-    public SmscOperations smsc() {
+    public UkarimSmscOperations smsc() {
         return operations(smsc);
     }
 

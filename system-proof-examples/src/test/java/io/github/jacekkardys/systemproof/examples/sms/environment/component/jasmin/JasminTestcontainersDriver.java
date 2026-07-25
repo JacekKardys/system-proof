@@ -49,7 +49,10 @@ public final class JasminTestcontainersDriver
                 configuration.configurationOption(),
                 configuration.configurationPath()
             )
-            .waitingFor(Wait.forListeningPort().withStartupTimeout(configuration.startupTimeout()));
+            .waitingFor(
+                Wait.forLogMessage(".*jCli Started\\.\\s*\\n", 1)
+                    .withStartupTimeout(configuration.startupTimeout())
+            );
         return ContainerPlan.container(container)
             .provides(
                 component.administration(),

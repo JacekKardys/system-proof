@@ -7,6 +7,7 @@ import lombok.NonNull;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
+import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionConfig.Driver;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionConfig.Runtime;
 import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
@@ -28,7 +29,7 @@ public final class SmsIngestionTestcontainersDriver
     protected ContainerPlan create(SmsIngestionComponent component, DriverContext context) {
         JdbcEndpoint database = context.resolve(component.jdbc());
         PortBinding httpPort = port(configuration.httpPort());
-        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
+        GenericContainer<?> container = referenceContainer()
             .withEnv(configuration.databaseUrlVariable(), database.url())
             .withEnv(configuration.databaseUsernameVariable(), database.username())
             .withEnv(configuration.databasePasswordVariable(), database.password().reveal())
@@ -44,5 +45,12 @@ public final class SmsIngestionTestcontainersDriver
                 address -> URI.create(address.value())
             )
             .build();
+    }
+
+    private GenericContainer<?> referenceContainer() {
+        if (ReferenceImages.INGESTION.equals(configuration.image())) {
+            return new GenericContainer<>(ReferenceImages.ingestion());
+        }
+        return new GenericContainer<>(DockerImageName.parse(configuration.image()));
     }
 }

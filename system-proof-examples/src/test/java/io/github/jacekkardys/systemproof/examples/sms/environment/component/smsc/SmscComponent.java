@@ -16,7 +16,7 @@ import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
 @Getter
 @Accessors(fluent = true)
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
-public final class SmscComponent extends AbstractComponent<SmscConfig.Runtime, SmscOperations> {
+public final class SmscComponent extends AbstractComponent<SmscConfig.Runtime, UkarimSmscOperations> {
 
     @Communication.Smpp
     private ProvidedPort<SmppEndpoint> smpp;
@@ -34,6 +34,6 @@ public final class SmscComponent extends AbstractComponent<SmscConfig.Runtime, S
 
     @Override
     protected ComponentType componentType() {
-        return ComponentType.of("smsc");
+        return ComponentType.of("system-proof-smsc-simulator");
     }
 }

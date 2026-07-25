@@ -13,10 +13,12 @@ The example uses `postgres:17.6-alpine` by default. Override it with
 
 ## Complete SMS ingestion example
 
-`SmsIngestionSmokeIT` retains the complete multi-component system scenario:
+`SmsIngestionSmokeIT` retains the complete multi-component system scenario as a baseline smoke
+test:
 
 ```text
-SMSC simulator
+system-proof-smsc-simulator (logical component)
+  -> adapted ukarim/smscsim fixture
   -> SMPP deliver_sm
   -> Jasmin 0.11
   -> POST /v1/ingestion/sms
@@ -29,22 +31,44 @@ Its environment contains the SMSC simulator, Jasmin, ingestion service, PostgreS
 Redis components together with their drivers, configuration, bootstrap, operations, and typed
 connections.
 
-The scenario sends one SMS, waits for one correlated `deliver_sm_resp`, and verifies one RAW row,
-one correlated Outbox row, matching aggregate ID, persisted message fields, session identity,
-sequence numbers, command status, and event ordering.
+The scenario waits until the real `ukarim/smscsim` control page lists Jasmin's bound system ID,
+submits one uniquely identifiable MO through its form, and verifies one matching RAW row, one
+matching Outbox row, equal RAW and aggregate IDs, and the normalized message fields.
 
-As before, it does not assert temporal ordering between the SMPP acknowledgement and the database
-commit. The T1 acknowledgement invariant remains deferred until the system exposes a deterministic
-observation boundary.
+This is not proof of T1. It does not establish ordering between the PostgreSQL commit and the SMPP
+acknowledgement. Upstream logs that `deliver_sm_resp` arrived, but its stable API exposes neither
+the response status nor sequence number. The smoke does not parse container logs or treat control
+plane success as an SMPP acknowledgement. The accepted T1 evidence and success boundary are
+defined in
+[`docs/adr/0001-t1-proof-contract.md`](../docs/adr/0001-t1-proof-contract.md).
 
-Default images:
+Default dependency images:
 
 - `postgres:17.6-alpine`
 - `rabbitmq:4.1.2-management-alpine`
 - `redis:8.0.3-alpine`
-- `system-proof-ingestion-service:local`
-- `system-proof-smsc-simulator:local`
 - `jookies/jasmin:0.11.0`
+
+The reference SUT lives under `apps/`:
+
+- `system-proof-ingestion-service`: Spring Boot HTTP ingress with Flyway-managed
+  `raw_sms_event` and `outbox_event` tables written in one transaction. It decodes Jasmin's UCS2
+  `binary` form field at the HTTP boundary and returns `ACK/Jasmin` only after the transactional
+  service call completes.
+
+The logical `system-proof-smsc-simulator` component is implemented at runtime by a minimally
+adapted [`ukarim/smscsim`](https://github.com/ukarim/smscsim) fixture. Its Docker build is under
+`fixtures/ukarim-smscsim` and pins upstream commit
+`4975a569f7be11a89f9c381494f42ccf55fd49d3`. The separate
+`patches/0001-empty-deliver-sm-service-type.patch` changes only the invalid
+`deliver_sm.service_type`: it emits an empty C-Octet String, selecting the SMSC default service.
+The build runs `service_type_test.go` against the generated PDU before compiling the image.
+
+During the root reactor's `verify` phase, the ingestion JAR is packaged first and the drivers build
+`system-proof-ingestion-service:local` from that artifact and
+`system-proof-ukarim-smscsim:local` from the pinned upstream source and patch. A clean checkout
+therefore does not need either image in a registry or local Docker cache. Explicit image overrides
+still use the supplied image without rebuilding it.
 
 Image overrides:
 
@@ -52,7 +76,7 @@ Image overrides:
 - `SYSTEM_PROOF_EXAMPLE_RABBITMQ_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_REDIS_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_IMAGE`
-- `SYSTEM_PROOF_EXAMPLE_SMSC_SIMULATOR_IMAGE`
+- `SYSTEM_PROOF_SMSC_SIMULATOR_IMAGE`
 - `SYSTEM_PROOF_EXAMPLE_JASMIN_IMAGE`
 
 The ingestion container's database environment-variable names are configurable through:
@@ -61,7 +85,8 @@ The ingestion container's database environment-variable names are configurable t
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_USERNAME_VARIABLE`
 - `SYSTEM_PROOF_EXAMPLE_INGESTION_DATABASE_PASSWORD_VARIABLE`
 
-This allows an existing service image with a different environment contract to run unchanged.
+Their defaults are `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`. The overrides
+allow another service image with a different environment contract to run unchanged.
 
 ## Running
 
@@ -76,3 +101,10 @@ Run both examples with Docker:
 ```bash
 ./mvnw clean verify
 ```
+
+The adapted fixture retains upstream's intentionally small SMPP 3.4 subset and does not validate
+incoming PDUs. Its control plane exposes `GET /` and the `POST /` MO form on port `12775`; SMPP is
+on port `2775`. The POST finishes after writing `deliver_sm`, not after a correlated response.
+`deliver_sm_resp` remains diagnostic until a future independent `InteractionGateway` provides
+structured protocol evidence. See [`docs/third-party.md`](../docs/third-party.md) for the MIT
+attribution, exact pin, patch, and complete limitations.

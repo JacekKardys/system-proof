@@ -6,13 +6,15 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 ## Modules
 
 ```text
-system-proof-core <- system-proof-junit5
-        ^
-        |
-system-proof-testcontainers
-        ^
-        |
-system-proof-examples
+system-proof-examples -> system-proof-junit5        -> system-proof-core
+        |------------> system-proof-testcontainers -> system-proof-core
+        `------------------------------------------> system-proof-core
+
+system-proof-examples/apps
+        `-> system-proof-ingestion-service
+
+system-proof-examples/fixtures
+        `-> ukarim-smscsim
 ```
 
 - `system-proof-core`: typed components, ports, connections, lifecycle, logging, and diagnostics.
@@ -20,9 +22,13 @@ system-proof-examples
   failure artifacts.
 - `system-proof-testcontainers`: container-backed drivers and runtime port bindings.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
+- `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
+- `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
 
 Core is independent of JUnit and Testcontainers. The JUnit 5 module is independent of
-Testcontainers.
+Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
+`Junit5ModuleBoundaryTest` and recorded with the T1 baseline in
+[`docs/adr/0001-t1-proof-contract.md`](docs/adr/0001-t1-proof-contract.md).
 
 ## Minimal test
 
@@ -83,6 +89,16 @@ Java 21 and the Maven Wrapper are required:
 ./mvnw clean verify
 ```
 
-`clean test` runs unit tests without Docker. `clean verify` also runs the PostgreSQL and complete
-SMS-ingestion examples through Failsafe. It requires Docker and the local SMS service images
-documented in `system-proof-examples/README.md`.
+`clean test` runs unit tests without Docker. `clean verify` also runs the transactional ingestion
+test, PostgreSQL example, and complete SMS-ingestion topology through Failsafe. It requires Docker.
+The reference ingestion image and adapted `ukarim/smscsim` fixture image are built during
+verification. The SMSC build fetches an exact upstream commit and applies the reviewed patch stored
+in this repository. No prebuilt application image or manually provisioned local tag is required.
+
+## Continuous integration
+
+The `Verify` workflow runs `./mvnw clean verify` with Java 21 and Docker on a GitHub-hosted Ubuntu
+runner. The same job executes unit and architecture tests, both Docker integration tests, builds
+the reference ingestion application and adapted SMSC fixture, and runs the complete topology
+smoke. Third-party source, license, pin, and patch details are recorded in
+[`docs/third-party.md`](docs/third-party.md).
