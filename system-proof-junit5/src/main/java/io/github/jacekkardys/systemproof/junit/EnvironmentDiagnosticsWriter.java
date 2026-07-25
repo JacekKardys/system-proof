@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import lombok.experimental.UtilityClass;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 
-/** Persists the shared environment event log under the current JUnit scenario. */
+/** Persists the rendered environment journal view under the current JUnit scenario. */
 @UtilityClass
 final class EnvironmentDiagnosticsWriter {
     static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";

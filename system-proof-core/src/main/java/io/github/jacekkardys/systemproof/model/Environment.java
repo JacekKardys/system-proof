@@ -6,6 +6,7 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.engine.EnvironmentRuntime;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 
 /** Small public facade over an immutable topology and one internal runtime execution. */
 public class Environment implements AutoCloseable {
@@ -60,6 +61,11 @@ public class Environment implements AutoCloseable {
 
     public final EnvironmentDiagnostics diagnostics() {
         return runtime.diagnostics();
+    }
+
+    /** Captures a detached immutable snapshot of the scenario's structured journal. */
+    public final ScenarioJournalSnapshot journalSnapshot() {
+        return runtime.journalSnapshot();
     }
 
     protected final <C extends RuntimeConfig, O> O operations(

@@ -24,7 +24,7 @@ final class DriverServices implements DriverContext {
     private final EnvironmentEventLog eventLog;
     private final IdentityHashMap<DriverResourceKey<?>, AutoCloseable> sharedResources =
         new IdentityHashMap<>();
-    private final List<AutoCloseable> sharedResourceOrder = new ArrayList<>();
+    private final List<SharedResource> sharedResourceOrder = new ArrayList<>();
 
     DriverServices(
         RuntimeBindings bindings,
@@ -56,7 +56,7 @@ final class DriverServices implements DriverContext {
         }
         R resource = Objects.requireNonNull(factory.get(), "shared resource factory returned null");
         sharedResources.put(key, resource);
-        sharedResourceOrder.add(resource);
+        sharedResourceOrder.add(new SharedResource(key.name(), resource));
         return resource;
     }
 
@@ -69,7 +69,7 @@ final class DriverServices implements DriverContext {
     @Override
     public String componentEvents(Component component) {
         requireContained(component);
-        return eventLog.componentSnapshot(component);
+        return eventLog.componentSnapshot(component.id());
     }
 
     @Override
@@ -80,17 +80,13 @@ final class DriverServices implements DriverContext {
 
     synchronized Throwable closeSharedResources() {
         Throwable firstFailure = null;
-        List<AutoCloseable> reverse = new ArrayList<>(sharedResourceOrder);
+        List<SharedResource> reverse = new ArrayList<>(sharedResourceOrder);
         Collections.reverse(reverse);
-        for (AutoCloseable resource : reverse) {
+        for (SharedResource resource : reverse) {
             try {
-                resource.close();
+                resource.value().close();
             } catch (Exception | Error failure) {
-                eventLog.framework(
-                    LogLevel.ERROR,
-                    "Driver resource cleanup failed: " + failure.getClass().getSimpleName()
-                        + EnvironmentRuntime.messageSuffix(failure)
-                );
+                eventLog.driverResourceCleanupFailure(resource.name(), failure);
                 firstFailure = EnvironmentRuntime.accumulate(firstFailure, failure);
             }
         }
@@ -106,4 +102,6 @@ final class DriverServices implements DriverContext {
             );
         }
     }
+
+    private record SharedResource(String name, AutoCloseable value) {}
 }

@@ -70,8 +70,25 @@ that snapshot and binds annotated component and driver configuration interfaces.
 
 ## Diagnostics
 
-Every environment owns one monotonic `T+HH:mm:ss.SSS` timeline containing framework events,
-connections, component lifecycle, container output, bootstrap messages, and cleanup failures.
+Every environment owns exactly one append-only `ScenarioJournal`. It is the authoritative
+structured history for environment and component lifecycle transitions, failures, diagnostics,
+and future interaction, checkpoint, and disruption evidence. `Environment.journalSnapshot()`
+returns a detached immutable snapshot for typed assertions without exposing mutable journal
+storage.
+
+Textual environment logs are rendered views of one captured journal snapshot. They retain the
+readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
+components, container output, bootstrap messages, and cleanup failures, but own no independent
+event history. Logging thresholds control only SLF4J emission; lower-level events remain in the
+journal and therefore remain available to failure diagnostics.
+
+`journalSequence` is a one-based position local to one journal. It provides unique storage order
+and deterministic rendering only. It is not a wall-clock or distributed sequence, an
+`EvidencePosition`, or proof that one external event caused or happened before another.
+Diagnostic timestamps and rendered or container log-line order likewise establish no causal
+relationship. Future causal proof requires typed protocol evidence with stream-local positions
+and explicit semantic barriers.
+
 Failed JUnit tests write:
 
 ```text

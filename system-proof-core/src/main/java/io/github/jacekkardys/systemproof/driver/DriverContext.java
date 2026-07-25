@@ -6,7 +6,7 @@ import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 
-/** Topology, logging, and shared-resource services available only to drivers. */
+/** Topology, journal-backed diagnostics, and shared-resource services available only to drivers. */
 public interface DriverContext {
     <T> T resolve(RequiredPort<T> required);
 

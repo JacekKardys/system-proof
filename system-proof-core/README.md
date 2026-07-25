@@ -11,8 +11,10 @@ Public contracts:
   topology without runtime addresses.
 - `ComponentDriver<C, O>`, `DriverContext`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
-- `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: retained
-  evidence and failure reporting.
+- `ScenarioJournal`, typed `ScenarioEvent` categories, and immutable snapshots: the single
+  authoritative structured scenario history.
+- `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: rendered
+  journal views and failure reporting.
 
 Core validates component ID uniqueness, port ownership and direction, contract/interaction/protocol
 compatibility, exactly one provider per required port, logging references, dependency cycles, and
@@ -24,5 +26,8 @@ runtime binding to materialize its driver. It attaches each runtime to the same 
 resources. A partial startup failure keeps the original failure primary and adds cleanup failures
 as suppressed exceptions. Operations outside `RUNNING` fail with component identity, type, actual
 state, and expected state.
+
+`journalSequence` is local storage/rendering order only. Diagnostic elapsed time and rendered log
+order are not causal evidence.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

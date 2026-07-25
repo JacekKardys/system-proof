@@ -87,7 +87,9 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
 
 - `SmsIngestionSmokeIT` remains a smoke/baseline test and must not be presented as proof of T1.
 - This baseline task changes no production behavior and no public framework API.
-- `ScenarioJournal`, runtime connections, `InteractionGateway`, protocol evidence, barriers, and
-  fault injection remain separate roadmap tasks.
+- `ScenarioJournal` now supplies the single structured history required by later evidence work,
+  without claiming causality from its storage sequence or diagnostic time.
+- Runtime connections, `InteractionGateway`, protocol evidence, barriers, and fault injection
+  remain separate roadmap tasks.
 - A future T1 test that lacks any required evidence above is incomplete even if it is repeatably
   green.

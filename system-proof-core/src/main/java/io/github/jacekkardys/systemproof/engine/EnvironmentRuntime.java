@@ -10,28 +10,30 @@ import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.ComponentLifecycleException;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 /** Owns one environment execution: start, readiness, operations, diagnostics, stop, and cleanup. */
 public final class EnvironmentRuntime {
     private final List<AbstractComponent<?, ?>> components;
     private final List<AbstractComponent<?, ?>> startOrder;
     private final List<ConnectionRef> connections;
-    private final EnvironmentLogging logging;
     private final RuntimeBindings bindings;
     private final Map<Component, ComponentState> componentStates = new IdentityHashMap<>();
     private final List<AbstractComponent<?, ?>> started = new ArrayList<>();
+    private final ScenarioJournal journal;
+    private final EnvironmentEventLog eventLog;
+    private final RuntimeDiagnostics diagnostics;
     private EnvironmentState state = EnvironmentState.DECLARED;
-    private RuntimeDiagnostics diagnostics;
     private DriverServices driverServices;
 
     public EnvironmentRuntime(
@@ -42,26 +44,27 @@ public final class EnvironmentRuntime {
         components = topology.componentDefinitions();
         startOrder = ComponentStartPlan.order(components, topology::connectionFrom);
         connections = topology.connections();
-        this.logging = Objects.requireNonNull(logging, "logging must not be null");
+        logging = Objects.requireNonNull(logging, "logging must not be null");
         bindings = new RuntimeBindings(topology::connectionFrom);
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
+        journal = new ScenarioJournal();
+        eventLog = new EnvironmentEventLog(journal, logging);
+        diagnostics = new RuntimeDiagnostics(journal, eventLog);
     }
 
     public synchronized void start() {
         if (state != EnvironmentState.DECLARED) {
             throw new IllegalStateException("Environment cannot start from state " + state);
         }
-        state = EnvironmentState.STARTING;
-        diagnostics = new RuntimeDiagnostics(new EnvironmentEventLog(logging));
+        transitionEnvironment(EnvironmentState.STARTING);
         driverServices = new DriverServices(
             bindings,
             this::contains,
             this::componentState,
-            diagnostics.eventLog()
+            eventLog
         );
         try {
-            diagnostics.eventLog().framework(LogLevel.INFO, "Starting environment");
-            connections.forEach(connection -> diagnostics.eventLog().connection(
+            connections.forEach(connection -> eventLog.connection(
                 connection,
                 LogLevel.INFO,
                 "Declared " + connection.from().qualifiedName() + " -> " + connection.to().qualifiedName()
@@ -69,21 +72,17 @@ public final class EnvironmentRuntime {
             for (AbstractComponent<?, ?> component : startOrder) {
                 startComponent(component);
             }
-            state = EnvironmentState.RUNNING;
-            diagnostics.eventLog().framework(LogLevel.INFO, "Environment started");
+            transitionEnvironment(EnvironmentState.RUNNING);
         } catch (RuntimeException | Error failure) {
-            state = EnvironmentState.FAILED;
-            diagnostics.eventLog().framework(
-                LogLevel.ERROR,
-                "Environment startup failed: " + failure.getClass().getSimpleName()
-                    + messageSuffix(failure)
-            );
-            Throwable cleanupFailure = cleanup("Environment stopped after startup failure");
+            transitionEnvironment(EnvironmentState.FAILED);
+            eventLog.environmentStartupFailure(failure);
+            Throwable cleanupFailure = cleanup();
             if (cleanupFailure != null) {
                 failure.addSuppressed(cleanupFailure);
             }
+            eventLog.framework(LogLevel.INFO, "Environment stopped after startup failure");
             EnvironmentDiagnostics captured = diagnostics();
-            state = EnvironmentState.STOPPED;
+            transitionEnvironment(EnvironmentState.STOPPED);
             throw new EnvironmentStartException(failure, captured);
         }
     }
@@ -118,15 +117,11 @@ public final class EnvironmentRuntime {
     }
 
     public synchronized EnvironmentDiagnostics diagnostics() {
-        if (diagnostics == null) {
-            StringBuilder content = new StringBuilder("[STATE] environment=").append(state);
-            components.forEach(component -> content.append(System.lineSeparator())
-                .append("[STATE] component=").append(component.id())
-                .append(" type=").append(component.type())
-                .append(" state=").append(componentState(component)));
-            return EnvironmentDiagnostics.diagnostics(content.toString());
-        }
         return diagnostics.capture(state, components, this::componentState);
+    }
+
+    public ScenarioJournalSnapshot journalSnapshot() {
+        return journal.snapshot();
     }
 
     public synchronized void close() {
@@ -134,16 +129,18 @@ public final class EnvironmentRuntime {
             return;
         }
         if (state == EnvironmentState.DECLARED) {
-            state = EnvironmentState.STOPPED;
+            transitionEnvironment(EnvironmentState.STOPPED);
             return;
         }
         if (state != EnvironmentState.RUNNING) {
             throw new IllegalStateException("Environment cannot close from state " + state);
         }
-        state = EnvironmentState.STOPPING;
-        diagnostics.eventLog().framework(LogLevel.INFO, "Stopping environment");
-        Throwable failure = cleanup("Environment stopped");
-        state = EnvironmentState.STOPPED;
+        transitionEnvironment(EnvironmentState.STOPPING);
+        Throwable failure = cleanup();
+        if (failure != null) {
+            transitionEnvironment(EnvironmentState.FAILED);
+        }
+        transitionEnvironment(EnvironmentState.STOPPED);
         if (failure != null) {
             rethrow(failure);
         }
@@ -152,13 +149,12 @@ public final class EnvironmentRuntime {
     private <C extends RuntimeConfig, O> void startComponent(
         AbstractComponent<C, O> component
     ) {
-        componentStates.put(component, ComponentState.STARTING);
-        diagnostics.eventLog().component(
+        transitionComponent(component, ComponentState.STARTING);
+        eventLog.component(
             component,
             LogLevel.DEBUG,
             "Configuration " + component.configuration()
         );
-        diagnostics.eventLog().component(component, LogLevel.INFO, "Starting component");
         ComponentRuntime<O> runtime = null;
         try {
             runtime = Objects.requireNonNull(
@@ -168,14 +164,15 @@ public final class EnvironmentRuntime {
             bindings.attach(component, runtime);
             started.add(component);
             diagnostics.add(component, runtime.diagnostics());
-            componentStates.put(component, ComponentState.RUNNING);
-            diagnostics.eventLog().component(component, LogLevel.INFO, "Component ready");
+            transitionComponent(component, ComponentState.RUNNING);
         } catch (RuntimeException | Error failure) {
-            componentStates.put(component, ComponentState.FAILED);
+            transitionComponent(component, ComponentState.FAILED);
+            eventLog.componentStartupFailure(component, failure);
             if (runtime != null) {
                 try {
                     runtime.close();
                 } catch (Exception | Error cleanupFailure) {
+                    eventLog.componentCleanupFailure(component, cleanupFailure);
                     failure.addSuppressed(cleanupFailure);
                 }
             }
@@ -183,35 +180,38 @@ public final class EnvironmentRuntime {
         }
     }
 
-    private Throwable cleanup(String completedMessage) {
+    private Throwable cleanup() {
         Throwable firstFailure = null;
         List<AbstractComponent<?, ?>> reverse = new ArrayList<>(started);
         Collections.reverse(reverse);
         for (AbstractComponent<?, ?> component : reverse) {
-            diagnostics.eventLog().component(component, LogLevel.INFO, "Stopping component");
-            componentStates.put(component, ComponentState.STOPPING);
+            transitionComponent(component, ComponentState.STOPPING);
             try {
                 bindings.runtime(component).close();
-                diagnostics.eventLog().component(component, LogLevel.INFO, "Component stopped");
+                transitionComponent(component, ComponentState.STOPPED);
             } catch (Exception | Error failure) {
-                diagnostics.eventLog().component(
-                    component,
-                    LogLevel.ERROR,
-                    "Component cleanup failed: " + failure.getClass().getSimpleName()
-                        + messageSuffix(failure)
-                );
+                transitionComponent(component, ComponentState.FAILED);
+                eventLog.componentCleanupFailure(component, failure);
                 firstFailure = accumulate(firstFailure, failure);
             } finally {
                 bindings.detach(component);
-                componentStates.put(component, ComponentState.STOPPED);
             }
         }
         started.clear();
         if (driverServices != null) {
             firstFailure = accumulate(firstFailure, driverServices.closeSharedResources());
         }
-        diagnostics.eventLog().framework(LogLevel.INFO, completedMessage);
         return firstFailure;
+    }
+
+    private void transitionEnvironment(EnvironmentState next) {
+        state = next;
+        eventLog.environmentLifecycle(next);
+    }
+
+    private void transitionComponent(Component component, ComponentState next) {
+        componentStates.put(component, next);
+        eventLog.componentLifecycle(component, next);
     }
 
     private boolean contains(Component component) {
@@ -227,12 +227,6 @@ public final class EnvironmentRuntime {
         }
         first.addSuppressed(next);
         return first;
-    }
-
-    static String messageSuffix(Throwable failure) {
-        return failure.getMessage() == null || failure.getMessage().isBlank()
-            ? ""
-            : " - " + failure.getMessage();
     }
 
     private static void rethrow(Throwable failure) {
