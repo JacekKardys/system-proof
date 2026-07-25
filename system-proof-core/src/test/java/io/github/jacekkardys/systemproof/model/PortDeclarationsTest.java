@@ -19,7 +19,7 @@ class PortDeclarationsTest {
     };
 
     @Test
-    void shouldMaterializeAnnotatedRequiredAndProvidedPorts() {
+    void shouldConnectDifferentLocalNamesWithTheSameExplicitContract() {
         ClientComponent client = component(
             ClientComponent.class,
             null,
@@ -33,16 +33,47 @@ class PortDeclarationsTest {
             UNUSED
         );
 
-        assertThat(client.ports()).containsExactly(client.api);
-        assertThat(server.ports()).containsExactly(server.api);
-        assertThat(client.api.direction()).isEqualTo(PortDirection.REQUIRED);
-        assertThat(client.api.requiredAtStartup()).isTrue();
-        assertThat(server.api.direction()).isEqualTo(PortDirection.PROVIDED);
-        assertThat(server.api.name()).isEqualTo("api");
-        assertThat(client.api.contract()).isEqualTo(server.api.contract());
-        assertThat(client.api.interaction().id()).isEqualTo("invocation");
-        assertThat(client.api.protocol().id()).isEqualTo("http");
-        assertThat(client.api.protocol().scheme()).isEqualTo("http");
+        Connection<Api> connection = Connection.connect(client.outboundApi, server.inboundApi);
+
+        assertThat(client.ports()).containsExactly(client.outboundApi);
+        assertThat(server.ports()).containsExactly(server.inboundApi);
+        assertThat(client.outboundApi.direction()).isEqualTo(PortDirection.REQUIRED);
+        assertThat(client.outboundApi.requiredAtStartup()).isTrue();
+        assertThat(server.inboundApi.direction()).isEqualTo(PortDirection.PROVIDED);
+        assertThat(client.outboundApi.name()).isEqualTo("outboundApi");
+        assertThat(server.inboundApi.name()).isEqualTo("inboundApi");
+        assertThat(client.outboundApi.contractId()).isEqualTo("api");
+        assertThat(client.outboundApi.contract()).isEqualTo(server.inboundApi.contract());
+        assertThat(client.outboundApi.interaction().id()).isEqualTo("invocation");
+        assertThat(client.outboundApi.protocol().id()).isEqualTo("http");
+        assertThat(client.outboundApi.protocol().scheme()).isEqualTo("http");
+        assertThat(connection.from()).isSameAs(client.outboundApi);
+        assertThat(connection.to()).isSameAs(server.inboundApi);
+    }
+
+    @Test
+    void shouldRejectEqualLocalNamesWithDifferentExplicitContracts() {
+        DifferentContractClient client = component(
+            DifferentContractClient.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+        DifferentContractServer server = component(
+            DifferentContractServer.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+
+        assertThat(client.api.name()).isEqualTo(server.api.name());
+        assertThatThrownBy(() -> Connection.connect(client.api, server.api))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("component='service'")
+            .hasMessageContaining("localName='api'")
+            .hasMessageContaining("contractId='client-api'")
+            .hasMessageContaining("contractId='server-api'")
+            .hasMessageContaining("contract id mismatch");
     }
 
     @Test
@@ -63,12 +94,76 @@ class PortDeclarationsTest {
 
         assertThatThrownBy(() -> Connection.connect(
             (RequiredPort) client.api,
-            (ProvidedPort) server.api
+            (ProvidedPort) server.inboundApi
         ))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("contract type mismatch")
+            .hasMessageContaining("component='service'")
+            .hasMessageContaining("localName='api'")
+            .hasMessageContaining("localName='inboundApi'")
+            .hasMessageContaining("contractId='api'")
             .hasMessageContaining(OtherApi.class.getName())
             .hasMessageContaining(Api.class.getName());
+    }
+
+    @Test
+    void shouldRejectMismatchedInteractionWithCompletePortDiagnostics() {
+        MismatchedInteractionComponent client = component(
+            MismatchedInteractionComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+        ServerComponent server = component(
+            ServerComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+
+        assertThatThrownBy(() -> Connection.connect(client.api, server.inboundApi))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining(
+                "component='service'",
+                "localName='api'",
+                "localName='inboundApi'",
+                "contractId='api'",
+                "contractType='" + Api.class.getName() + "'",
+                "interaction='messaging'",
+                "interaction='invocation'",
+                "protocol='http'"
+            )
+            .hasMessageContaining("required interaction 'messaging'");
+    }
+
+    @Test
+    void shouldRejectMismatchedProtocolWithCompletePortDiagnostics() {
+        MismatchedProtocolComponent client = component(
+            MismatchedProtocolComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+        ServerComponent server = component(
+            ServerComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        );
+
+        assertThatThrownBy(() -> Connection.connect(client.api, server.inboundApi))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining(
+                "component='service'",
+                "localName='api'",
+                "localName='inboundApi'",
+                "contractId='api'",
+                "contractType='" + Api.class.getName() + "'",
+                "interaction='invocation'",
+                "protocol='grpc'",
+                "protocol='http'"
+            )
+            .hasMessageContaining("required protocol 'grpc'");
     }
 
     @Test
@@ -95,6 +190,34 @@ class PortDeclarationsTest {
         ))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("must declare @Communication");
+    }
+
+    @Test
+    void shouldRejectPortWithoutExplicitContract() {
+        assertThatThrownBy(() -> component(
+            MissingContractComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Port field '")
+            .hasMessageContaining("api")
+            .hasMessageContaining("must declare @PortContract");
+    }
+
+    @Test
+    void shouldRejectBlankExplicitContract() {
+        assertThatThrownBy(() -> component(
+            BlankContractComponent.class,
+            null,
+            new EmptyConfig(),
+            UNUSED
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Port field '")
+            .hasMessageContaining("api")
+            .hasMessageContaining("must declare a non-blank @PortContract value");
     }
 
     @Test
@@ -144,8 +267,9 @@ class PortDeclarationsTest {
     private static final class ClientComponent
         extends AbstractComponent<EmptyConfig, Void> {
         @StartupPrerequisite
+        @PortContract("api")
         @Communication.Http
-        private RequiredPort<Api> api;
+        private RequiredPort<Api> outboundApi;
 
         private ClientComponent() {}
 
@@ -157,8 +281,9 @@ class PortDeclarationsTest {
 
     private static final class ServerComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         @Communication.Http
-        private ProvidedPort<Api> api;
+        private ProvidedPort<Api> inboundApi;
 
         private ServerComponent() {}
 
@@ -170,6 +295,7 @@ class PortDeclarationsTest {
 
     private static final class MismatchedContractComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         @Communication(interaction = "invocation", protocol = "http")
         private RequiredPort<OtherApi> api;
 
@@ -181,9 +307,66 @@ class PortDeclarationsTest {
         }
     }
 
+    private static final class MismatchedInteractionComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
+        @Communication(interaction = "messaging", protocol = "http")
+        private RequiredPort<Api> api;
+
+        private MismatchedInteractionComponent() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
+    private static final class MismatchedProtocolComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
+        @Communication(interaction = "invocation", protocol = "grpc")
+        private RequiredPort<Api> api;
+
+        private MismatchedProtocolComponent() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
+    private static final class DifferentContractClient
+        extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("client-api")
+        @Communication.Http
+        private RequiredPort<Api> api;
+
+        private DifferentContractClient() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
+    private static final class DifferentContractServer
+        extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("server-api")
+        @Communication.Http
+        private ProvidedPort<Api> api;
+
+        private DifferentContractServer() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
     private static final class InvalidStartupPrerequisiteComponent
         extends AbstractComponent<EmptyConfig, Void> {
         @StartupPrerequisite
+        @PortContract("api")
         @Communication(interaction = "invocation", protocol = "http")
         private ProvidedPort<Api> input;
 
@@ -198,6 +381,7 @@ class PortDeclarationsTest {
     @SuppressWarnings("rawtypes")
     private static final class RawContractComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         @Communication(interaction = "invocation", protocol = "http")
         private RequiredPort api;
 
@@ -211,9 +395,37 @@ class PortDeclarationsTest {
 
     private static final class MissingCommunicationComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         private RequiredPort<Api> api;
 
         private MissingCommunicationComponent() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
+    private static final class MissingContractComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        @Communication.Http
+        private RequiredPort<Api> api;
+
+        private MissingContractComponent() {}
+
+        @Override
+        protected ComponentType componentType() {
+            return SERVICE;
+        }
+    }
+
+    private static final class BlankContractComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("   ")
+        @Communication.Http
+        private RequiredPort<Api> api;
+
+        private BlankContractComponent() {}
 
         @Override
         protected ComponentType componentType() {
@@ -229,6 +441,7 @@ class PortDeclarationsTest {
 
     private static final class CustomCommunicationComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         @Grpc
         private ProvidedPort<Api> api;
 
@@ -242,6 +455,7 @@ class PortDeclarationsTest {
 
     private static final class AmbiguousCommunicationComponent
         extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
         @Communication.Http
         @Communication(interaction = "invocation", protocol = "custom-http")
         private ProvidedPort<Api> api;

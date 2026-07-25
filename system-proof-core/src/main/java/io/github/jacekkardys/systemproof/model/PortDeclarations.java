@@ -39,11 +39,12 @@ final class PortDeclarations {
     }
 
     private static void initialize(AbstractComponent<?, ?> component, Field field) {
+        String name = field.getName();
+        String contractId = contractId(field);
         Communication communication = communication(field);
         Class<?> contractType = contractType(field);
-        String name = field.getName();
         Contract<?> contract = Contract.contract(
-            name,
+            contractId,
             contractType
         );
         InteractionSpec interaction = new DeclaredInteraction(communication.interaction());
@@ -80,6 +81,17 @@ final class PortDeclarations {
         }
 
         set(component, field, component.register(port));
+    }
+
+    private static String contractId(Field field) {
+        PortContract declaration = field.getAnnotation(PortContract.class);
+        if (declaration == null) {
+            throw invalid(field, "must declare @PortContract");
+        }
+        if (declaration.value().isBlank()) {
+            throw invalid(field, "must declare a non-blank @PortContract value");
+        }
+        return declaration.value();
     }
 
     private static Communication communication(Field field) {

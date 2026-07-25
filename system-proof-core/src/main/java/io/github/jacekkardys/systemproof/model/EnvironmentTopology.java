@@ -34,7 +34,7 @@ public final class EnvironmentTopology {
         ConnectionRef connection = connectionsByRequired.get(port);
         if (connection == null) {
             throw new IllegalArgumentException(
-                "Required port '" + port.qualifiedName() + "' is not connected"
+                Connection.describePort("required", port) + " is not connected"
             );
         }
         return connection;
