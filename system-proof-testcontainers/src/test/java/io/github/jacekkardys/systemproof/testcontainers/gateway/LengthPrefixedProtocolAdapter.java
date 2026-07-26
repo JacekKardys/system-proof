@@ -6,6 +6,10 @@ import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
+import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
+import io.github.jacekkardys.systemproof.engine.CorrelationKey;
+import io.github.jacekkardys.systemproof.engine.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
 import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
@@ -21,6 +25,28 @@ final class LengthPrefixedProtocolAdapter
     static final int DESYNCHRONIZED = -4;
     static final int AMBIGUOUS = -5;
     static final EvidenceCodec<FrameEvidence> CODEC = new FrameEvidenceCodec();
+    static final EvidenceCodec<FrameNativeReference> NATIVE_REFERENCE_CODEC =
+        new FrameNativeReferenceCodec();
+    static final CorrelationKeySchema CORRELATION_KEY_SCHEMA =
+        new CorrelationKeySchema(
+            "system-proof-test",
+            "length-prefixed-payload",
+            1
+        );
+
+    private final boolean publishesCorrelations;
+
+    LengthPrefixedProtocolAdapter() {
+        this(false);
+    }
+
+    private LengthPrefixedProtocolAdapter(boolean publishesCorrelations) {
+        this.publishesCorrelations = publishesCorrelations;
+    }
+
+    static LengthPrefixedProtocolAdapter correlating() {
+        return new LengthPrefixedProtocolAdapter(true);
+    }
 
     @Override
     public EvidenceCodec<FrameEvidence> evidenceCodec() {
@@ -29,7 +55,7 @@ final class LengthPrefixedProtocolAdapter
 
     @Override
     public ProtocolSession<FrameEvidence> openSession(ProtocolLimits limits) {
-        return direction -> new Decoder(direction, limits);
+        return direction -> new Decoder(direction, limits, publishesCorrelations);
     }
 
     static byte[] frame(String payload) {
@@ -47,7 +73,24 @@ final class LengthPrefixedProtocolAdapter
         return ByteBuffer.allocate(HEADER_BYTES).putInt(value).array();
     }
 
+    static CorrelationKey correlationKey(String normalizedPayload) {
+        return correlationKey(normalizedPayload.getBytes(UTF_8));
+    }
+
+    static CorrelationKey correlationKey(byte[] normalizedPayload) {
+        return CorrelationKey.ofDigest(
+            CORRELATION_KEY_SCHEMA,
+            sha256Digest(normalizedPayload)
+        );
+    }
+
     record FrameEvidence(
+        FlowDirection direction,
+        int payloadBytes,
+        String payloadSha256
+    ) {}
+
+    record FrameNativeReference(
         FlowDirection direction,
         int payloadBytes,
         String payloadSha256
@@ -56,10 +99,16 @@ final class LengthPrefixedProtocolAdapter
     private static final class Decoder implements ProtocolStream<FrameEvidence> {
         private final FlowDirection direction;
         private final ProtocolLimits limits;
+        private final boolean publishesCorrelations;
 
-        private Decoder(FlowDirection direction, ProtocolLimits limits) {
+        private Decoder(
+            FlowDirection direction,
+            ProtocolLimits limits,
+            boolean publishesCorrelations
+        ) {
             this.direction = direction;
             this.limits = limits;
+            this.publishesCorrelations = publishesCorrelations;
         }
 
         @Override
@@ -86,9 +135,29 @@ final class LengthPrefixedProtocolAdapter
             original.get(originalBytes);
             byte[] payload = new byte[payloadBytes];
             ByteBuffer.wrap(originalBytes, HEADER_BYTES, payloadBytes).get(payload);
+            String payloadSha256 = sha256(payload);
+            FrameEvidence evidence =
+                new FrameEvidence(direction, payloadBytes, payloadSha256);
+            if (!publishesCorrelations) {
+                return ProtocolDecodeResult.complete(new ProtocolUnit<>(
+                    originalBytes,
+                    evidence
+                ));
+            }
+            CorrelationContribution<FrameNativeReference> correlation =
+                CorrelationContribution.capture(
+                    correlationKey(payload),
+                    NATIVE_REFERENCE_CODEC,
+                    new FrameNativeReference(
+                        direction,
+                        payloadBytes,
+                        payloadSha256
+                    )
+                );
             return ProtocolDecodeResult.complete(new ProtocolUnit<>(
                 originalBytes,
-                new FrameEvidence(direction, payloadBytes, sha256(payload))
+                evidence,
+                List.of(correlation)
             ));
         }
 
@@ -115,10 +184,12 @@ final class LengthPrefixedProtocolAdapter
     }
 
     static String sha256(byte[] value) {
+        return HexFormat.of().formatHex(sha256Digest(value));
+    }
+
+    private static byte[] sha256Digest(byte[] value) {
         try {
-            return HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-256").digest(value)
-            );
+            return MessageDigest.getInstance("SHA-256").digest(value);
         } catch (NoSuchAlgorithmException failure) {
             throw new IllegalStateException("SHA-256 is unavailable", failure);
         }
@@ -146,6 +217,41 @@ final class LengthPrefixedProtocolAdapter
         public FrameEvidence decode(byte[] encodedEvidence) {
             String[] fields = new String(encodedEvidence, UTF_8).split("\\|", -1);
             return new FrameEvidence(
+                FlowDirection.valueOf(fields[0]),
+                Integer.parseInt(fields[1]),
+                fields[2]
+            );
+        }
+    }
+
+    private static final class FrameNativeReferenceCodec
+        implements EvidenceCodec<FrameNativeReference> {
+
+        private static final EvidenceSchemaId SCHEMA =
+            new EvidenceSchemaId(
+                "system-proof-test",
+                "length-prefixed-native-reference",
+                1
+            );
+
+        @Override
+        public EvidenceSchemaId schemaId() {
+            return SCHEMA;
+        }
+
+        @Override
+        public byte[] encode(FrameNativeReference reference) {
+            return (
+                reference.direction().name() + "|"
+                    + reference.payloadBytes() + "|"
+                    + reference.payloadSha256()
+            ).getBytes(UTF_8);
+        }
+
+        @Override
+        public FrameNativeReference decode(byte[] encodedReference) {
+            String[] fields = new String(encodedReference, UTF_8).split("\\|", -1);
+            return new FrameNativeReference(
                 FlowDirection.valueOf(fields[0]),
                 Integer.parseInt(fields[1]),
                 fields[2]

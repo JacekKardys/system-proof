@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 
 class ProtocolAdapterTest {
@@ -75,6 +76,37 @@ class ProtocolAdapterTest {
                 failure -> assertThat(failure.kind())
                     .isEqualTo(ProtocolFailureKind.DESYNCHRONIZATION)
             );
+    }
+
+    @Test
+    void shouldDetachProtocolUnitBytesAndCorrelationContributionList() {
+        byte[] bytes = LengthPrefixedProtocolAdapter.frame("correlated");
+        CorrelationContribution<LengthPrefixedProtocolAdapter.FrameNativeReference>
+            contribution = CorrelationContribution.capture(
+                LengthPrefixedProtocolAdapter.correlationKey("correlated"),
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC,
+                new LengthPrefixedProtocolAdapter.FrameNativeReference(
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    10,
+                    LengthPrefixedProtocolAdapter.sha256("correlated".getBytes(UTF_8))
+                )
+            );
+        List<CorrelationContribution<?>> contributions =
+            new ArrayList<>(List.of(contribution));
+        ProtocolUnit<String> unit = new ProtocolUnit<>(
+            bytes,
+            "safe-evidence",
+            contributions
+        );
+
+        bytes[0] ^= 0x7f;
+        contributions.clear();
+
+        assertThat(unit.originalBytes())
+            .isEqualTo(LengthPrefixedProtocolAdapter.frame("correlated"));
+        assertThat(unit.correlationContributions()).containsExactly(contribution);
+        assertThatThrownBy(() -> unit.correlationContributions().clear())
+            .isInstanceOf(UnsupportedOperationException.class);
     }
 
     private List<byte[]> decode(List<byte[]> chunks) throws Exception {

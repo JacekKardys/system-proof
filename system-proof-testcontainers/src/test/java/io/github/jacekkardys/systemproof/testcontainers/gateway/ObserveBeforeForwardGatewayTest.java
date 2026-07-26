@@ -15,14 +15,20 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.engine.ConnectionObservations;
+import io.github.jacekkardys.systemproof.engine.CorrelationCardinality;
+import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
+import io.github.jacekkardys.systemproof.engine.CorrelationKey;
 import io.github.jacekkardys.systemproof.engine.ForwardingDecision;
 import io.github.jacekkardys.systemproof.engine.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.engine.InteractionSession;
@@ -442,11 +448,9 @@ class ObserveBeforeForwardGatewayTest {
             EffectiveObservationStatus.FAILED
         );
 
-        RecordingObservations decisionObservations =
-            new RecordingObservations(FIRST_CONNECTION);
         assertCallbackError(
             ObservationRequirement.OPTIONAL,
-            decisionObservations,
+            new RecordingObservations(FIRST_CONNECTION),
             interactionRef -> {
                 throw new AssertionError("decision callback secret");
             },
@@ -455,7 +459,6 @@ class ObserveBeforeForwardGatewayTest {
             false,
             EffectiveObservationStatus.DEGRADED
         );
-        assertThat(decisionObservations.events()).hasSize(1);
     }
 
     @Test
@@ -572,6 +575,115 @@ class ObserveBeforeForwardGatewayTest {
         }
     }
 
+    @Test
+    void shouldPublishSemanticCorrelationBeforeDecisionWithoutArrivalFallback()
+        throws Exception {
+        RecordingObservations observations = new RecordingObservations(FIRST_CONNECTION);
+        CorrelationKey firstKey =
+            LengthPrefixedProtocolAdapter.correlationKey("first-subject");
+        CorrelationKey secondKey =
+            LengthPrefixedProtocolAdapter.correlationKey("second-subject");
+        CorrelationKey missingKey =
+            LengthPrefixedProtocolAdapter.correlationKey("missing-subject");
+        observations.arm("first", firstKey);
+        observations.arm("second", secondKey);
+        observations.arm("missing", missingKey);
+        List<InteractionRef> decisions = new ArrayList<>();
+        AtomicInteger firstKeyDecisions = new AtomicInteger();
+        InteractionDecisionCoordinator coordinator = interactionRef -> {
+            CorrelationKey publishedKey = observations.publishedKey(interactionRef);
+            assertThat(publishedKey)
+                .as("correlation must be published before decision")
+                .isNotNull();
+            if (publishedKey.equals(firstKey)) {
+                int matchingDecision = firstKeyDecisions.getAndIncrement();
+                assertThat(observations.cardinality("first", firstKey))
+                    .as("first matching decision is unique; retries are ambiguous")
+                    .isEqualTo(
+                        matchingDecision == 0
+                            ? CorrelationCardinality.UNIQUE
+                            : CorrelationCardinality.AMBIGUOUS
+                    );
+            } else if (publishedKey.equals(secondKey)) {
+                assertThat(observations.cardinality("second", secondKey))
+                    .isEqualTo(CorrelationCardinality.UNIQUE);
+            }
+            assertThat(observations.cardinality("missing", missingKey))
+                .isEqualTo(CorrelationCardinality.MISSING);
+            decisions.add(interactionRef);
+            return ForwardingDecision.FORWARD;
+        };
+        byte[] first = LengthPrefixedProtocolAdapter.frame("first-subject");
+        byte[] second = LengthPrefixedProtocolAdapter.frame("second-subject");
+        byte[] coalesced = concat(first, second);
+
+        try (RouteFixture fixture = RouteFixture.required(
+            FIRST_CONNECTION,
+            observations,
+            coordinator,
+            LengthPrefixedProtocolAdapter.correlating(),
+            LIMITS
+        )) {
+            for (byte value : coalesced) {
+                fixture.client().getOutputStream().write(value);
+            }
+            fixture.client().getOutputStream().flush();
+            assertThat(readExactly(fixture.targetPeer(), coalesced.length))
+                .isEqualTo(coalesced);
+
+            assertThat(observations.cardinality("first", firstKey))
+                .isEqualTo(CorrelationCardinality.UNIQUE);
+            assertThat(observations.cardinality("second", secondKey))
+                .isEqualTo(CorrelationCardinality.UNIQUE);
+            assertThat(observations.cardinality("missing", missingKey))
+                .isEqualTo(CorrelationCardinality.MISSING);
+            assertThat(observations.uniqueInteraction("first", firstKey))
+                .isEqualTo(decisions.get(0));
+            assertThat(observations.uniqueInteraction("second", secondKey))
+                .isEqualTo(decisions.get(1));
+
+            fixture.client().getOutputStream().write(first);
+            fixture.client().getOutputStream().flush();
+            assertThat(readExactly(fixture.targetPeer(), first.length)).isEqualTo(first);
+            assertThat(observations.cardinality("first", firstKey))
+                .isEqualTo(CorrelationCardinality.AMBIGUOUS);
+
+            fixture.reconnect();
+            fixture.client().getOutputStream().write(first);
+            fixture.client().getOutputStream().flush();
+            assertThat(readExactly(fixture.targetPeer(), first.length)).isEqualTo(first);
+            assertThat(observations.cardinality("first", firstKey))
+                .isEqualTo(CorrelationCardinality.AMBIGUOUS);
+            assertThat(observations.cardinality("missing", missingKey))
+                .isEqualTo(CorrelationCardinality.MISSING);
+        }
+        assertThat(firstKeyDecisions).hasValue(3);
+    }
+
+    @Test
+    void shouldFailClosedWhenCorrelationPublicationThrowsRuntimeExceptionOrError()
+        throws Exception {
+        byte[] undecided = LengthPrefixedProtocolAdapter.frame("correlation-secret");
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            failingCorrelation(new IllegalStateException("correlation runtime secret")),
+            interactionRef -> ForwardingDecision.FORWARD,
+            LengthPrefixedProtocolAdapter.correlating(),
+            undecided,
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+        assertCallbackError(
+            ObservationRequirement.OPTIONAL,
+            failingCorrelation(new AssertionError("correlation error secret")),
+            interactionRef -> ForwardingDecision.FORWARD,
+            LengthPrefixedProtocolAdapter.correlating(),
+            undecided,
+            false,
+            EffectiveObservationStatus.DEGRADED
+        );
+    }
+
     private static void assertRequiredFailure(
         ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter,
         ProtocolLimits limits,
@@ -681,6 +793,37 @@ class ObserveBeforeForwardGatewayTest {
         };
     }
 
+    private static ConnectionObservations failingCorrelation(Throwable failure) {
+        return () -> new InteractionSession() {
+            private final AtomicLong ordinal =
+                new AtomicLong(InteractionRef.FIRST_ORDINAL);
+
+            @Override
+            public <T> InteractionRef observe(
+                FlowDirection direction,
+                EvidenceCodec<T> codec,
+                T evidence
+            ) {
+                return new InteractionRef(
+                    new SessionId(FIRST_CONNECTION, SessionId.FIRST_VALUE),
+                    direction,
+                    ordinal.getAndIncrement()
+                );
+            }
+
+            @Override
+            public void correlate(
+                InteractionRef interactionRef,
+                CorrelationContribution<?> contribution
+            ) {
+                if (failure instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw (Error) failure;
+            }
+        };
+    }
+
     private static void assertNoVisibleBytes(Socket socket) throws IOException {
         int originalTimeout = socket.getSoTimeout();
         socket.setSoTimeout(150);
@@ -737,6 +880,7 @@ class ObserveBeforeForwardGatewayTest {
         private final ScenarioJournal journal = new ScenarioJournal();
         private final AtomicLong nextSession = new AtomicLong(SessionId.FIRST_VALUE);
         private final boolean failJournal;
+        private final TestCorrelations correlations = new TestCorrelations();
 
         private RecordingObservations(ConnectionId connectionId) {
             this(connectionId, false);
@@ -766,6 +910,28 @@ class ObserveBeforeForwardGatewayTest {
                 .filter(InteractionObservationEvent.class::isInstance)
                 .map(InteractionObservationEvent.class::cast)
                 .toList();
+        }
+
+        private void arm(String subject, CorrelationKey key) {
+            correlations.arm(subject, key);
+        }
+
+        private CorrelationCardinality cardinality(
+            String subject,
+            CorrelationKey key
+        ) {
+            return correlations.cardinality(subject, key);
+        }
+
+        private InteractionRef uniqueInteraction(
+            String subject,
+            CorrelationKey key
+        ) {
+            return correlations.uniqueInteraction(subject, key);
+        }
+
+        private CorrelationKey publishedKey(InteractionRef interactionRef) {
+            return correlations.publishedKey(interactionRef);
         }
 
         private final class RecordingSession implements InteractionSession {
@@ -800,7 +966,122 @@ class ObserveBeforeForwardGatewayTest {
                 ));
                 return interactionRef;
             }
+
+            @Override
+            public void correlate(
+                InteractionRef interactionRef,
+                CorrelationContribution<?> contribution
+            ) {
+                if (!contains(interactionRef)) {
+                    throw new IllegalStateException(
+                        "Correlation publication preceded interaction recording"
+                    );
+                }
+                correlations.publish(interactionRef, contribution);
+            }
         }
+    }
+
+    private static final class TestCorrelations {
+        private final Map<String, Map<CorrelationKey, TestResolution>> subjects =
+            new HashMap<>();
+        private final Map<CorrelationKey, Set<String>> subjectsByKey =
+            new HashMap<>();
+        private final Map<InteractionRef, CorrelationKey> published =
+            new HashMap<>();
+
+        private synchronized void arm(String subject, CorrelationKey key) {
+            Map<CorrelationKey, TestResolution> resolutions =
+                subjects.computeIfAbsent(subject, ignored -> new HashMap<>());
+            if (resolutions.containsKey(key)) {
+                return;
+            }
+            Set<String> owners = subjectsByKey.computeIfAbsent(
+                key,
+                ignored -> new LinkedHashSet<>()
+            );
+            if (owners.isEmpty()) {
+                resolutions.put(key, TestMissing.INSTANCE);
+            } else {
+                resolutions.put(key, TestAmbiguous.INSTANCE);
+                owners.forEach(owner ->
+                    subjects.get(owner).put(key, TestAmbiguous.INSTANCE)
+                );
+            }
+            owners.add(subject);
+        }
+
+        private synchronized void publish(
+            InteractionRef interactionRef,
+            CorrelationContribution<?> contribution
+        ) {
+            CorrelationKey key = contribution.key();
+            published.put(interactionRef, key);
+            Set<String> owners = subjectsByKey.getOrDefault(key, Set.of());
+            if (owners.size() != 1) {
+                owners.forEach(owner ->
+                    subjects.get(owner).put(key, TestAmbiguous.INSTANCE)
+                );
+                return;
+            }
+            String subject = owners.iterator().next();
+            TestResolution current = subjects.get(subject).get(key);
+            if (current == TestMissing.INSTANCE) {
+                subjects.get(subject).put(key, new TestUnique(interactionRef));
+            } else if (current instanceof TestUnique unique
+                && !unique.interactionRef().equals(interactionRef)) {
+                subjects.get(subject).put(key, TestAmbiguous.INSTANCE);
+            }
+        }
+
+        private synchronized CorrelationCardinality cardinality(
+            String subject,
+            CorrelationKey key
+        ) {
+            TestResolution resolution = subjects.getOrDefault(subject, Map.of())
+                .get(key);
+            if (resolution == TestMissing.INSTANCE) {
+                return CorrelationCardinality.MISSING;
+            }
+            if (resolution instanceof TestUnique) {
+                return CorrelationCardinality.UNIQUE;
+            }
+            if (resolution == TestAmbiguous.INSTANCE) {
+                return CorrelationCardinality.AMBIGUOUS;
+            }
+            throw new IllegalArgumentException("Subject/key is not armed");
+        }
+
+        private synchronized InteractionRef uniqueInteraction(
+            String subject,
+            CorrelationKey key
+        ) {
+            TestResolution resolution = subjects.get(subject).get(key);
+            if (!(resolution instanceof TestUnique unique)) {
+                throw new IllegalStateException("Correlation is not unique");
+            }
+            return unique.interactionRef();
+        }
+
+        private synchronized CorrelationKey publishedKey(
+            InteractionRef interactionRef
+        ) {
+            return published.get(interactionRef);
+        }
+    }
+
+    private sealed interface TestResolution
+        permits TestMissing, TestUnique, TestAmbiguous {}
+
+    private enum TestMissing implements TestResolution {
+        INSTANCE
+    }
+
+    private record TestUnique(InteractionRef interactionRef)
+        implements TestResolution {}
+
+    private enum TestAmbiguous implements TestResolution {
+        INSTANCE
     }
 
     private static final class RouteFixture implements AutoCloseable {

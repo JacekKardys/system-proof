@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.engine.ForwardingDecision;
+import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
 import io.github.jacekkardys.systemproof.engine.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.engine.InteractionSession;
 import io.github.jacekkardys.systemproof.engine.ObservationStatusProvider;
@@ -570,6 +571,18 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                     throw new ObservationPipelineException(FailureStage.RECORD, failure);
                 }
 
+                try {
+                    for (CorrelationContribution<?> contribution
+                        : unit.correlationContributions()) {
+                        interactionSession.correlate(interactionRef, contribution);
+                    }
+                } catch (RuntimeException | Error failure) {
+                    throw new ObservationPipelineException(
+                        FailureStage.CORRELATION,
+                        failure
+                    );
+                }
+
                 ForwardingDecision decision;
                 try {
                     decision = Objects.requireNonNull(
@@ -742,6 +755,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     private enum FailureStage {
         ADAPTER,
         RECORD,
+        CORRELATION,
         DECISION
     }
 

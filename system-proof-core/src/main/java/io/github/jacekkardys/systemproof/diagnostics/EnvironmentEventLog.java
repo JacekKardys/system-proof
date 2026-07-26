@@ -15,6 +15,7 @@ import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
+import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
@@ -26,6 +27,8 @@ import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
+import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
+import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
@@ -39,6 +42,9 @@ import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RoutingMode;
+import io.github.jacekkardys.systemproof.engine.CorrelationCardinality;
+import io.github.jacekkardys.systemproof.engine.CorrelationKey;
+import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
 
 /**
  * Appending and textual rendering view over one supplied {@link ScenarioJournal}.
@@ -241,6 +247,51 @@ public final class EnvironmentEventLog {
         );
     }
 
+    /** Appends one opaque proof-subject allocation fact. */
+    public void proofSubjectCreated(ProofSubjectRef proofSubject) {
+        append(
+            new ProofSubjectCreatedEvent(proofSubject),
+            configuration.frameworkLevel(),
+            LogLevel.INFO
+        );
+    }
+
+    /** Appends one safe proof-subject key association fact. */
+    public void proofSubjectArmed(
+        ProofSubjectRef proofSubject,
+        CorrelationKey key,
+        boolean sharedKey
+    ) {
+        append(
+            new ProofSubjectArmedEvent(proofSubject, key, sharedKey),
+            configuration.frameworkLevel(),
+            LogLevel.INFO
+        );
+    }
+
+    /** Appends one typed correlation publication and its explicit resulting cardinality. */
+    public void correlationCandidate(
+        Optional<ProofSubjectRef> proofSubject,
+        CorrelationKey key,
+        InteractionRef interactionRef,
+        EvidenceSnapshot nativeReference,
+        CorrelationCardinality cardinality
+    ) {
+        append(
+            new CorrelationCandidateEvent(
+                proofSubject,
+                key,
+                interactionRef,
+                nativeReference,
+                cardinality
+            ),
+            configuration.frameworkLevel(),
+            cardinality == CorrelationCardinality.AMBIGUOUS
+                ? LogLevel.WARN
+                : LogLevel.INFO
+        );
+    }
+
     public void checkpoint(
         Component component,
         CheckpointId checkpointId,
@@ -373,6 +424,19 @@ public final class EnvironmentEventLog {
                 interactionLabels(observation),
                 interactionMessage(observation)
             );
+            case ProofSubjectCreatedEvent created -> new RenderedEvent(
+                proofSubjectLabels(created.proofSubject()),
+                "Created proof subject"
+            );
+            case ProofSubjectArmedEvent armed -> new RenderedEvent(
+                proofSubjectLabels(armed.proofSubject()),
+                "Armed proof subject keySchema=" + armed.key().schema()
+                    + " sharedKey=" + armed.sharedKey()
+            );
+            case CorrelationCandidateEvent candidate -> new RenderedEvent(
+                correlationLabels(candidate),
+                correlationMessage(candidate)
+            );
             case CheckpointEvent checkpoint -> new RenderedEvent(
                 "[CHECKPOINT] [" + checkpoint.observingComponentId() + "] ["
                     + checkpoint.checkpointId().value() + "]",
@@ -402,6 +466,9 @@ public final class EnvironmentEventLog {
             case FailureEvent.ComponentCleanup failure ->
                 failure.componentId().equals(componentId);
             case InteractionObservationEvent observation -> false;
+            case ProofSubjectCreatedEvent created -> false;
+            case ProofSubjectArmedEvent armed -> false;
+            case CorrelationCandidateEvent candidate -> false;
             case CheckpointEvent checkpoint ->
                 checkpoint.observingComponentId().equals(componentId);
             case DisruptionLifecycleEvent disruption ->
@@ -449,6 +516,29 @@ public final class EnvironmentEventLog {
             + " schema=" + schemaId.namespace() + ":" + schemaId.name()
             + " version=" + schemaId.version()
             + " encodedBytes=" + observation.evidence().encodedSize();
+    }
+
+    private static String proofSubjectLabels(ProofSubjectRef proofSubject) {
+        return "[PROOF-SUBJECT] [ref=" + proofSubject + "]";
+    }
+
+    private static String correlationLabels(CorrelationCandidateEvent candidate) {
+        return "[CORRELATION]"
+            + candidate.proofSubject()
+                .map(subject -> " [subject=" + subject + "]")
+                .orElse(" [subject=unassigned]")
+            + " [connection=" + candidate.interactionRef().connectionId() + "]"
+            + " [interaction=" + candidate.interactionRef() + "]";
+    }
+
+    private static String correlationMessage(CorrelationCandidateEvent candidate) {
+        EvidenceSchemaId schemaId = candidate.nativeReference().schemaId();
+        return "Published correlation candidate"
+            + " keySchema=" + candidate.key().schema()
+            + " nativeReferenceSchema=" + schemaId.namespace() + ":" + schemaId.name()
+            + ":v" + schemaId.version()
+            + " encodedBytes=" + candidate.nativeReference().encodedSize()
+            + " cardinality=" + candidate.cardinality();
     }
 
     private static String environmentLifecycleMessage(EnvironmentState state) {

@@ -10,6 +10,8 @@ import static io.github.jacekkardys.systemproof.testcontainers.gateway.TcpEndpoi
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -22,14 +24,25 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.CorrelationKey;
+import io.github.jacekkardys.systemproof.engine.CorrelationResult;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
+import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
+import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
@@ -130,6 +143,107 @@ class InteractionGatewayTest {
                     EffectiveObservationStatus.FAILED,
                     EffectiveObservationStatus.UNSUPPORTED
                 );
+        } finally {
+            environment.close();
+        }
+        listenerAddresses.forEach(InteractionGatewayTest::assertPortCanBeRebound);
+    }
+
+    @Test
+    void shouldResolveEnvironmentProofSubjectThroughTheProductionGatewayPath()
+        throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        Environment.Builder builder = Environment.environment()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter(
+                    "correlation-route",
+                    listenerAddresses,
+                    new ArrayList<>()
+                ),
+                LengthPrefixedProtocolAdapter.correlating(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+        String payload = "production-registry-correlation";
+        CorrelationKey key = LengthPrefixedProtocolAdapter.correlationKey(payload);
+        ProofSubjectRef subject = environment.proofSubjects().create();
+        environment.proofSubjects().arm(subject, key);
+
+        try {
+            environment.start();
+            byte[] frame = LengthPrefixedProtocolAdapter.frame(payload);
+            try (Socket socket = connect(listenerAddresses.getFirst())) {
+                socket.getOutputStream().write(frame);
+                socket.getOutputStream().flush();
+                assertThat(frameServer.get().awaitPayload())
+                    .isEqualTo(payload.getBytes(UTF_8));
+            }
+
+            CorrelationResult<
+                LengthPrefixedProtocolAdapter.FrameNativeReference
+            > result = environment.proofSubjects().correlation(
+                subject,
+                key,
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC
+            );
+            assertThat(result).isInstanceOf(CorrelationResult.Unique.class);
+            CorrelationResult.Unique<
+                LengthPrefixedProtocolAdapter.FrameNativeReference
+            > unique = (CorrelationResult.Unique<
+                LengthPrefixedProtocolAdapter.FrameNativeReference
+            >) result;
+            assertThat(unique.nativeReference().direction())
+                .isEqualTo(FlowDirection.CONSUMER_TO_PROVIDER);
+            assertThat(unique.nativeReference().payloadBytes())
+                .isEqualTo(payload.getBytes(UTF_8).length);
+            assertThat(unique.nativeReference().payloadSha256())
+                .isEqualTo(LengthPrefixedProtocolAdapter.sha256(
+                    payload.getBytes(UTF_8)
+                ));
+
+            List<ScenarioEvent> events = environment.journalSnapshot().entries().stream()
+                .map(entry -> entry.event())
+                .toList();
+            InteractionObservationEvent observation = events.stream()
+                .filter(InteractionObservationEvent.class::isInstance)
+                .map(InteractionObservationEvent.class::cast)
+                .findFirst()
+                .orElseThrow();
+            CorrelationCandidateEvent candidate = events.stream()
+                .filter(CorrelationCandidateEvent.class::isInstance)
+                .map(CorrelationCandidateEvent.class::cast)
+                .findFirst()
+                .orElseThrow();
+            assertThat(candidate.proofSubject()).contains(subject);
+            assertThat(candidate.interactionRef()).isEqualTo(observation.interactionRef());
+            assertThat(unique.interactionRef()).isEqualTo(observation.interactionRef());
+            assertThat(events.indexOf(candidate)).isGreaterThan(events.indexOf(observation));
         } finally {
             environment.close();
         }
@@ -438,8 +552,34 @@ class InteractionGatewayTest {
         List<String> lifecycle,
         AtomicInteger providerCloses
     ) {
+        return server(
+            lifecycle,
+            providerCloses,
+            () -> LineServer.open("command-provider:")
+        );
+    }
+
+    private static Server correlationServer(
+        AtomicReference<FrameServer> frameServerReference
+    ) {
+        return server(
+            new ArrayList<>(),
+            new AtomicInteger(),
+            () -> {
+                FrameServer frameServer = FrameServer.open();
+                frameServerReference.set(frameServer);
+                return frameServer;
+            }
+        );
+    }
+
+    private static Server server(
+        List<String> lifecycle,
+        AtomicInteger providerCloses,
+        Supplier<TestServer> commandServerFactory
+    ) {
         return new Server((component, context) -> {
-            LineServer commandServer = LineServer.open("command-provider:");
+            TestServer commandServer = commandServerFactory.get();
             LineServer sessionServer;
             try {
                 sessionServer = LineServer.open("session-provider:");
@@ -712,7 +852,91 @@ class InteractionGatewayTest {
         }
     }
 
-    private static final class LineServer implements AutoCloseable {
+    private interface TestServer extends AutoCloseable {
+        int port();
+    }
+
+    private static final class FrameServer implements TestServer {
+        private final ServerSocket listener;
+        private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
+        private final CountDownLatch received = new CountDownLatch(1);
+        private final AtomicReference<byte[]> payload = new AtomicReference<>();
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        private FrameServer(ServerSocket listener) {
+            this.listener = listener;
+            tasks.submit(this::accept);
+        }
+
+        private static FrameServer open() {
+            try {
+                ServerSocket listener = new ServerSocket();
+                listener.bind(new InetSocketAddress("127.0.0.1", 0));
+                return new FrameServer(listener);
+            } catch (IOException failure) {
+                throw new IllegalStateException(
+                    "Could not open test frame server",
+                    failure
+                );
+            }
+        }
+
+        @Override
+        public int port() {
+            return listener.getLocalPort();
+        }
+
+        private byte[] awaitPayload() {
+            try {
+                if (!received.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError(
+                        "Gateway did not forward the correlated frame"
+                    );
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(
+                    "Interrupted while waiting for the correlated frame",
+                    interrupted
+                );
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(
+                    "Frame server could not receive the correlated frame",
+                    failure.get()
+                );
+            }
+            return payload.get().clone();
+        }
+
+        private void accept() {
+            try (
+                Socket client = listener.accept();
+                DataInputStream input = new DataInputStream(client.getInputStream())
+            ) {
+                int payloadBytes = input.readInt();
+                byte[] receivedPayload = input.readNBytes(payloadBytes);
+                if (receivedPayload.length != payloadBytes) {
+                    throw new EOFException(
+                        "Frame ended before its declared payload length"
+                    );
+                }
+                payload.set(receivedPayload);
+            } catch (Throwable receiveFailure) {
+                failure.set(receiveFailure);
+            } finally {
+                received.countDown();
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
+            listener.close();
+            tasks.close();
+        }
+    }
+
+    private static final class LineServer implements TestServer {
         private final String prefix;
         private final ServerSocket listener;
         private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
@@ -734,7 +958,8 @@ class InteractionGatewayTest {
             }
         }
 
-        private int port() {
+        @Override
+        public int port() {
             return listener.getLocalPort();
         }
 

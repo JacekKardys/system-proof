@@ -542,10 +542,15 @@ class RuntimeConnectionRegistryTest {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         EnvironmentEventLog eventLog =
             new EnvironmentEventLog(journal, EnvironmentLogging.defaults());
+        ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(eventLog);
         return new RuntimeConnection<>(
             declaration,
             ConnectionRouting.direct().select(declaration),
-            new ConnectionObservationPublisher(declaration, eventLog),
+            new ConnectionObservationPublisher(
+                declaration,
+                eventLog,
+                proofSubjects
+            ),
             interactionRef -> ForwardingDecision.FORWARD
         );
     }

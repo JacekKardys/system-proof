@@ -14,6 +14,9 @@ public sealed interface ScenarioEvent permits
     FailureEvent,
     DiagnosticEvent,
     InteractionObservationEvent,
+    ProofSubjectCreatedEvent,
+    ProofSubjectArmedEvent,
+    CorrelationCandidateEvent,
     CheckpointEvent,
     DisruptionLifecycleEvent {
 }

@@ -8,6 +8,7 @@ import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.EnvironmentRuntime;
+import io.github.jacekkardys.systemproof.engine.ProofSubjects;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 
 /** Small public facade over an immutable topology and one internal runtime execution. */
@@ -87,6 +88,11 @@ public class Environment implements AutoCloseable {
     /** Captures a detached immutable snapshot of the scenario's structured journal. */
     public final ScenarioJournalSnapshot journalSnapshot() {
         return runtime.journalSnapshot();
+    }
+
+    /** Returns this environment execution's narrow proof-subject correlation facade. */
+    public final ProofSubjects proofSubjects() {
+        return runtime.proofSubjects();
     }
 
     /** Captures detached immutable runtime-connection state in topology declaration order. */

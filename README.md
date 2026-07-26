@@ -199,11 +199,13 @@ The protected environment runtime seam accepts `ConnectionRouting` without addin
 declarations to the topology DSL. The Testcontainers `InteractionGateway` adds protocol framing
 through a neutral adapter SPI. For every physical socket pair it opens exactly one
 `InteractionSession`, two independent directional protocol streams, and two bounded byte buffers.
-Each complete forwarding unit follows `frame -> record -> decide -> forward`: typed evidence is
-copied into the scenario journal, the returned stable `InteractionRef` is passed to the shared
-coordinator, and only `FORWARD` writes the adapter-preserved original bytes. No unit prefix is sent
-before that boundary. Complete coalesced units remain ordered; incomplete units remain buffered
-within explicit frame and aggregate limits.
+Each complete forwarding unit follows `frame -> record -> correlate -> decide -> forward`: typed
+evidence is copied into the scenario journal, immutable adapter-produced correlation contributions
+are published for the returned stable `InteractionRef`, and that reference reaches the shared
+coordinator only after its correlation result is visible. Only `FORWARD` writes the
+adapter-preserved original bytes. Units without correlation contributions retain the same path. No
+unit prefix is sent before that boundary. Complete coalesced units remain ordered; incomplete units
+remain buffered within explicit frame and aggregate limits.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
@@ -217,6 +219,7 @@ structured history. The sealed event hierarchy contains core-owned immutable env
 - framework environment, component, and runtime-connection lifecycle transitions, failures, and
   diagnostics;
 - externally contributed interaction observations;
+- proof-subject creation, safe key arming, and typed correlation candidate/cardinality facts;
 - checkpoint or barrier records;
 - disruption lifecycle records.
 
@@ -229,6 +232,21 @@ session direction, creates the complete `InteractionRef`, and returns that refer
 The caller cannot supply a connection, session, ordinal, interaction reference, component, or
 arbitrary event.
 
+`Environment.proofSubjects()` is the only public correlation facade. It allocates an opaque
+`ProofSubjectRef`, arms it with a namespaced/versioned `CorrelationKey` containing only defensively
+copied digest material, and returns a typed `CorrelationResult<T>`. Results are explicitly
+`MISSING`, `UNIQUE`, or terminal `AMBIGUOUS`; only `UNIQUE` exposes an `InteractionRef` and decoded
+protocol-native reference. A typed lookup uses the adapter-owned `EvidenceCodec<T>` and fails on a
+schema mismatch. Core never interprets HTTP, SMPP, PostgreSQL, SMS, token, or transaction fields.
+
+Subjects belong to exactly one environment execution. Cross-environment use is rejected, new
+creation/arming/publication stops at teardown, and existing results remain queryable afterward. One
+distinct candidate is unique; a second interaction, retry, reconnect, or different native snapshot
+is ambiguous. An exact duplicate is idempotent only when subject, key, interaction, native schema,
+and encoded native reference all match. Sharing one key across subjects makes every association
+ambiguous. Missing or ambiguous cases never select the first, latest, earliest, or next journal
+entry.
+
 The environment owns one thread-safe `InteractionDecisionCoordinator` shared by all route contexts.
 Its current serialized decision is immediate `FORWARD`. This is deliberately only the decision
 boundary: semantic holds, releases, predecessor guards, and causal proof remain outside this
@@ -239,6 +257,11 @@ and retains neither the source value, codec, nor codec-produced array. Typed ins
 same codec against a fresh byte-array copy. Mutable source arrays, collections, decoded values, and
 adapters therefore cannot mutate stored history. No reflection, Java serialization, event
 registry, or parallel evidence store is used.
+
+Correlation native references use the same copy boundary. A `CorrelationContribution<T>` retains
+only its safe key and detached `EvidenceSnapshot`; it never retains the source reference or codec.
+The environment may keep a synchronized current-cardinality index, but every creation, arming, and
+non-idempotent publication fact remains in `ScenarioJournal`, which is the only event history.
 
 Component-originated and connection-originated contributions are separate. The component-scoped
 `JournalContributions` capability on `DriverContext` retains only checkpoints and disruption
@@ -266,6 +289,9 @@ inside the same connection, session, and direction; values from different stream
 compared to infer causality. Explicit causal relations remain work for the later proof layer.
 Runtime-connection lifecycle order and elapsed time have the same limitation: target binding
 before another stored event is not proof of external protocol ordering or causality.
+Correlation likewise depends only on explicit key equality, environment ownership, complete
+`InteractionRef`, and typed native snapshot identity. Journal sequence, elapsed time, wall-clock
+time, rendered order, and unrelated stream ordinals never resolve cardinality.
 
 Failed JUnit tests write:
 
