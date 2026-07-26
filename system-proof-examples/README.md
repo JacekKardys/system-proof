@@ -88,6 +88,19 @@ The ingestion container's database environment-variable names are configurable t
 Their defaults are `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`. The overrides
 allow another service image with a different environment contract to run unchanged.
 
+## Test-JVM interaction gateway spike
+
+`InteractionGatewayIT` starts one provider container and one consumer container around a single
+test-JVM gateway. Two distinct `RuntimeConnection` routes coexist: an HTTP request/response path
+using `EndpointAddress` and an SMPP-representative long-lived path using `SmppEndpoint`. The
+session carries three exchanges over one connection, and distinct provider response prefixes make
+cross-wiring observable.
+
+The scenario also injects consumer startup failure after both routed endpoints resolve and verifies
+that provider, listener, and connection resources are released. The complete address, lifecycle,
+supported-environment, and failure-mode decision is in
+[`docs/adr/0002-test-jvm-interaction-gateway.md`](../docs/adr/0002-test-jvm-interaction-gateway.md).
+
 ## Running
 
 Run unit tests without Docker:
@@ -105,6 +118,7 @@ Run both examples with Docker:
 The adapted fixture retains upstream's intentionally small SMPP 3.4 subset and does not validate
 incoming PDUs. Its control plane exposes `GET /` and the `POST /` MO form on port `12775`; SMPP is
 on port `2775`. The POST finishes after writing `deliver_sm`, not after a correlated response.
-`deliver_sm_resp` remains diagnostic until a future independent `InteractionGateway` provides
-structured protocol evidence. See [`docs/third-party.md`](../docs/third-party.md) for the MIT
-attribution, exact pin, patch, and complete limitations.
+`deliver_sm_resp` remains diagnostic until later protocol adapters contribute structured evidence;
+the current `InteractionGateway` proves transparent TCP reachability and lifecycle only. See
+[`docs/third-party.md`](../docs/third-party.md) for the MIT attribution, exact pin, patch, and
+complete limitations.
