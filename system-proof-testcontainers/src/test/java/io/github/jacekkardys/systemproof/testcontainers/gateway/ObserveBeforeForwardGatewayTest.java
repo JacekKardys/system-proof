@@ -291,6 +291,174 @@ class ObserveBeforeForwardGatewayTest {
     }
 
     @Test
+    void shouldFailRequiredSocketPairClosedWhenInitializationCallbackThrowsError()
+        throws Exception {
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            () -> {
+                throw new AssertionError("observation session initialization secret");
+            },
+            interactionRef -> ForwardingDecision.FORWARD,
+            new LengthPrefixedProtocolAdapter(),
+            new byte[0],
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> codecInitializationError =
+            new ProtocolAdapter<>() {
+                @Override
+                public EvidenceCodec<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > evidenceCodec() {
+                    throw new AssertionError("codec initialization secret");
+                }
+
+                @Override
+                public ProtocolSession<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > openSession(ProtocolLimits limits) {
+                    return new LengthPrefixedProtocolAdapter().openSession(limits);
+                }
+            };
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            new RecordingObservations(FIRST_CONNECTION),
+            interactionRef -> ForwardingDecision.FORWARD,
+            codecInitializationError,
+            new byte[0],
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapterSessionError =
+            delegatingAdapter(
+                LengthPrefixedProtocolAdapter.CODEC,
+                limits -> {
+                    throw new AssertionError("adapter session initialization secret");
+                }
+            );
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            new RecordingObservations(FIRST_CONNECTION),
+            interactionRef -> ForwardingDecision.FORWARD,
+            adapterSessionError,
+            new byte[0],
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> streamError =
+            delegatingAdapter(
+                LengthPrefixedProtocolAdapter.CODEC,
+                limits -> direction -> {
+                    throw new AssertionError("protocol stream initialization secret");
+                }
+            );
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            new RecordingObservations(FIRST_CONNECTION),
+            interactionRef -> ForwardingDecision.FORWARD,
+            streamError,
+            new byte[0],
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+    }
+
+    @Test
+    void shouldFailRequiredSocketPairClosedWhenStreamCallbackThrowsError()
+        throws Exception {
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> decodeError =
+            delegatingAdapter(
+                LengthPrefixedProtocolAdapter.CODEC,
+                limits -> direction -> new ProtocolStream<>() {
+                    @Override
+                    public ProtocolDecodeResult<
+                        LengthPrefixedProtocolAdapter.FrameEvidence
+                    > decode(java.nio.ByteBuffer bufferedBytes) {
+                        throw new AssertionError("decode secret");
+                    }
+                }
+            );
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            new RecordingObservations(FIRST_CONNECTION),
+            interactionRef -> ForwardingDecision.FORWARD,
+            decodeError,
+            LengthPrefixedProtocolAdapter.frame("undecided"),
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> endOfInputError =
+            delegatingAdapter(
+                LengthPrefixedProtocolAdapter.CODEC,
+                limits -> direction -> new ProtocolStream<>() {
+                    @Override
+                    public ProtocolDecodeResult<
+                        LengthPrefixedProtocolAdapter.FrameEvidence
+                    > decode(java.nio.ByteBuffer bufferedBytes) {
+                        return ProtocolDecodeResult.needMoreData();
+                    }
+
+                    @Override
+                    public void endOfInput(java.nio.ByteBuffer bufferedBytes) {
+                        throw new AssertionError("end-of-input secret");
+                    }
+                }
+            );
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            new RecordingObservations(FIRST_CONNECTION),
+            interactionRef -> ForwardingDecision.FORWARD,
+            endOfInputError,
+            new byte[0],
+            true,
+            EffectiveObservationStatus.FAILED
+        );
+    }
+
+    @Test
+    void shouldFailClosedWhenObservationOrDecisionCallbackThrowsError()
+        throws Exception {
+        ConnectionObservations observationError = () -> new InteractionSession() {
+            @Override
+            public <T> InteractionRef observe(
+                FlowDirection direction,
+                EvidenceCodec<T> codec,
+                T evidence
+            ) {
+                throw new AssertionError("observation callback secret");
+            }
+        };
+        assertCallbackError(
+            ObservationRequirement.REQUIRED,
+            observationError,
+            interactionRef -> ForwardingDecision.FORWARD,
+            new LengthPrefixedProtocolAdapter(),
+            LengthPrefixedProtocolAdapter.frame("undecided"),
+            false,
+            EffectiveObservationStatus.FAILED
+        );
+
+        RecordingObservations decisionObservations =
+            new RecordingObservations(FIRST_CONNECTION);
+        assertCallbackError(
+            ObservationRequirement.OPTIONAL,
+            decisionObservations,
+            interactionRef -> {
+                throw new AssertionError("decision callback secret");
+            },
+            new LengthPrefixedProtocolAdapter(),
+            LengthPrefixedProtocolAdapter.frame("undecided"),
+            false,
+            EffectiveObservationStatus.DEGRADED
+        );
+        assertThat(decisionObservations.events()).hasSize(1);
+    }
+
+    @Test
     void shouldKeepDisabledAndUnsupportedOptionalRoutesExplicitlyTransparent()
         throws Exception {
         byte[] arbitraryTcpBytes = "not-a-frame".getBytes(UTF_8);
@@ -450,6 +618,47 @@ class ObserveBeforeForwardGatewayTest {
             assertThat(fixture.route().observationStatus())
                 .isEqualTo(EffectiveObservationStatus.FAILED);
         }
+    }
+
+    private static void assertCallbackError(
+        ObservationRequirement requirement,
+        ConnectionObservations observations,
+        InteractionDecisionCoordinator coordinator,
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter,
+        byte[] trigger,
+        boolean halfClose,
+        EffectiveObservationStatus expectedStatus
+    ) throws Exception {
+        try (RouteFixture fixture = RouteFixture.open(
+            FIRST_CONNECTION,
+            requirement,
+            observations,
+            coordinator,
+            adapter,
+            LIMITS
+        )) {
+            fixture.client().getOutputStream().write(trigger);
+            fixture.client().getOutputStream().flush();
+            if (halfClose) {
+                fixture.client().shutdownOutput();
+            }
+            assertSocketPairClosedWithoutForwarding(fixture);
+            assertThat(fixture.route().observationStatus()).isEqualTo(expectedStatus);
+        }
+    }
+
+    private static void assertSocketPairClosedWithoutForwarding(RouteFixture fixture)
+        throws IOException {
+        assertNoForwardedBytesAfterClose(fixture.targetPeer());
+        try {
+            fixture.targetPeer().getOutputStream().write(
+                LengthPrefixedProtocolAdapter.frame("opposite-direction")
+            );
+            fixture.targetPeer().getOutputStream().flush();
+        } catch (IOException ignored) {
+            // A full peer close may reject the write before the no-forwarding assertion.
+        }
+        assertNoForwardedBytesAfterClose(fixture.client());
     }
 
     private static ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence>

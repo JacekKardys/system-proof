@@ -276,6 +276,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             logObservationFailure(failure.stage);
             closeQuietly(downstream);
             closeQuietly(upstream);
+            rethrowErrorCause(failure);
         } catch (IOException | RuntimeException failure) {
             if (!closed.get()) {
                 LOG.warn(
@@ -309,7 +310,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 observations.openSession(),
                 "Connection observations returned null interaction session"
             );
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             throw new ObservationPipelineException(FailureStage.RECORD, failure);
         }
 
@@ -324,7 +325,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 protocolAdapter.openSession(protocolLimits),
                 "Protocol adapter returned null protocol session"
             );
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             throw new ObservationPipelineException(FailureStage.ADAPTER, failure);
         }
 
@@ -344,7 +345,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                     "Protocol session must create independent stream state per direction"
                 );
             }
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | Error failure) {
             throw new ObservationPipelineException(FailureStage.ADAPTER, failure);
         }
 
@@ -393,8 +394,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     private void logObservationFailure(FailureStage stage) {
         if (!closed.get()) {
             LOG.warn(
-                "InteractionGateway observation failed closed for connection '{}' at stage {}",
-                connectionId,
+                "InteractionGateway observation failed closed at stage {}",
                 stage
             );
         }
@@ -456,9 +456,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 failObservation();
                 if (!closed.get() && !sessionClosed.get()) {
                     LOG.warn(
-                        "InteractionGateway protocol observation failed closed for connection '{}'"
-                            + " with classification {}",
-                        connectionId,
+                        "InteractionGateway protocol observation failed closed with classification {}",
                         failure.kind()
                     );
                 }
@@ -468,6 +466,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 failObservation();
                 logObservationFailure(failure.stage);
                 close();
+                rethrowErrorCause(failure);
                 return;
             } catch (IOException failure) {
                 if (!closed.get() && !sessionClosed.get()) {
@@ -515,7 +514,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 protocolStream.endOfInput(pending.view());
             } catch (ProtocolAdapterException failure) {
                 throw failure;
-            } catch (RuntimeException failure) {
+            } catch (RuntimeException | Error failure) {
                 throw new ObservationPipelineException(FailureStage.ADAPTER, failure);
             }
             if (pending.size() != 0) {
@@ -542,7 +541,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                     );
                 } catch (ProtocolAdapterException failure) {
                     throw failure;
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     throw new ObservationPipelineException(FailureStage.ADAPTER, failure);
                 }
                 if (decoded instanceof ProtocolDecodeResult.NeedMoreData<E>) {
@@ -565,7 +564,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                         interactionSession.observe(direction, codec, unit.evidence()),
                         "Interaction session returned null interaction reference"
                     );
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     throw new ObservationPipelineException(FailureStage.RECORD, failure);
                 }
 
@@ -575,7 +574,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                         coordinator.decide(interactionRef),
                         "Interaction coordinator returned null decision"
                     );
-                } catch (RuntimeException failure) {
+                } catch (RuntimeException | Error failure) {
                     throw new ObservationPipelineException(FailureStage.DECISION, failure);
                 }
                 if (decision != ForwardingDecision.FORWARD) {
@@ -730,6 +729,12 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         }
         first.addSuppressed(next);
         return first;
+    }
+
+    private static void rethrowErrorCause(ObservationPipelineException failure) {
+        if (failure.getCause() instanceof Error error) {
+            throw error;
+        }
     }
 
     private enum FailureStage {
