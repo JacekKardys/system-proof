@@ -14,23 +14,36 @@ import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
 /**
  * Authoritative runtime materialization of one validated logical connection.
  *
- * <p>Only the environment-owned registry can mutate lifecycle state or bind the direct target.
- * Public callers can inspect immutable metadata and detached snapshots only.
+ * <p>Only the environment-owned registry can mutate lifecycle state or bind direct and consumer
+ * targets. Public callers can inspect immutable metadata and detached snapshots only.
  */
 public final class RuntimeConnection<C> {
     private final Connection<C> declaration;
     private final ConnectionDescriptor descriptor;
-    private final RoutingMode routingMode = RoutingMode.DIRECT;
+    private final RoutingMode routingMode;
+    private final ConnectionRouteProvider<C> routeProvider;
     private ConnectionState state = ConnectionState.DECLARED;
     private EndpointBinding<C> directTarget;
+    private EndpointBinding<C> consumerTarget;
+    private ConnectionRoute<C> route;
     private boolean directTargetWasBound;
 
     RuntimeConnection(Connection<C> declaration) {
+        this(declaration, ConnectionRouting.direct().select(declaration));
+    }
+
+    RuntimeConnection(
+        Connection<C> declaration,
+        ConnectionRouting.Selection<C> routing
+    ) {
         this.declaration = Objects.requireNonNull(
             declaration,
             "declaration must not be null"
         );
+        routing = Objects.requireNonNull(routing, "routing must not be null");
         descriptor = ConnectionDescriptor.from(declaration);
+        routingMode = routing.mode();
+        routeProvider = routing.provider();
     }
 
     public Connection<C> declaration() {
@@ -93,12 +106,17 @@ public final class RuntimeConnection<C> {
         return directTarget != null;
     }
 
+    public synchronized boolean consumerTargetAvailable() {
+        return consumerTarget != null;
+    }
+
     public synchronized RuntimeConnectionSnapshot snapshot() {
         return new RuntimeConnectionSnapshot(
             descriptor,
             state,
             routingMode,
-            directTarget != null
+            directTarget != null,
+            consumerTarget != null
         );
     }
 
@@ -119,9 +137,42 @@ public final class RuntimeConnection<C> {
         }
     }
 
-    synchronized void bindDirectTarget(EndpointBinding<C> target) {
+    synchronized RouteOwnership<C> acquireRoute(EndpointBinding<C> target) {
         validateCanBindDirectTarget();
-        directTarget = Objects.requireNonNull(target, "target must not be null");
+        target = validateTarget(target, "directTarget");
+        ConnectionRoute<C> preparedRoute = Objects.requireNonNull(
+            routeProvider.prepare(descriptor, target),
+            "Route provider returned null for connection '" + id() + "'"
+        );
+        return new RouteOwnership<>(this, target, preparedRoute);
+    }
+
+    synchronized PreparedTargets<C> validateRoute(RouteOwnership<C> ownership) {
+        validateCanBindDirectTarget();
+        ownership = Objects.requireNonNull(ownership, "ownership must not be null");
+        if (ownership.connection() != this) {
+            throw new IllegalArgumentException(
+                "Route ownership does not belong to connection '" + id() + "'"
+            );
+        }
+        validateTarget(ownership.route().consumerTarget(), "consumerTarget");
+        return new PreparedTargets<>(ownership);
+    }
+
+    synchronized void validateCanBind(PreparedTargets<C> prepared) {
+        validateCanBindDirectTarget();
+        if (Objects.requireNonNull(prepared, "prepared must not be null").connection() != this) {
+            throw new IllegalArgumentException(
+                "Prepared targets do not belong to connection '" + id() + "'"
+            );
+        }
+    }
+
+    synchronized void bindTargets(PreparedTargets<C> prepared) {
+        validateCanBind(prepared);
+        directTarget = prepared.directTarget();
+        consumerTarget = prepared.route().consumerTarget();
+        route = prepared.route();
         directTargetWasBound = true;
         transition(ConnectionState.RUNNING);
     }
@@ -132,8 +183,29 @@ public final class RuntimeConnection<C> {
                 "Connection '" + id() + "' cannot begin stopping from state " + state
             );
         }
-        directTarget = null;
+        consumerTarget = null;
         transition(ConnectionState.STOPPING);
+    }
+
+    synchronized void closeRoute() throws Exception {
+        if (state != ConnectionState.STOPPING) {
+            throw new IllegalStateException(
+                "Connection '" + id() + "' cannot close its route from state " + state
+            );
+        }
+        if (route != null) {
+            route.close();
+        }
+    }
+
+    synchronized void invalidateDirectTarget() {
+        if (state != ConnectionState.STOPPING) {
+            throw new IllegalStateException(
+                "Connection '" + id() + "' cannot invalidate its direct target from state " + state
+            );
+        }
+        directTarget = null;
+        route = null;
     }
 
     synchronized void completeStopping() {
@@ -156,6 +228,8 @@ public final class RuntimeConnection<C> {
 
     synchronized void fail() {
         directTarget = null;
+        consumerTarget = null;
+        route = null;
         transition(ConnectionState.FAILED);
     }
 
@@ -167,12 +241,12 @@ public final class RuntimeConnection<C> {
                     + "' does not belong to connection '" + id() + "'"
             );
         }
-        if (state != ConnectionState.RUNNING || directTarget == null) {
+        if (state != ConnectionState.RUNNING || consumerTarget == null) {
             throw new IllegalStateException(
-                "Connection '" + id() + "' has no available direct target in state " + state
+                "Connection '" + id() + "' has no available consumer target in state " + state
             );
         }
-        return required.contract().cast(directTarget.internal());
+        return required.contract().cast(consumerTarget.internal());
     }
 
     synchronized EndpointBinding<C> directTarget() {
@@ -184,6 +258,25 @@ public final class RuntimeConnection<C> {
         return directTarget;
     }
 
+    synchronized EndpointBinding<C> consumerTarget() {
+        if (consumerTarget == null) {
+            throw new IllegalStateException(
+                "Connection '" + id() + "' has no available consumer target in state " + state
+            );
+        }
+        return consumerTarget;
+    }
+
+    private EndpointBinding<C> validateTarget(
+        EndpointBinding<C> target,
+        String description
+    ) {
+        Objects.requireNonNull(target, description + " must not be null");
+        declaration.from().contract().cast(target.internal());
+        declaration.from().contract().cast(target.external());
+        return target;
+    }
+
     private void transition(ConnectionState next) {
         Objects.requireNonNull(next, "next must not be null");
         if (!isLegalTransition(state, next)) {
@@ -191,14 +284,21 @@ public final class RuntimeConnection<C> {
                 "Connection '" + id() + "' cannot transition from " + state + " to " + next
             );
         }
-        if (next == ConnectionState.RUNNING && directTarget == null) {
+        if (next == ConnectionState.RUNNING
+            && (directTarget == null || consumerTarget == null)) {
             throw new IllegalStateException(
-                "Connection '" + id() + "' cannot run without a direct target"
+                "Connection '" + id() + "' cannot run without direct and consumer targets"
             );
         }
-        if (next == ConnectionState.STOPPED && directTarget != null) {
+        if (next == ConnectionState.STOPPING && consumerTarget != null) {
             throw new IllegalStateException(
-                "Connection '" + id() + "' cannot stop with a direct target"
+                "Connection '" + id() + "' cannot stop with a consumer target"
+            );
+        }
+        if (next == ConnectionState.STOPPED
+            && (directTarget != null || consumerTarget != null)) {
+            throw new IllegalStateException(
+                "Connection '" + id() + "' cannot stop with available targets"
             );
         }
         state = next;
@@ -222,5 +322,46 @@ public final class RuntimeConnection<C> {
             case FAILED -> false;
             case STOPPED -> false;
         };
+    }
+
+    record RouteOwnership<C>(
+        RuntimeConnection<C> connection,
+        EndpointBinding<C> directTarget,
+        ConnectionRoute<C> route
+    ) {
+        RouteOwnership {
+            connection = Objects.requireNonNull(connection, "connection must not be null");
+            directTarget = Objects.requireNonNull(
+                directTarget,
+                "directTarget must not be null"
+            );
+            route = Objects.requireNonNull(route, "route must not be null");
+        }
+
+        void closeRoute() throws Exception {
+            route.close();
+        }
+    }
+
+    record PreparedTargets<C>(RouteOwnership<C> ownership) {
+        PreparedTargets {
+            ownership = Objects.requireNonNull(ownership, "ownership must not be null");
+        }
+
+        RuntimeConnection<C> connection() {
+            return ownership.connection();
+        }
+
+        EndpointBinding<C> directTarget() {
+            return ownership.directTarget();
+        }
+
+        ConnectionRoute<C> route() {
+            return ownership.route();
+        }
+
+        void closeRoute() throws Exception {
+            ownership.closeRoute();
+        }
     }
 }

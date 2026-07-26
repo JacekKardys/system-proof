@@ -7,7 +7,8 @@ public record RuntimeConnectionSnapshot(
     ConnectionDescriptor descriptor,
     ConnectionState state,
     RoutingMode routingMode,
-    boolean directTargetAvailable
+    boolean directTargetAvailable,
+    boolean consumerTargetAvailable
 ) {
     public RuntimeConnectionSnapshot {
         descriptor = Objects.requireNonNull(descriptor, "descriptor must not be null");

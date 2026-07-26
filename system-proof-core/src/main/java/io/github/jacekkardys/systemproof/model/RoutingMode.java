@@ -7,5 +7,13 @@ public enum RoutingMode {
      *
      * <p>No gateway interposition or traffic-observation guarantee is implied.
      */
-    DIRECT
+    DIRECT,
+
+    /**
+     * The consumer receives a connection-owned route endpoint.
+     *
+     * <p>The direct provider target remains retained by the runtime connection. Routed does not
+     * imply that traffic was observed.
+     */
+    ROUTED
 }

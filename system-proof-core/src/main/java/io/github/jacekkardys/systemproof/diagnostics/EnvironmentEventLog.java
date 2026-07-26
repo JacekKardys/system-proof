@@ -1,9 +1,12 @@
 package io.github.jacekkardys.systemproof.diagnostics;
 
 import java.time.Duration;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +52,7 @@ public final class EnvironmentEventLog {
 
     private final ScenarioJournal journal;
     private final EnvironmentLogging configuration;
+    private final Map<Throwable, FailureDetails> protectedFailures = new IdentityHashMap<>();
 
     public EnvironmentEventLog(ScenarioJournal journal, EnvironmentLogging configuration) {
         this.journal = Objects.requireNonNull(journal, "journal must not be null");
@@ -81,12 +85,20 @@ public final class EnvironmentEventLog {
         ConnectionRef connection,
         ConnectionDescriptor descriptor,
         ConnectionState state,
-        RoutingMode routingMode
+        RoutingMode routingMode,
+        boolean directTargetAvailable,
+        boolean consumerTargetAvailable
     ) {
         Objects.requireNonNull(connection, "connection must not be null");
         LogLevel level = state == ConnectionState.FAILED ? LogLevel.ERROR : LogLevel.INFO;
         append(
-            new ConnectionLifecycleEvent(descriptor, state, routingMode),
+            new ConnectionLifecycleEvent(
+                descriptor,
+                state,
+                routingMode,
+                directTargetAvailable,
+                consumerTargetAvailable
+            ),
             configuration.connectionLevel(connection),
             level
         );
@@ -94,7 +106,7 @@ public final class EnvironmentEventLog {
 
     public void environmentStartupFailure(Throwable failure) {
         append(
-            new FailureEvent.EnvironmentStartup(FailureDetails.from(failure)),
+            new FailureEvent.EnvironmentStartup(failureDetails(failure)),
             configuration.frameworkLevel(),
             LogLevel.ERROR
         );
@@ -103,7 +115,7 @@ public final class EnvironmentEventLog {
     public void componentStartupFailure(Component component, Throwable failure) {
         Objects.requireNonNull(component, "component must not be null");
         append(
-            new FailureEvent.ComponentStartup(component.id(), FailureDetails.from(failure)),
+            new FailureEvent.ComponentStartup(component.id(), failureDetails(failure)),
             configuration.componentLevel(component),
             LogLevel.ERROR
         );
@@ -112,7 +124,7 @@ public final class EnvironmentEventLog {
     public void componentCleanupFailure(Component component, Throwable failure) {
         Objects.requireNonNull(component, "component must not be null");
         append(
-            new FailureEvent.ComponentCleanup(component.id(), FailureDetails.from(failure)),
+            new FailureEvent.ComponentCleanup(component.id(), failureDetails(failure)),
             configuration.componentLevel(component),
             LogLevel.ERROR
         );
@@ -126,7 +138,7 @@ public final class EnvironmentEventLog {
         append(
             new FailureEvent.ConnectionMaterialization(
                 connection.id(),
-                FailureDetails.from(failure)
+                failureDetails(failure)
             ),
             configuration.connectionLevel(connection),
             LogLevel.ERROR
@@ -138,7 +150,7 @@ public final class EnvironmentEventLog {
         append(
             new FailureEvent.ConnectionCleanup(
                 connection.id(),
-                FailureDetails.from(failure)
+                failureDetails(failure)
             ),
             configuration.connectionLevel(connection),
             LogLevel.ERROR
@@ -149,7 +161,7 @@ public final class EnvironmentEventLog {
         append(
             new FailureEvent.DriverResourceCleanup(
                 resourceName,
-                FailureDetails.from(failure)
+                failureDetails(failure)
             ),
             configuration.frameworkLevel(),
             LogLevel.ERROR
@@ -192,6 +204,20 @@ public final class EnvironmentEventLog {
             configuration.componentLevel(component),
             level
         );
+    }
+
+    public synchronized void protectRoutePreparationFailure(
+        ConnectionRef connection,
+        Throwable failure
+    ) {
+        protectRouteFailure("preparation", connection, failure);
+    }
+
+    public synchronized void protectRouteCleanupFailure(
+        ConnectionRef connection,
+        Throwable failure
+    ) {
+        protectRouteFailure("cleanup", connection, failure);
     }
 
     /**
@@ -450,7 +476,7 @@ public final class EnvironmentEventLog {
         String action = switch (lifecycle.state()) {
             case DECLARED -> "Connection materialized and validated";
             case STARTING -> "Starting connection";
-            case RUNNING -> "Direct target available";
+            case RUNNING -> "Consumer target available";
             case STOPPING -> "Stopping connection";
             case STOPPED -> "Connection stopped";
             case FAILED -> "Connection failed";
@@ -464,12 +490,40 @@ public final class EnvironmentEventLog {
             + " protocol=" + connection.protocolId()
             + " scheme=" + connection.protocolScheme()
             + " state=" + lifecycle.state()
-            + " mode=" + lifecycle.routingMode();
+            + " mode=" + lifecycle.routingMode()
+            + " directTargetAvailable=" + lifecycle.directTargetAvailable()
+            + " consumerTargetAvailable=" + lifecycle.consumerTargetAvailable();
     }
 
     private static String failureMessage(FailureDetails failure) {
         return failure.failureType()
             + failure.message().map(message -> " - " + message).orElse("");
+    }
+
+    private void protectRouteFailure(
+        String stage,
+        ConnectionRef connection,
+        Throwable failure
+    ) {
+        Objects.requireNonNull(connection, "connection must not be null");
+        Objects.requireNonNull(failure, "failure must not be null");
+        String simpleName = failure.getClass().getSimpleName();
+        String type = simpleName.isBlank() ? failure.getClass().getName() : simpleName;
+        protectedFailures.putIfAbsent(
+            failure,
+            new FailureDetails(
+                type,
+                Optional.of(
+                    "Route " + stage + " failed for connection '" + connection.id() + "'"
+                )
+            )
+        );
+    }
+
+    private synchronized FailureDetails failureDetails(Throwable failure) {
+        Objects.requireNonNull(failure, "failure must not be null");
+        FailureDetails protectedFailure = protectedFailures.get(failure);
+        return protectedFailure == null ? FailureDetails.from(failure) : protectedFailure;
     }
 
     private static String timestamp(Duration elapsed) {

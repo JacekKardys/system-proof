@@ -47,10 +47,10 @@ final class RuntimeBindings {
             }
         }
 
-        List<RuntimeConnectionRegistry.PreparedDirectTarget<?>> prepared;
+        List<RuntimeConnection.PreparedTargets<?>> prepared;
         try {
-            prepared = connections.prepareDirectTargets(component, runtime);
-            connections.bindDirectTargets(prepared);
+            prepared = connections.prepareTargets(component, runtime);
+            connections.bindTargets(prepared);
         } catch (RuntimeException | Error failure) {
             connections.failProviderMaterialization(component, failure);
             throw failure;
@@ -83,8 +83,8 @@ final class RuntimeBindings {
         return requireRuntime(component);
     }
 
-    void beginDetach(AbstractComponent<?, ?> component) {
-        connections.beginProviderCleanup(component);
+    Throwable beginDetach(AbstractComponent<?, ?> component) {
+        return connections.beginProviderCleanup(component);
     }
 
     void completeDetach(AbstractComponent<?, ?> component) {

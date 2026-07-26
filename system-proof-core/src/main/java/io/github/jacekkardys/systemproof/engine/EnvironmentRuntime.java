@@ -41,6 +41,14 @@ public final class EnvironmentRuntime {
         EnvironmentTopology topology,
         EnvironmentLogging logging
     ) {
+        this(topology, logging, ConnectionRouting.direct());
+    }
+
+    public EnvironmentRuntime(
+        EnvironmentTopology topology,
+        EnvironmentLogging logging,
+        ConnectionRouting routing
+    ) {
         topology = Objects.requireNonNull(topology, "topology must not be null");
         components = topology.componentDefinitions();
         startOrder = ComponentStartPlan.order(components, topology::connectionFrom);
@@ -48,7 +56,11 @@ public final class EnvironmentRuntime {
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
         journal = new ScenarioJournal();
         eventLog = new EnvironmentEventLog(journal, logging);
-        connections = new RuntimeConnectionRegistry(topology.connections(), eventLog);
+        connections = new RuntimeConnectionRegistry(
+            topology.connections(),
+            eventLog,
+            Objects.requireNonNull(routing, "routing must not be null")
+        );
         bindings = new RuntimeBindings(connections);
         diagnostics = new RuntimeDiagnostics(journal, eventLog);
     }
@@ -197,22 +209,30 @@ public final class EnvironmentRuntime {
         Collections.reverse(reverse);
         for (AbstractComponent<?, ?> component : reverse) {
             transitionComponent(component, ComponentState.STOPPING);
+            Throwable componentFailure = bindings.beginDetach(component);
+            Throwable providerFailure = null;
             try {
-                bindings.beginDetach(component);
                 bindings.runtime(component).close();
-                bindings.completeDetach(component);
-                transitionComponent(component, ComponentState.STOPPED);
             } catch (Exception | Error failure) {
-                bindings.failDetach(component, failure);
-                transitionComponent(component, ComponentState.FAILED);
-                eventLog.componentCleanupFailure(component, failure);
-                firstFailure = accumulate(firstFailure, failure);
-            } finally {
-                bindings.detachRuntime(component);
+                providerFailure = failure;
+                componentFailure = accumulate(componentFailure, failure);
             }
+            if (providerFailure == null) {
+                bindings.completeDetach(component);
+            } else {
+                bindings.failDetach(component, providerFailure);
+            }
+            if (componentFailure == null) {
+                transitionComponent(component, ComponentState.STOPPED);
+            } else {
+                transitionComponent(component, ComponentState.FAILED);
+                eventLog.componentCleanupFailure(component, componentFailure);
+                firstFailure = accumulate(firstFailure, componentFailure);
+            }
+            bindings.detachRuntime(component);
         }
         started.clear();
-        connections.stopRemaining();
+        firstFailure = accumulate(firstFailure, connections.stopRemaining());
         if (driverServices != null) {
             firstFailure = accumulate(firstFailure, driverServices.closeSharedResources());
         }

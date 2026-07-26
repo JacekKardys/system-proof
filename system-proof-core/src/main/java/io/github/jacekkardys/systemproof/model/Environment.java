@@ -6,6 +6,7 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
+import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.EnvironmentRuntime;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 
@@ -16,11 +17,22 @@ public class Environment implements AutoCloseable {
     private final EnvironmentRuntime runtime;
 
     protected Environment(Builder builder) {
+        this(builder, ConnectionRouting.direct());
+    }
+
+    /**
+     * Runtime extension seam for framework-owned connection routing without changing topology DSL.
+     */
+    protected Environment(Builder builder, ConnectionRouting routing) {
         Objects.requireNonNull(builder, "builder must not be null");
         topology = new EnvironmentTopology(builder.components, builder.connections);
         logging = builder.logging;
         logging.validateAgainst(this);
-        runtime = new EnvironmentRuntime(topology, logging);
+        runtime = new EnvironmentRuntime(
+            topology,
+            logging,
+            Objects.requireNonNull(routing, "routing must not be null")
+        );
     }
 
     public static Builder environment() {

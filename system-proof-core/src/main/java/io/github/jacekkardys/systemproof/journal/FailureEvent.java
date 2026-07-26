@@ -43,7 +43,7 @@ public sealed interface FailureEvent extends ScenarioEvent permits
         }
     }
 
-    /** A provider could not materialize the direct target for one runtime connection. */
+    /** A provider or route could not materialize one runtime connection's targets. */
     record ConnectionMaterialization(
         ConnectionId connectionId,
         FailureDetails failure
@@ -57,7 +57,7 @@ public sealed interface FailureEvent extends ScenarioEvent permits
         }
     }
 
-    /** A provider cleanup failed after its runtime connection was made unavailable. */
+    /** A connection-owned route or provider cleanup failed after consumer unavailability. */
     record ConnectionCleanup(
         ConnectionId connectionId,
         FailureDetails failure

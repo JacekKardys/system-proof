@@ -13,6 +13,8 @@ Public contracts:
   directional typed topology without runtime addresses.
 - `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
   runtime materialization per logical connection, without exposing endpoint values.
+- `ConnectionRouting`, `ConnectionRouteProvider<C>`, and `ConnectionRoute<C>`: typed runtime
+  selection and a connection-owned effective endpoint/resource seam without topology proxy DSL.
 - `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
@@ -62,20 +64,46 @@ validates the same canonical ID against its structured endpoint metadata.
 The registry materializes each declaration exactly once, rejects duplicate IDs or required-port
 materialization, and indexes by ID, required port, provider, and provided port. A
 `RuntimeConnection<C>` owns its immutable descriptor, `DECLARED -> STARTING -> RUNNING -> STOPPING
--> STOPPED` lifecycle or terminal `FAILED` state, `DIRECT` routing mode, and one-shot direct
-`EndpointBinding<C>`. State transitions are centrally checked. A connection cannot become
-`RUNNING` without a target, and cleanup removes target availability before closing the provider.
+-> STOPPED` lifecycle or terminal `FAILED` state, routing mode, one-shot direct
+`EndpointBinding<C>`, and a separate effective consumer binding. State transitions are centrally
+checked. A connection cannot become `RUNNING` until both targets are available.
 
-Drivers still publish both internal and external endpoint values. The runtime connection retains
-both forms internally, but direct consumer resolution returns only the internal typed value. The
-external form is retained for later JVM gateway routing. Public inspection returns detached
-immutable snapshots containing semantic metadata, state, mode, and target availability; it never
-returns endpoint values, Testcontainers objects, mapped ports, aliases, or credentials.
+Drivers still publish both internal and external endpoint values as the direct binding.
+`DriverContext.resolve(...)` reaches the required port's runtime connection and returns only the
+internal value of its consumer binding. `ComponentRuntime` has no public binding or provided-port
+resolution method. It only transfers its published bindings into a non-publicly-constructible,
+engine-owned typed boundary used by `RuntimeConnectionRegistry`. The external direct form is
+retained for later JVM gateway routing. Public inspection returns detached immutable snapshots
+containing semantic metadata, state, mode, and separate direct/consumer availability; it never
+returns endpoint values, route implementations, closeable resources, Testcontainers objects, mapped
+ports, aliases, or credentials.
 
-`DIRECT` is the only implemented routing mode and means that the consumer receives the provider's
-internal endpoint. It provides no traffic-observation guarantee. A later reroutable/effective
-consumer endpoint can be added to the existing runtime connection for issue #6 without creating a
-parallel registry or moving ownership away from `RuntimeConnection`.
+`DIRECT` aliases the consumer target to the direct binding and allocates no route resource.
+`ROUTED` selects a typed `ConnectionRouteProvider<C>` using immutable rules keyed by semantic
+`Contract<C>` or one stable structured connection identity. A policy can contain several rules,
+connection-specific rules take precedence, and unmatched connections remain `DIRECT`. This keeps
+distinct contracts using the same Java class separate. The provider is invoked once per
+`RuntimeConnection`, receives its stable descriptor and typed direct binding, and returns a typed
+consumer binding plus an optional connection-owned resource. The sole unchecked conversion is
+confined to the private contract-and-connection-validated routing boundary.
+
+Provider fan-out preparation is atomic: the runtime prepares every route before publishing any
+targeted connection as `RUNNING`. A later preparation failure closes prior routes in reverse order,
+keeps the startup failure primary, and suppresses cleanup failures. Cleanup first removes consumer
+availability for the full provider set, closes route resources in reverse order exactly once, then
+invalidates direct targets before closing the provider. Route cleanup failure makes the affected
+connection terminally `FAILED` without preventing remaining provider cleanup.
+
+Route preparation and cleanup exceptions remain unchanged for the caller, including suppressed
+failure ordering. Before those failures enter `ScenarioJournal`, their endpoint-bearing messages are
+replaced with safe metadata containing the failure type, route stage, and structured connection
+identity. Connection, component, and environment rendering therefore share the same redacted
+details without creating a second history.
+
+`ROUTED` is not `OBSERVED` and records no traffic-observation claim. `ConnectionRouting` enters
+through the protected runtime construction seam rather than the public topology DSL. Issue #7 adds
+the executable JVM gateway, container host exposure, bidirectional TCP proof, and ADR on top of this
+seam. Issue #8 owns the later environment-scoped observed gateway policy and `OBSERVED` semantics.
 
 `Environment.start()` starts providers before consumers when a consumer needs the provider's
 runtime binding to materialize its driver. It attaches each runtime to the same component object.

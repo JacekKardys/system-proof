@@ -208,7 +208,9 @@ class EnvironmentEventLogTest {
         journal.append(new ConnectionLifecycleEvent(
             connection,
             ConnectionState.RUNNING,
-            RoutingMode.DIRECT
+            RoutingMode.DIRECT,
+            true,
+            true
         ));
         journal.append(new DiagnosticEvent(
             DiagnosticEvent.EnvironmentSubject.INSTANCE,
@@ -252,10 +254,11 @@ class EnvironmentEventLogTest {
             .contains(
                 "Environment failed",
                 "Component failed",
-                "[CONNECTION] [client[].api->server[].api] Direct target available "
+                "[CONNECTION] [client[].api->server[].api] Consumer target available "
                     + "source=client[].api target=server[].api contract=api "
                     + "contractType=java.lang.String interaction=invocation "
-                    + "protocol=http scheme=http state=RUNNING mode=DIRECT",
+                    + "protocol=http scheme=http state=RUNNING mode=DIRECT "
+                    + "directTargetAvailable=true consumerTargetAvailable=true",
                 "diagnostic",
                 "Environment startup failed: IllegalStateException - broken",
                 "Component startup failed: IllegalStateException - broken",
