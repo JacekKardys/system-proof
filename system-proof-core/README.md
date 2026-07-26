@@ -73,7 +73,7 @@ Drivers still publish both internal and external endpoint values as the direct b
 internal value of its consumer binding. `ComponentRuntime` has no public binding or provided-port
 resolution method. It only transfers its published bindings into a non-publicly-constructible,
 engine-owned typed boundary used by `RuntimeConnectionRegistry`. The external direct form is
-retained for later JVM gateway routing. Public inspection returns detached immutable snapshots
+retained for JVM gateway routing. Public inspection returns detached immutable snapshots
 containing semantic metadata, state, mode, and separate direct/consumer availability; it never
 returns endpoint values, route implementations, closeable resources, Testcontainers objects, mapped
 ports, aliases, or credentials.
@@ -101,9 +101,10 @@ identity. Connection, component, and environment rendering therefore share the s
 details without creating a second history.
 
 `ROUTED` is not `OBSERVED` and records no traffic-observation claim. `ConnectionRouting` enters
-through the protected runtime construction seam rather than the public topology DSL. Issue #7 adds
-the executable JVM gateway, container host exposure, bidirectional TCP proof, and ADR on top of this
-seam. Issue #8 owns the later environment-scoped observed gateway policy and `OBSERVED` semantics.
+through the protected runtime construction seam rather than the public topology DSL. The
+Testcontainers module uses this seam for the executable JVM gateway, container host exposure, and
+bidirectional TCP proof without adding transport concepts to core. Issue #8 owns the later
+environment-scoped observed gateway policy and `OBSERVED` semantics.
 
 `Environment.start()` starts providers before consumers when a consumer needs the provider's
 runtime binding to materialize its driver. It attaches each runtime to the same component object.

@@ -20,7 +20,8 @@ system-proof-examples/fixtures
 - `system-proof-core`: typed components, ports, connections, lifecycle, logging, and diagnostics.
 - `system-proof-junit5`: `@EnvironmentTest`, `@EnvironmentDefinition`, environment injection, and
   failure artifacts.
-- `system-proof-testcontainers`: container-backed drivers and runtime port bindings.
+- `system-proof-testcontainers`: container-backed drivers, runtime port bindings, and test-JVM
+  interaction gateway routes.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
 - `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
 - `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
@@ -163,7 +164,7 @@ the provider runtime. `ComponentRuntime` exposes no public provider-binding look
 transfer published bindings into an engine-owned boundary that external callers cannot construct.
 
 The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
-communication and the external test-host endpoint needed by later gateway work. Endpoint values
+communication and the external test-host endpoint used by JVM gateway routing. Endpoint values
 remain internal because they may contain credentials, aliases, or other secrets.
 `Environment.runtimeConnections()` and `Environment.runtimeConnection(ConnectionId)` expose only
 detached immutable snapshots with semantic metadata, lifecycle state, routing mode, and separate
@@ -184,9 +185,11 @@ caller remain unchanged.
 
 `ROUTED` means only that the consumer receives an interposed endpoint; it does not claim that
 traffic was observed. The protected environment runtime seam accepts `ConnectionRouting` without
-adding route or proxy declarations to the topology DSL. Issue #7 will use this seam to prove one
-real JVM `InteractionGateway`, container-to-JVM routing, and Testcontainers host exposure. Those
-transport mechanics, and the later `OBSERVED` semantics from issue #8, are not implemented here.
+adding route or proxy declarations to the topology DSL. The Testcontainers module builds on this
+seam with one test-JVM `InteractionGateway`: each matching `RuntimeConnection` owns its transparent
+TCP listener and typed endpoint adapter, while Testcontainers exposes that listener to consumer
+containers as `host.testcontainers.internal`. The gateway proves transport and lifecycle only;
+`OBSERVED` semantics and protocol evidence remain later roadmap work.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
@@ -254,15 +257,17 @@ Java 21 and the Maven Wrapper are required:
 ```
 
 `clean test` runs unit tests without Docker. `clean verify` also runs the transactional ingestion
-test, PostgreSQL example, and complete SMS-ingestion topology through Failsafe. It requires Docker.
-The reference ingestion image and adapted `ukarim/smscsim` fixture image are built during
-verification. The SMSC build fetches an exact upstream commit and applies the reviewed patch stored
-in this repository. No prebuilt application image or manually provisioned local tag is required.
+test, PostgreSQL example, container-boundary interaction gateway proof, and complete SMS-ingestion
+topology through Failsafe. It requires Docker. The reference ingestion image and adapted
+`ukarim/smscsim` fixture image are built during verification. The SMSC build fetches an exact
+upstream commit and applies the reviewed patch stored in this repository. No prebuilt application
+image or manually provisioned local tag is required.
 
 ## Continuous integration
 
 The `Verify` workflow runs `./mvnw clean verify` with Java 21 and Docker on a GitHub-hosted Ubuntu
-runner. The same job executes unit and architecture tests, both Docker integration tests, builds
-the reference ingestion application and adapted SMSC fixture, and runs the complete topology
-smoke. Third-party source, license, pin, and patch details are recorded in
+runner. The same job executes unit and architecture tests, the Docker integration tests including
+the interaction gateway proof, builds the reference ingestion application and adapted SMSC
+fixture, and runs the complete topology smoke. Third-party source, license, pin, and patch details
+are recorded in
 [`docs/third-party.md`](docs/third-party.md).
