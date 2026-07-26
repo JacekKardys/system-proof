@@ -11,6 +11,7 @@ import io.github.jacekkardys.systemproof.engine.ConnectionRouteContext;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouteProvider;
 import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.ObservationRequirement;
 
 /**
  * Creates connection-owned transparent TCP routes through the test JVM.
@@ -26,6 +27,8 @@ public final class InteractionGateway {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
+    private static final ProtocolLimits DEFAULT_PROTOCOL_LIMITS =
+        new ProtocolLimits(1024 * 1024, 2 * 1024 * 1024);
 
     private final HostPortExposure hostPortExposure;
 
@@ -45,22 +48,63 @@ public final class InteractionGateway {
      */
     public <C> ConnectionRouteProvider<C> tcp(TcpEndpointAdapter<C> endpoints) {
         Objects.requireNonNull(endpoints, "endpoints must not be null");
-        return context -> prepare(context, endpoints);
+        return context -> prepare(context, endpoints, null, null);
     }
 
-    private <C> ConnectionRoute<C> prepare(
+    /**
+     * Returns a route provider with bounded protocol-aware observation using default limits.
+     */
+    public <C, E> ConnectionRouteProvider<C> tcp(
+        TcpEndpointAdapter<C> endpoints,
+        ProtocolAdapter<E> protocolAdapter
+    ) {
+        return tcp(endpoints, protocolAdapter, DEFAULT_PROTOCOL_LIMITS);
+    }
+
+    /**
+     * Returns a route provider with bounded protocol-aware observation.
+     *
+     * <p>The adapter is used only when the matching routing rule requests optional or required
+     * observation. A disabled rule retains the transparent path.
+     */
+    public <C, E> ConnectionRouteProvider<C> tcp(
+        TcpEndpointAdapter<C> endpoints,
+        ProtocolAdapter<E> protocolAdapter,
+        ProtocolLimits protocolLimits
+    ) {
+        Objects.requireNonNull(endpoints, "endpoints must not be null");
+        Objects.requireNonNull(protocolAdapter, "protocolAdapter must not be null");
+        Objects.requireNonNull(protocolLimits, "protocolLimits must not be null");
+        return context -> prepare(context, endpoints, protocolAdapter, protocolLimits);
+    }
+
+    private <C, E> ConnectionRoute<C> prepare(
         ConnectionRouteContext<C> context,
-        TcpEndpointAdapter<C> endpoints
+        TcpEndpointAdapter<C> endpoints,
+        ProtocolAdapter<E> configuredProtocolAdapter,
+        ProtocolLimits configuredProtocolLimits
     ) {
         Objects.requireNonNull(context, "context must not be null");
         ConnectionDescriptor connection = context.connection();
         EndpointBinding<C> directTarget = context.directTarget();
         InetSocketAddress target = endpoints.address(directTarget.external());
-        GatewayRoute route = GatewayRoute.open(
+        ProtocolAdapter<E> effectiveProtocolAdapter =
+            context.observationRequirement()
+                == ObservationRequirement.DISABLED
+                    ? null
+                    : configuredProtocolAdapter;
+        ProtocolLimits effectiveProtocolLimits =
+            effectiveProtocolAdapter == null ? null : configuredProtocolLimits;
+        GatewayRoute<E> route = GatewayRoute.open(
             connection.id(),
             target,
             CONNECT_TIMEOUT,
-            SHUTDOWN_TIMEOUT
+            SHUTDOWN_TIMEOUT,
+            context.observationRequirement(),
+            context.observations(),
+            context.coordinator(),
+            effectiveProtocolAdapter,
+            effectiveProtocolLimits
         );
         try {
             route.start();
@@ -77,14 +121,14 @@ public final class InteractionGateway {
                     route.listenerPort()
                 )
             );
-            return ConnectionRoute.routed(consumerTarget, route);
+            return ConnectionRoute.routed(consumerTarget, route, route);
         } catch (RuntimeException | Error failure) {
             closeAfterPreparationFailure(route, failure);
             throw failure;
         }
     }
 
-    private void expose(ConnectionDescriptor connection, GatewayRoute route) {
+    private void expose(ConnectionDescriptor connection, GatewayRoute<?> route) {
         try {
             hostPortExposure.expose(route.listenerPort());
         } catch (RuntimeException | Error failure) {
@@ -99,7 +143,7 @@ public final class InteractionGateway {
     }
 
     private static void closeAfterPreparationFailure(
-        GatewayRoute route,
+        GatewayRoute<?> route,
         Throwable preparationFailure
     ) {
         try {

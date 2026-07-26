@@ -2,7 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-26
-- Issue: [#7](https://github.com/JacekKardys/system-proof/issues/7)
+- Issues: [#7](https://github.com/JacekKardys/system-proof/issues/7),
+  [#8](https://github.com/JacekKardys/system-proof/issues/8)
 
 ## Context
 
@@ -24,9 +25,9 @@ source of truth and would make concurrent HTTP, PostgreSQL, and SMPP contracts a
 
 `InteractionGateway` is a protocol-neutral Testcontainers adapter. One instance supplies typed
 `ConnectionRouteProvider<C>` values through `gateway.tcp(adapter)`. Each invocation receives one
-immutable route context for the exact materialized connection. The context now also contains the
-connection-bound observation capability, but this reachability spike deliberately leaves it unused.
-An immutable `TcpEndpointAdapter<C>` knows only how to:
+immutable route context for the exact materialized connection. The context contains the separate
+observation requirement, connection-bound observation capability, and the one environment-scoped
+decision coordinator. An immutable `TcpEndpointAdapter<C>` knows only how to:
 
 1. extract the JVM-reachable TCP address from endpoint value `C`;
 2. copy `C` with a different host and port while preserving its other fields.
@@ -43,6 +44,44 @@ direct provider address and bypass the gateway.
 Different endpoint types can coexist because each routing rule carries its own typed adapter. The
 executable spike uses `EndpointAddress` for HTTP and `SmppEndpoint` for an SMPP-representative
 long-lived session under one gateway instance.
+
+### Routing, observation, and framing
+
+`RoutingMode` remains limited to `DIRECT | ROUTED`. Observation is an orthogonal
+`ObservationRequirement`:
+
+- `DISABLED` keeps the simple transparent relay and reports `DISABLED`;
+- `OPTIONAL` reports `ACTIVE` when a protocol adapter is configured, otherwise it explicitly
+  reports `UNSUPPORTED`;
+- `REQUIRED` must prepare an active protocol adapter path or route preparation fails.
+
+`RuntimeConnectionSnapshot` exposes both the requirement and immutable effective status. Routed
+traffic therefore never implies observed traffic. If an active optional path loses trustworthy
+observation it becomes `DEGRADED`; a required path becomes `FAILED`. Neither state silently admits
+later sessions as transparent relays.
+
+The protocol SPI is independent of endpoint adaptation. `ProtocolAdapter<E>` supplies an
+`EvidenceCodec<E>` and opens one `ProtocolSession<E>` per physical socket pair. That session creates
+different `ProtocolStream<E>` instances for `CONSUMER_TO_PROVIDER` and
+`PROVIDER_TO_CONSUMER`. A stream receives a read-only view of bounded, not-yet-forwarded bytes and
+emits complete `ProtocolUnit<E>` values. Each unit contains typed evidence and a defensive copy of
+its exact original bytes. The SPI receives no socket, listener, route lifecycle, `ConnectionId`,
+`SessionId`, ordinal, or `InteractionRef`.
+
+The gateway owns the byte buffer and enforces independent maximum-frame and aggregate-buffer limits
+per session direction. For every complete unit it unconditionally executes:
+
+```text
+frame -> record -> decide -> forward exact original bytes
+```
+
+`InteractionSession.observe(...)` first copies typed evidence into the single environment
+`ScenarioJournal` and returns the stable `InteractionRef`. The one thread-safe environment
+coordinator then returns the current milestone's only decision, `FORWARD`. Only then does the
+gateway write the adapter-preserved bytes. It validates that they equal the current buffered prefix,
+never reconstructs them from evidence, and processes coalesced units serially so later bytes cannot
+overtake earlier complete units. No prefix of an incomplete or undecided unit crosses the downstream
+socket.
 
 ### Address selection and host exposure
 
@@ -107,13 +146,22 @@ ports, or fall back to an unverified hostname.
 - A null, invalid, or incompatible endpoint replacement aborts preparation and closes the listener.
 - Failure to connect to the provider ends only that accepted session and is logged using connection
   identity and failure type, not endpoint values.
+- Malformed input, unsupported negotiation or encryption, ambiguous framing, desynchronization,
+  excessive frame size, or excessive buffered bytes closes the affected observed socket pair before
+  forwarding the unresolved unit.
+- Codec, journal, or coordinator failure applies the same fail-closed policy. Optional observation
+  becomes `DEGRADED`; required observation becomes `FAILED`. Already decided and written units are
+  not rolled back or reordered.
+- EOF on an empty directional buffer propagates half-close. EOF with an incomplete required unit is
+  desynchronization and closes the socket pair without forwarding that unit.
 - Route cleanup closes all sockets and reports a connection cleanup failure if its tasks cannot
   terminate within the bounded shutdown interval.
 - Testcontainers' forwarding helper is suite-scoped and may retain an exposed-port registration
   until JVM shutdown. The connection-owned JVM listener and all accepted connections are still
   released at environment cleanup; the retained registration owns no logical route or endpoint.
 
-Diagnostics never render hosts, mapped ports, credentials, endpoint objects, or payload bytes.
+Diagnostics never render hosts, mapped ports, credentials, endpoint objects, payload bytes, raw
+frames, or exception messages from adapter/codec/journal/coordinator failures.
 
 ## Executable proof
 
@@ -128,7 +176,13 @@ both routed endpoints resolve, then verifies that the provider container stopped
 connections lost their targets, and both listener ports can be rebound.
 
 Docker-free tests additionally cover active-session closure and fail-fast diagnostics when host
-exposure is unavailable.
+exposure is unavailable. A test-only four-byte length-prefixed adapter separately covers
+byte-by-byte fragmentation, every header/payload split, coalesced frames, explicit failure
+classifications, frame limits, and incomplete EOF without relying on socket read boundaries.
+Socket tests use latches and bounded timeouts to prove journal visibility before downstream
+visibility, exact ordered bytes in both directions, shared physical `SessionId`, reconnect identity,
+multiple connections under one coordinator, fail-closed faults, half-close, and active-session
+shutdown.
 
 ## Consequences
 
@@ -138,5 +192,8 @@ exposure is unavailable.
   without a gateway-side selector.
 - Each route currently has one listener and a virtual thread per transfer direction. This is
   appropriate for deterministic system tests and avoids a Netty dependency.
-- This decision establishes reachability and lifecycle only. It does not claim observation,
-  decoding, typed evidence, causality, TLS tunnelling, fault injection, or Toxiproxy support.
+- The framework now establishes protocol-aware observe-before-forward ordering, exact-byte
+  forwarding, explicit observation status, and fail-closed required semantics.
+- No real HTTP, SMPP, or PostgreSQL codec is included. Semantic `HOLD`/`RELEASE`, proof subjects,
+  correlation, predecessor guards, causal proof, TLS termination, fault injection, and Toxiproxy
+  remain later work.

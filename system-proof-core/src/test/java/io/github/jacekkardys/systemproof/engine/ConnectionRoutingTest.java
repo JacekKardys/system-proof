@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
 
@@ -13,7 +14,9 @@ import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Connection;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.ObservationRequirement;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
@@ -152,6 +155,128 @@ class ConnectionRoutingTest {
         assertThat(direct.routingMode()).isEqualTo(RoutingMode.DIRECT);
     }
 
+    @Test
+    void shouldKeepRoutingAndObservationRequirementOrthogonal() {
+        TestComponent client = new TestComponent("observation");
+        TestComponent server = new TestComponent("observation");
+        RequiredPort<String> required = client.required("command", COMMAND);
+        Connection<String> declaration = Connection.connect(
+            required,
+            server.provided("command", COMMAND)
+        );
+        EndpointBinding<String> target = binding("direct", "external");
+
+        RuntimeConnection<String> direct = materialize(
+            declaration,
+            ConnectionRouting.direct(),
+            target
+        );
+        RuntimeConnection<String> routedDisabled = materialize(
+            declaration,
+            ConnectionRouting.routed(
+                declaration,
+                context -> ConnectionRoute.routed(target)
+            ),
+            target
+        );
+        RuntimeConnection<String> routedOptional = materialize(
+            declaration,
+            ConnectionRouting.routed(
+                declaration,
+                ObservationRequirement.OPTIONAL,
+                context -> routeWithStatus(target, EffectiveObservationStatus.UNSUPPORTED)
+            ),
+            target
+        );
+        RuntimeConnection<String> routedRequired = materialize(
+            declaration,
+            ConnectionRouting.routed(
+                declaration,
+                ObservationRequirement.REQUIRED,
+                context -> routeWithStatus(target, EffectiveObservationStatus.ACTIVE)
+            ),
+            target
+        );
+
+        assertThat(direct.snapshot())
+            .extracting(
+                snapshot -> snapshot.routingMode(),
+                snapshot -> snapshot.observationRequirement(),
+                snapshot -> snapshot.effectiveObservationStatus()
+            )
+            .containsExactly(
+                RoutingMode.DIRECT,
+                ObservationRequirement.DISABLED,
+                EffectiveObservationStatus.DISABLED
+            );
+        assertThat(routedDisabled.snapshot())
+            .extracting(
+                snapshot -> snapshot.routingMode(),
+                snapshot -> snapshot.observationRequirement(),
+                snapshot -> snapshot.effectiveObservationStatus()
+            )
+            .containsExactly(
+                RoutingMode.ROUTED,
+                ObservationRequirement.DISABLED,
+                EffectiveObservationStatus.DISABLED
+            );
+        assertThat(routedOptional.snapshot())
+            .extracting(
+                snapshot -> snapshot.routingMode(),
+                snapshot -> snapshot.observationRequirement(),
+                snapshot -> snapshot.effectiveObservationStatus()
+            )
+            .containsExactly(
+                RoutingMode.ROUTED,
+                ObservationRequirement.OPTIONAL,
+                EffectiveObservationStatus.UNSUPPORTED
+            );
+        assertThat(routedRequired.snapshot())
+            .extracting(
+                snapshot -> snapshot.routingMode(),
+                snapshot -> snapshot.observationRequirement(),
+                snapshot -> snapshot.effectiveObservationStatus()
+            )
+            .containsExactly(
+                RoutingMode.ROUTED,
+                ObservationRequirement.REQUIRED,
+                EffectiveObservationStatus.ACTIVE
+            );
+    }
+
+    @Test
+    void shouldRejectRequiredObservationThatSilentlyUsesATransparentRoute() {
+        TestComponent client = new TestComponent("required");
+        TestComponent server = new TestComponent("required");
+        Connection<String> declaration = Connection.connect(
+            client.required("command", COMMAND),
+            server.provided("command", COMMAND)
+        );
+        ConnectionRouting routing = ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.REQUIRED,
+            context -> ConnectionRoute.routed(context.directTarget())
+        );
+
+        assertThatThrownBy(() -> materialize(
+            declaration,
+            routing,
+            binding("direct", "external")
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining(
+                declaration.id().toString(),
+                "requires active observation",
+                "DISABLED"
+            );
+    }
+
+    private static <C> ConnectionRoute<C> routeWithStatus(
+        EndpointBinding<C> target,
+        EffectiveObservationStatus status
+    ) {
+        return ConnectionRoute.routed(target, () -> status, () -> {});
+    }
+
     private static <C> RuntimeConnection<C> materialize(
         Connection<C> declaration,
         ConnectionRouting routing,
@@ -162,7 +287,8 @@ class ConnectionRoutingTest {
             routing.select(declaration),
             () -> {
                 throw new AssertionError("Observation capability should not be used");
-            }
+            },
+            interactionRef -> ForwardingDecision.FORWARD
         );
         connection.beginStartup();
         RuntimeConnection.RouteOwnership<C> ownership =

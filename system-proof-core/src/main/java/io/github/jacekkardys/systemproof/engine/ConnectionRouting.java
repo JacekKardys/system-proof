@@ -6,6 +6,7 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.Connection;
 import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.Contract;
+import io.github.jacekkardys.systemproof.model.ObservationRequirement;
 import io.github.jacekkardys.systemproof.model.RoutingMode;
 
 /**
@@ -31,31 +32,64 @@ public final class ConnectionRouting {
         Contract<C> contract,
         ConnectionRouteProvider<C> provider
     ) {
-        return DIRECT.withRoute(contract, provider);
+        return DIRECT.withRoute(contract, ObservationRequirement.DISABLED, provider);
+    }
+
+    public static <C> ConnectionRouting routed(
+        Contract<C> contract,
+        ObservationRequirement observationRequirement,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return DIRECT.withRoute(contract, observationRequirement, provider);
     }
 
     public static <C> ConnectionRouting routed(
         Connection<C> connection,
         ConnectionRouteProvider<C> provider
     ) {
-        return DIRECT.withRoute(connection, provider);
+        return DIRECT.withRoute(connection, ObservationRequirement.DISABLED, provider);
+    }
+
+    public static <C> ConnectionRouting routed(
+        Connection<C> connection,
+        ObservationRequirement observationRequirement,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return DIRECT.withRoute(connection, observationRequirement, provider);
     }
 
     public <C> ConnectionRouting withRoute(
         Contract<C> contract,
         ConnectionRouteProvider<C> provider
     ) {
-        return append(Rule.forContract(contract, provider));
+        return withRoute(contract, ObservationRequirement.DISABLED, provider);
+    }
+
+    public <C> ConnectionRouting withRoute(
+        Contract<C> contract,
+        ObservationRequirement observationRequirement,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return append(Rule.forContract(contract, observationRequirement, provider));
     }
 
     public <C> ConnectionRouting withRoute(
         Connection<C> connection,
         ConnectionRouteProvider<C> provider
     ) {
+        return withRoute(connection, ObservationRequirement.DISABLED, provider);
+    }
+
+    public <C> ConnectionRouting withRoute(
+        Connection<C> connection,
+        ObservationRequirement observationRequirement,
+        ConnectionRouteProvider<C> provider
+    ) {
         Objects.requireNonNull(connection, "connection must not be null");
         return append(Rule.forConnection(
             connection.id(),
             connection.from().contract(),
+            observationRequirement,
             provider
         ));
     }
@@ -66,6 +100,7 @@ public final class ConnectionRouting {
         if (rule == null) {
             return new Selection<>(
                 RoutingMode.DIRECT,
+                ObservationRequirement.DISABLED,
                 context -> ConnectionRoute.direct(context.directTarget())
             );
         }
@@ -112,6 +147,7 @@ public final class ConnectionRouting {
         }
         return new Selection<>(
             RoutingMode.ROUTED,
+            rule.observationRequirement(),
             (ConnectionRouteProvider<C>) rule.provider()
         );
     }
@@ -119,28 +155,36 @@ public final class ConnectionRouting {
     private record Rule<C>(
         Contract<C> contract,
         ConnectionId connectionId,
+        ObservationRequirement observationRequirement,
         ConnectionRouteProvider<C> provider
     ) {
         private Rule {
             contract = Objects.requireNonNull(contract, "contract must not be null");
+            observationRequirement = Objects.requireNonNull(
+                observationRequirement,
+                "observationRequirement must not be null"
+            );
             provider = Objects.requireNonNull(provider, "provider must not be null");
         }
 
         private static <C> Rule<C> forContract(
             Contract<C> contract,
+            ObservationRequirement observationRequirement,
             ConnectionRouteProvider<C> provider
         ) {
-            return new Rule<>(contract, null, provider);
+            return new Rule<>(contract, null, observationRequirement, provider);
         }
 
         private static <C> Rule<C> forConnection(
             ConnectionId connectionId,
             Contract<C> contract,
+            ObservationRequirement observationRequirement,
             ConnectionRouteProvider<C> provider
         ) {
             return new Rule<>(
                 contract,
                 Objects.requireNonNull(connectionId, "connectionId must not be null"),
+                observationRequirement,
                 provider
             );
         }
@@ -165,11 +209,22 @@ public final class ConnectionRouting {
 
     record Selection<C>(
         RoutingMode mode,
+        ObservationRequirement observationRequirement,
         ConnectionRouteProvider<C> provider
     ) {
         Selection {
             mode = Objects.requireNonNull(mode, "mode must not be null");
+            observationRequirement = Objects.requireNonNull(
+                observationRequirement,
+                "observationRequirement must not be null"
+            );
             provider = Objects.requireNonNull(provider, "provider must not be null");
+            if (mode == RoutingMode.DIRECT
+                && observationRequirement != ObservationRequirement.DISABLED) {
+                throw new IllegalArgumentException(
+                    "Direct connections cannot require route observation"
+                );
+            }
         }
     }
 }
