@@ -177,10 +177,12 @@ class RuntimeConnectionRegistryTest {
         connection.beginStartup();
         assertThatThrownBy(connection::beginStartup)
             .hasMessageContaining("cannot transition from STARTING to STARTING");
+        RuntimeConnection.RouteOwnership<String> ownership =
+            connection.acquireRoute(binding("internal", "external"));
         RuntimeConnection.PreparedTargets<String> prepared =
-            connection.prepareTargets(binding("internal", "external"));
+            connection.validateRoute(ownership);
         connection.bindTargets(prepared);
-        assertThatThrownBy(() -> connection.prepareTargets(binding("other", "other")))
+        assertThatThrownBy(() -> connection.acquireRoute(binding("other", "other")))
             .hasMessageContaining("cannot bind a direct target from state RUNNING");
         connection.beginStopping();
         try {

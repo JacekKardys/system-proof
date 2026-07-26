@@ -137,15 +137,26 @@ public final class RuntimeConnection<C> {
         }
     }
 
-    synchronized PreparedTargets<C> prepareTargets(EndpointBinding<C> target) {
+    synchronized RouteOwnership<C> acquireRoute(EndpointBinding<C> target) {
         validateCanBindDirectTarget();
         target = validateTarget(target, "directTarget");
         ConnectionRoute<C> preparedRoute = Objects.requireNonNull(
             routeProvider.prepare(descriptor, target),
             "Route provider returned null for connection '" + id() + "'"
         );
-        validateTarget(preparedRoute.consumerTarget(), "consumerTarget");
-        return new PreparedTargets<>(this, target, preparedRoute);
+        return new RouteOwnership<>(this, target, preparedRoute);
+    }
+
+    synchronized PreparedTargets<C> validateRoute(RouteOwnership<C> ownership) {
+        validateCanBindDirectTarget();
+        ownership = Objects.requireNonNull(ownership, "ownership must not be null");
+        if (ownership.connection() != this) {
+            throw new IllegalArgumentException(
+                "Route ownership does not belong to connection '" + id() + "'"
+            );
+        }
+        validateTarget(ownership.route().consumerTarget(), "consumerTarget");
+        return new PreparedTargets<>(ownership);
     }
 
     synchronized void validateCanBind(PreparedTargets<C> prepared) {
@@ -313,12 +324,12 @@ public final class RuntimeConnection<C> {
         };
     }
 
-    record PreparedTargets<C>(
+    record RouteOwnership<C>(
         RuntimeConnection<C> connection,
         EndpointBinding<C> directTarget,
         ConnectionRoute<C> route
     ) {
-        PreparedTargets {
+        RouteOwnership {
             connection = Objects.requireNonNull(connection, "connection must not be null");
             directTarget = Objects.requireNonNull(
                 directTarget,
@@ -329,6 +340,28 @@ public final class RuntimeConnection<C> {
 
         void closeRoute() throws Exception {
             route.close();
+        }
+    }
+
+    record PreparedTargets<C>(RouteOwnership<C> ownership) {
+        PreparedTargets {
+            ownership = Objects.requireNonNull(ownership, "ownership must not be null");
+        }
+
+        RuntimeConnection<C> connection() {
+            return ownership.connection();
+        }
+
+        EndpointBinding<C> directTarget() {
+            return ownership.directTarget();
+        }
+
+        ConnectionRoute<C> route() {
+            return ownership.route();
+        }
+
+        void closeRoute() throws Exception {
+            ownership.closeRoute();
         }
     }
 }

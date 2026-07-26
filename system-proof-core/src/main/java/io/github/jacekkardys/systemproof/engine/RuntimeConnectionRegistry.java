@@ -314,20 +314,26 @@ final class RuntimeConnectionRegistry {
         return new RuntimeConnection<>(declaration, routing.select(declaration));
     }
 
-    private static RuntimeConnection.PreparedTargets<?> prepareTargets(
+    private RuntimeConnection.PreparedTargets<?> prepareTargets(
         RuntimeConnection<?> connection,
         RuntimeEndpointBindings endpointBindings
     ) {
         return prepareTyped(connection, endpointBindings);
     }
 
-    private static <C> RuntimeConnection.PreparedTargets<C> prepareTyped(
+    private <C> RuntimeConnection.PreparedTargets<C> prepareTyped(
         RuntimeConnection<C> connection,
         RuntimeEndpointBindings endpointBindings
     ) {
         connection.validateCanBindDirectTarget();
         EndpointBinding<C> target = endpointBindings.binding(connection.declaration().to());
-        return connection.prepareTargets(target);
+        RuntimeConnection.RouteOwnership<C> ownership = connection.acquireRoute(target);
+        try {
+            return connection.validateRoute(ownership);
+        } catch (RuntimeException | Error failure) {
+            closeRejectedRoute(ownership, failure);
+            throw failure;
+        }
     }
 
     private static void validatePrepared(
@@ -382,6 +388,25 @@ final class RuntimeConnectionRegistry {
                     cleanupFailure
                 );
             }
+        }
+    }
+
+    private void closeRejectedRoute(
+        RuntimeConnection.RouteOwnership<?> ownership,
+        Throwable preparationFailure
+    ) {
+        try {
+            ownership.closeRoute();
+        } catch (Exception | Error cleanupFailure) {
+            preparationFailure.addSuppressed(cleanupFailure);
+            eventLog.protectRouteCleanupFailure(
+                ownership.connection().declaration(),
+                cleanupFailure
+            );
+            eventLog.connectionCleanupFailure(
+                ownership.connection().declaration(),
+                cleanupFailure
+            );
         }
     }
 

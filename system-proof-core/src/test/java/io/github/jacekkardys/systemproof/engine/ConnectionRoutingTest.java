@@ -162,7 +162,9 @@ class ConnectionRoutingTest {
             routing.select(declaration)
         );
         connection.beginStartup();
-        connection.bindTargets(connection.prepareTargets(directTarget));
+        RuntimeConnection.RouteOwnership<C> ownership =
+            connection.acquireRoute(directTarget);
+        connection.bindTargets(connection.validateRoute(ownership));
         return connection;
     }
 
