@@ -199,31 +199,99 @@ class ConnectionObservationBoundaryTest {
 
     @Test
     void shouldKeepConcurrentStreamIdentityUniqueOrderedAndSnapshotsDetached() throws Exception {
-        Client client = new Client("concurrent");
+        Client first = new Client("concurrent-first");
+        Client second = new Client("concurrent-second");
         Server server = new Server("direct", "external");
-        AtomicReference<ConnectionObservations> capability = new AtomicReference<>();
+        ConnectionId firstConnection = ConnectionId.between(first.api, server.api);
+        ConnectionId secondConnection = ConnectionId.between(second.api, server.api);
+        Map<ConnectionId, ConnectionObservations> capabilities =
+            new ConcurrentHashMap<>();
         Environment environment = routedEnvironment(
             Environment.environment()
-                .components(client, server)
-                .connect(client.api, server.api),
+                .components(first, second, server)
+                .connect(first.api, server.api)
+                .connect(second.api, server.api),
             context -> {
-                capability.set(context.observations());
+                capabilities.put(context.connection().id(), context.observations());
                 return ConnectionRoute.routed(context.directTarget());
             }
         ).start();
+        assertThat(capabilities).containsOnlyKeys(firstConnection, secondConnection);
         ScenarioJournalSnapshot before = environment.journalSnapshot();
         int beforeSize = before.entries().size();
-        InteractionSession session = capability.get().openSession();
-        int workers = 8;
-        int observationsPerWorker = 50;
+        InteractionSession firstSessionOne =
+            capabilities.get(firstConnection).openSession();
+        InteractionSession firstSessionTwo =
+            capabilities.get(firstConnection).openSession();
+        InteractionSession secondSession =
+            capabilities.get(secondConnection).openSession();
+        ConcurrentStream firstOneRequests = new ConcurrentStream(
+            "first-session-one-requests",
+            firstConnection,
+            firstSessionOne,
+            FlowDirection.CONSUMER_TO_PROVIDER
+        );
+        ConcurrentStream firstOneResponses = new ConcurrentStream(
+            "first-session-one-responses",
+            firstConnection,
+            firstSessionOne,
+            FlowDirection.PROVIDER_TO_CONSUMER
+        );
+        ConcurrentStream firstTwoRequests = new ConcurrentStream(
+            "first-session-two-requests",
+            firstConnection,
+            firstSessionTwo,
+            FlowDirection.CONSUMER_TO_PROVIDER
+        );
+        ConcurrentStream firstTwoResponses = new ConcurrentStream(
+            "first-session-two-responses",
+            firstConnection,
+            firstSessionTwo,
+            FlowDirection.PROVIDER_TO_CONSUMER
+        );
+        ConcurrentStream secondRequests = new ConcurrentStream(
+            "second-session-requests",
+            secondConnection,
+            secondSession,
+            FlowDirection.CONSUMER_TO_PROVIDER
+        );
+        ConcurrentStream secondResponses = new ConcurrentStream(
+            "second-session-responses",
+            secondConnection,
+            secondSession,
+            FlowDirection.PROVIDER_TO_CONSUMER
+        );
+        List<ConcurrentStream> streams = List.of(
+            firstOneRequests,
+            firstOneResponses,
+            firstTwoRequests,
+            firstTwoResponses,
+            secondRequests,
+            secondResponses
+        );
+        int workersPerStream = 2;
+        int observationsPerWorker = 25;
+        int expectedPerStream = workersPerStream * observationsPerWorker;
         CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch firstContribution = new CountDownLatch(1);
+        CountDownLatch concurrentSnapshotCaptured = new CountDownLatch(1);
         AtomicBoolean contributing = new AtomicBoolean(true);
         List<CapturedSnapshot> concurrentSnapshots = new CopyOnWriteArrayList<>();
-        List<Future<List<InteractionRef>>> contributions = new ArrayList<>();
+        List<Future<ContributionResult>> contributions = new ArrayList<>();
 
-        try (var executor = Executors.newFixedThreadPool(workers + 1)) {
+        try (var executor = Executors.newFixedThreadPool(
+            streams.size() * workersPerStream + 1
+        )) {
             Future<?> snapshotter = executor.submit(() -> {
                 start.await();
+                if (!firstContribution.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("No concurrent contribution started");
+                }
+                ScenarioJournalSnapshot firstSnapshot = environment.journalSnapshot();
+                concurrentSnapshots.add(
+                    new CapturedSnapshot(firstSnapshot, firstSnapshot.entries().size())
+                );
+                concurrentSnapshotCaptured.countDown();
                 while (contributing.get() && concurrentSnapshots.size() < 1_000) {
                     ScenarioJournalSnapshot snapshot = environment.journalSnapshot();
                     concurrentSnapshots.add(
@@ -233,69 +301,134 @@ class ConnectionObservationBoundaryTest {
                 }
                 return null;
             });
-            for (int worker = 0; worker < workers; worker++) {
-                int workerId = worker;
-                contributions.add(executor.submit(() -> {
-                    start.await();
-                    FlowDirection direction = workerId % 2 == 0
-                        ? FlowDirection.CONSUMER_TO_PROVIDER
-                        : FlowDirection.PROVIDER_TO_CONSUMER;
-                    List<InteractionRef> references =
-                        new ArrayList<>(observationsPerWorker);
-                    for (int observation = 0;
-                         observation < observationsPerWorker;
-                         observation++) {
-                        references.add(session.observe(
-                            direction,
-                            MutableInteractionEvidence.codec(),
-                            evidence(workerId + ":" + observation)
-                        ));
-                    }
-                    return List.copyOf(references);
-                }));
+            for (ConcurrentStream stream : streams) {
+                for (int worker = 0; worker < workersPerStream; worker++) {
+                    int workerId = worker;
+                    contributions.add(executor.submit(() -> {
+                        start.await();
+                        List<InteractionRef> references =
+                            new ArrayList<>(observationsPerWorker);
+                        for (int observation = 0;
+                             observation < observationsPerWorker;
+                             observation++) {
+                            references.add(stream.session().observe(
+                                stream.direction(),
+                                MutableInteractionEvidence.codec(),
+                                evidence(
+                                    stream.name() + ":" + workerId + ":" + observation
+                                )
+                            ));
+                            if (observation == 0) {
+                                firstContribution.countDown();
+                                if (!concurrentSnapshotCaptured.await(
+                                    10,
+                                    TimeUnit.SECONDS
+                                )) {
+                                    throw new AssertionError(
+                                        "No snapshot was captured during contribution"
+                                    );
+                                }
+                            }
+                        }
+                        return new ContributionResult(stream, List.copyOf(references));
+                    }));
+                }
             }
             start.countDown();
-            List<InteractionRef> returned = new ArrayList<>();
+            List<ContributionResult> results = new ArrayList<>();
             try {
-                for (Future<List<InteractionRef>> contribution : contributions) {
-                    returned.addAll(contribution.get(10, TimeUnit.SECONDS));
+                for (Future<ContributionResult> contribution : contributions) {
+                    results.add(contribution.get(10, TimeUnit.SECONDS));
                 }
             } finally {
                 contributing.set(false);
             }
             snapshotter.get(10, TimeUnit.SECONDS);
 
-            List<InteractionObservationEvent> stored =
+            List<InteractionRef> returnedReferences = results.stream()
+                .flatMap(result -> result.references().stream())
+                .toList();
+            List<InteractionRef> storedReferences =
                 events(environment.journalSnapshot(), InteractionObservationEvent.class)
                     .stream()
-                    .filter(event -> event.interactionRef().sessionId()
-                        .equals(returned.getFirst().sessionId()))
-                    .toList();
-            List<InteractionRef> storedReferences = stored.stream()
                 .map(InteractionObservationEvent::interactionRef)
                 .toList();
-            int expectedPerDirection = workers / 2 * observationsPerWorker;
 
-            assertThat(storedReferences).hasSize(workers * observationsPerWorker);
-            assertThat(new HashSet<>(storedReferences)).hasSameSizeAs(storedReferences);
-            assertThat(storedReferences).containsExactlyInAnyOrderElementsOf(returned);
-            for (FlowDirection direction : FlowDirection.values()) {
-                assertThat(storedReferences.stream()
-                    .filter(reference -> reference.direction() == direction)
+            assertThat(returnedReferences)
+                .hasSize(streams.size() * expectedPerStream);
+            assertThat(new HashSet<>(returnedReferences))
+                .hasSameSizeAs(returnedReferences);
+            assertThat(storedReferences)
+                .containsExactlyInAnyOrderElementsOf(returnedReferences);
+            assertThat(new HashSet<>(storedReferences))
+                .hasSameSizeAs(storedReferences);
+            assertThat(results).allSatisfy(result -> {
+                assertThat(result.references())
+                    .allSatisfy(reference -> {
+                        assertThat(reference.connectionId())
+                            .isEqualTo(result.stream().connectionId());
+                        assertThat(reference.direction())
+                            .isEqualTo(result.stream().direction());
+                    });
+                assertThat(result.references().stream()
                     .map(InteractionRef::ordinal)
                     .toList())
+                    .isSorted();
+            });
+            for (ConcurrentStream stream : streams) {
+                List<InteractionRef> streamReferences = referencesFor(results, stream);
+                assertThat(streamReferences).hasSize(expectedPerStream);
+                assertThat(streamReferences)
+                    .extracting(InteractionRef::connectionId)
+                    .containsOnly(stream.connectionId());
+                assertThat(streamReferences)
+                    .extracting(InteractionRef::direction)
+                    .containsOnly(stream.direction());
+                assertThat(streamReferences)
+                    .extracting(InteractionRef::sessionId)
+                    .containsOnly(streamReferences.getFirst().sessionId());
+                assertThat(streamReferences.stream()
+                    .map(InteractionRef::ordinal)
+                    .sorted()
+                    .toList())
                     .containsExactlyElementsOf(
-                        LongStream.rangeClosed(1L, expectedPerDirection)
+                        LongStream.rangeClosed(1L, expectedPerStream)
                             .boxed()
                             .toList()
                     );
             }
+
+            SessionId firstSessionOneId = sessionIdFor(results, firstOneRequests);
+            SessionId firstSessionOneResponseId =
+                sessionIdFor(results, firstOneResponses);
+            SessionId firstSessionTwoId = sessionIdFor(results, firstTwoRequests);
+            SessionId firstSessionTwoResponseId =
+                sessionIdFor(results, firstTwoResponses);
+            SessionId secondSessionId = sessionIdFor(results, secondRequests);
+            SessionId secondSessionResponseId =
+                sessionIdFor(results, secondResponses);
+
+            assertThat(firstSessionOneId).isEqualTo(firstSessionOneResponseId);
+            assertThat(firstSessionTwoId).isEqualTo(firstSessionTwoResponseId);
+            assertThat(secondSessionId).isEqualTo(secondSessionResponseId);
+            assertThat(firstSessionOneId.connectionId()).isEqualTo(firstConnection);
+            assertThat(firstSessionTwoId.connectionId()).isEqualTo(firstConnection);
+            assertThat(secondSessionId.connectionId()).isEqualTo(secondConnection);
+            assertThat(firstSessionOneId).isNotEqualTo(firstSessionTwoId);
+            assertThat(firstSessionOneId).isNotEqualTo(secondSessionId);
+            assertThat(firstSessionTwoId).isNotEqualTo(secondSessionId);
+            assertThat(firstSessionOneId.localValue()).isEqualTo(1L);
+            assertThat(firstSessionTwoId.localValue()).isEqualTo(2L);
+            assertThat(secondSessionId.localValue()).isEqualTo(1L);
         }
 
         assertThat(before.entries()).hasSize(beforeSize);
         assertThatThrownBy(() -> before.entries().add(before.entries().getFirst()))
             .isInstanceOf(UnsupportedOperationException.class);
         assertThat(concurrentSnapshots).isNotEmpty();
+        assertThat(concurrentSnapshots.getFirst().sizeAtCapture())
+            .isGreaterThan(beforeSize)
+            .isLessThan(environment.journalSnapshot().entries().size());
         assertThat(concurrentSnapshots)
             .allSatisfy(captured -> {
                 assertThat(captured.snapshot().entries()).hasSize(captured.sizeAtCapture());
@@ -304,6 +437,28 @@ class ConnectionObservationBoundaryTest {
             });
 
         environment.close();
+    }
+
+    private static List<InteractionRef> referencesFor(
+        List<ContributionResult> results,
+        ConcurrentStream stream
+    ) {
+        return results.stream()
+            .filter(result -> result.stream().equals(stream))
+            .flatMap(result -> result.references().stream())
+            .toList();
+    }
+
+    private static SessionId sessionIdFor(
+        List<ContributionResult> results,
+        ConcurrentStream stream
+    ) {
+        List<SessionId> sessionIds = referencesFor(results, stream).stream()
+            .map(InteractionRef::sessionId)
+            .distinct()
+            .toList();
+        assertThat(sessionIds).singleElement();
+        return sessionIds.getFirst();
     }
 
     @Test
@@ -416,6 +571,18 @@ class ConnectionObservationBoundaryTest {
     private record CapturedSnapshot(
         ScenarioJournalSnapshot snapshot,
         int sizeAtCapture
+    ) {}
+
+    private record ConcurrentStream(
+        String name,
+        ConnectionId connectionId,
+        InteractionSession session,
+        FlowDirection direction
+    ) {}
+
+    private record ContributionResult(
+        ConcurrentStream stream,
+        List<InteractionRef> references
     ) {}
 
     private static final class Client extends AbstractComponent<EmptyConfig, Void> {

@@ -140,10 +140,11 @@ connection-bound `SessionId`, direction-local ordinal, and complete `Interaction
 
 Every physical session receives a new connection-local session value. Ordinals begin at one and
 increase independently for `CONSUMER_TO_PROVIDER` and `PROVIDER_TO_CONSUMER` within each session.
-Identity allocation and append are serialized only per session direction. Values from different
-connections, sessions, or directions are not comparable evidence of ordering or causality, and the
-global journal storage sequence remains rendering order only. Explicit causal relations are outside
-this layer.
+Identity allocation and submission to the journal are serialized per session direction.
+`ScenarioJournal.append()` separately serializes storage through its journal-wide synchronization
+boundary. The resulting global journal sequence remains storage/rendering order only, not causal
+order. Values from different connections, sessions, or directions are not comparable evidence of
+ordering or causality. Explicit causal relations are outside this layer.
 
 Core encodes and copies evidence before append; the caller-owned value, codec, and returned array
 are not retained. Decoding is typed, schema-checked, and receives another copy, so snapshot access
