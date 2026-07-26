@@ -4,23 +4,15 @@ import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
-import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
 
 /**
- * Component-scoped capability for supported external journal contributions.
+ * Component-scoped capability for supported component-owned journal contributions.
  *
- * <p>The framework supplies the observing component identity. This capability cannot append
- * framework lifecycle, framework failure, or free-form diagnostic events and does not expose the
- * mutable journal.
+ * <p>The framework supplies the component identity. Traffic observations belong to a separate
+ * connection-scoped capability. This capability cannot append framework lifecycle, framework
+ * failure, free-form diagnostic, or interaction events and does not expose the mutable journal.
  */
 public interface JournalContributions {
-    <T> void observeInteraction(
-        InteractionMetadata metadata,
-        EvidenceCodec<T> codec,
-        T evidence
-    );
-
     void recordCheckpoint(
         CheckpointId checkpointId,
         CheckpointEvent.Kind kind,

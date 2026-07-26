@@ -10,7 +10,8 @@ import io.github.jacekkardys.systemproof.model.RequiredPort;
  * Topology, journal-backed diagnostics, and shared-resource services available only to drivers.
  *
  * <p>Each runtime context is scoped to the component whose driver received it. The journal
- * contribution capability binds that component identity and does not expose the mutable journal.
+ * contribution capability binds that component identity, supports only component-owned facts, and
+ * does not expose the mutable journal or connection traffic observations.
  */
 public interface DriverContext {
     <T> T resolve(RequiredPort<T> required);
@@ -24,7 +25,7 @@ public interface DriverContext {
      */
     void log(Component component, LogLevel level, String message);
 
-    /** Returns the restricted journal contribution capability bound to this driver component. */
+    /** Returns the restricted component contribution capability bound to this driver component. */
     JournalContributions journalContributions();
 
     String componentEvents(Component component);

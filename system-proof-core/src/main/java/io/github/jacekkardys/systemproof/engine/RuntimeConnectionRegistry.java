@@ -114,10 +114,6 @@ final class RuntimeConnectionRegistry {
         return requireConnection(id);
     }
 
-    synchronized boolean contains(ConnectionId id) {
-        return connectionsById.containsKey(Objects.requireNonNull(id, "id must not be null"));
-    }
-
     synchronized <T> T resolve(RequiredPort<T> required) {
         Objects.requireNonNull(required, "required must not be null");
         RuntimeConnection<?> connection = connectionsByRequired.get(required);
@@ -311,7 +307,11 @@ final class RuntimeConnectionRegistry {
     }
 
     private <C> RuntimeConnection<C> materializeTyped(Connection<C> declaration) {
-        return new RuntimeConnection<>(declaration, routing.select(declaration));
+        return new RuntimeConnection<>(
+            declaration,
+            routing.select(declaration),
+            new ConnectionObservationPublisher(declaration, eventLog)
+        );
     }
 
     private RuntimeConnection.PreparedTargets<?> prepareTargets(

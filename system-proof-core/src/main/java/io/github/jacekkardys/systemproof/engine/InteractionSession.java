@@ -1,0 +1,20 @@
+package io.github.jacekkardys.systemproof.engine;
+
+import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.journal.InteractionRef;
+
+/**
+ * Restricted observation capability for one physical transport session.
+ *
+ * <p>The caller supplies only the topological flow direction and typed evidence. The capability
+ * allocates the stream-local ordinal, creates the complete interaction identity, captures the
+ * evidence, appends the event, and returns the assigned reference.
+ */
+public interface InteractionSession {
+    <T> InteractionRef observe(
+        FlowDirection direction,
+        EvidenceCodec<T> codec,
+        T evidence
+    );
+}

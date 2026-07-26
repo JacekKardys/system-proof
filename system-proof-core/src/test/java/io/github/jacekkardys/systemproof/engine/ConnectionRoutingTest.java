@@ -45,11 +45,11 @@ class ConnectionRoutingTest {
         AtomicInteger routeCalls = new AtomicInteger();
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            (descriptor, directTarget) -> {
+            context -> {
                 routeCalls.incrementAndGet();
                 return ConnectionRoute.routed(binding(
-                    "routed-" + directTarget.internal(),
-                    "routed-" + directTarget.external()
+                    "routed-" + context.directTarget().internal(),
+                    "routed-" + context.directTarget().external()
                 ));
             }
         );
@@ -88,15 +88,15 @@ class ConnectionRoutingTest {
         );
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            (descriptor, directTarget) -> ConnectionRoute.routed(binding(
-                directTarget.internal().toUpperCase(),
-                directTarget.external().toUpperCase()
+            context -> ConnectionRoute.routed(binding(
+                context.directTarget().internal().toUpperCase(),
+                context.directTarget().external().toUpperCase()
             ))
         ).withRoute(
             COUNT,
-            (descriptor, directTarget) -> ConnectionRoute.routed(binding(
-                directTarget.internal() + 1,
-                directTarget.external() + 1
+            context -> ConnectionRoute.routed(binding(
+                context.directTarget().internal() + 1,
+                context.directTarget().external() + 1
             ))
         );
 
@@ -129,7 +129,7 @@ class ConnectionRoutingTest {
         Connection<String> second = Connection.connect(secondRequired, provided);
         ConnectionRouting routing = ConnectionRouting.routed(
             first,
-            (descriptor, directTarget) -> ConnectionRoute.routed(binding(
+            context -> ConnectionRoute.routed(binding(
                 "first-route",
                 "first-route-external"
             ))
@@ -159,7 +159,10 @@ class ConnectionRoutingTest {
     ) {
         RuntimeConnection<C> connection = new RuntimeConnection<>(
             declaration,
-            routing.select(declaration)
+            routing.select(declaration),
+            () -> {
+                throw new AssertionError("Observation capability should not be used");
+            }
         );
         connection.beginStartup();
         RuntimeConnection.RouteOwnership<C> ownership =

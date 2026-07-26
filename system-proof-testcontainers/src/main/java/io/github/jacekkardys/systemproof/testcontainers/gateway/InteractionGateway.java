@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.Objects;
 import org.testcontainers.Testcontainers;
 import io.github.jacekkardys.systemproof.engine.ConnectionRoute;
+import io.github.jacekkardys.systemproof.engine.ConnectionRouteContext;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouteProvider;
 import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
@@ -44,16 +45,16 @@ public final class InteractionGateway {
      */
     public <C> ConnectionRouteProvider<C> tcp(TcpEndpointAdapter<C> endpoints) {
         Objects.requireNonNull(endpoints, "endpoints must not be null");
-        return (connection, directTarget) -> prepare(connection, directTarget, endpoints);
+        return context -> prepare(context, endpoints);
     }
 
     private <C> ConnectionRoute<C> prepare(
-        ConnectionDescriptor connection,
-        EndpointBinding<C> directTarget,
+        ConnectionRouteContext<C> context,
         TcpEndpointAdapter<C> endpoints
     ) {
-        Objects.requireNonNull(connection, "connection must not be null");
-        Objects.requireNonNull(directTarget, "directTarget must not be null");
+        Objects.requireNonNull(context, "context must not be null");
+        ConnectionDescriptor connection = context.connection();
+        EndpointBinding<C> directTarget = context.directTarget();
         InetSocketAddress target = endpoints.address(directTarget.external());
         GatewayRoute route = GatewayRoute.open(
             connection.id(),

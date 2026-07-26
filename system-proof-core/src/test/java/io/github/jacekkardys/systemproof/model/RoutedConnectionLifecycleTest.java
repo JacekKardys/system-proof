@@ -62,7 +62,9 @@ class RoutedConnectionLifecycleTest {
             builder,
             ConnectionRouting.routed(
                 API,
-                (descriptor, directTarget) -> {
+                context -> {
+                    var descriptor = context.connection();
+                    var directTarget = context.directTarget();
                     assertThat(directTarget.internal().value())
                         .isEqualTo("direct-secret-internal");
                     lifecycle.add("route-ready:" + descriptor.id());
@@ -169,7 +171,8 @@ class RoutedConnectionLifecycleTest {
                 .connect(second.api, server.api),
             ConnectionRouting.routed(
                 API,
-                (descriptor, directTarget) -> {
+                context -> {
+                    var directTarget = context.directTarget();
                     assertThat(directTarget.internal().value()).isEqualTo(directInternal);
                     assertThat(directTarget.external().value()).isEqualTo(directExternal);
                     if (preparations.incrementAndGet() == 2) {
@@ -301,7 +304,9 @@ class RoutedConnectionLifecycleTest {
                 .connect(rejected.api, server.api),
             ConnectionRouting.routed(
                 API,
-                (descriptor, directTarget) -> {
+                context -> {
+                    var descriptor = context.connection();
+                    var directTarget = context.directTarget();
                     assertThat(directTarget.internal().value()).isEqualTo(directInternal);
                     assertThat(directTarget.external().value()).isEqualTo(directExternal);
                     return switch (preparations.getAndIncrement()) {
@@ -444,7 +449,7 @@ class RoutedConnectionLifecycleTest {
                 .connect(client.api, server.api),
             ConnectionRouting.routed(
                 API,
-                (descriptor, directTarget) -> ConnectionRoute.routed(
+                context -> ConnectionRoute.routed(
                     binding(
                         new ApiEndpoint(routedInternal),
                         new ApiEndpoint(routedExternal)
