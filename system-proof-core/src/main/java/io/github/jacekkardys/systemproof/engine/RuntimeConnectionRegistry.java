@@ -34,6 +34,7 @@ final class RuntimeConnectionRegistry {
     private final EnvironmentEventLog eventLog;
     private final ConnectionRouting routing;
     private final InteractionDecisionCoordinator coordinator;
+    private final ProofSubjectRegistry proofSubjects;
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
@@ -43,7 +44,8 @@ final class RuntimeConnectionRegistry {
             declarations,
             eventLog,
             ConnectionRouting.direct(),
-            new ImmediateForwardDecisionCoordinator()
+            new ImmediateForwardDecisionCoordinator(),
+            new ProofSubjectRegistry(eventLog)
         );
     }
 
@@ -56,7 +58,23 @@ final class RuntimeConnectionRegistry {
             declarations,
             eventLog,
             routing,
-            new ImmediateForwardDecisionCoordinator()
+            new ImmediateForwardDecisionCoordinator(),
+            new ProofSubjectRegistry(eventLog)
+        );
+    }
+
+    RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventLog eventLog,
+        ConnectionRouting routing,
+        ProofSubjectRegistry proofSubjects
+    ) {
+        this(
+            declarations,
+            eventLog,
+            routing,
+            new ImmediateForwardDecisionCoordinator(),
+            proofSubjects
         );
     }
 
@@ -66,10 +84,30 @@ final class RuntimeConnectionRegistry {
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator
     ) {
+        this(
+            declarations,
+            eventLog,
+            routing,
+            coordinator,
+            new ProofSubjectRegistry(eventLog)
+        );
+    }
+
+    private RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventLog eventLog,
+        ConnectionRouting routing,
+        InteractionDecisionCoordinator coordinator,
+        ProofSubjectRegistry proofSubjects
+    ) {
         Objects.requireNonNull(declarations, "declarations must not be null");
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
         this.routing = Objects.requireNonNull(routing, "routing must not be null");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
+        this.proofSubjects = Objects.requireNonNull(
+            proofSubjects,
+            "proofSubjects must not be null"
+        );
 
         List<RuntimeConnection<?>> materialized = new ArrayList<>(declarations.size());
         Map<ConnectionId, RuntimeConnection<?>> byId = new LinkedHashMap<>();
@@ -331,7 +369,7 @@ final class RuntimeConnectionRegistry {
         return new RuntimeConnection<>(
             declaration,
             routing.select(declaration),
-            new ConnectionObservationPublisher(declaration, eventLog),
+            new ConnectionObservationPublisher(declaration, eventLog, proofSubjects),
             coordinator
         );
     }

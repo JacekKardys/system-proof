@@ -28,6 +28,9 @@ Public contracts:
   scenario history and external typed-evidence copy boundary.
 - `ConnectionObservations`, `InteractionSession`, `SessionId`, `FlowDirection`, and
   `InteractionRef`: protocol-neutral, connection-bound traffic identity and contribution boundary.
+- `ProofSubjects`, `ProofSubjectRef`, `CorrelationKey`, `CorrelationContribution<T>`, and
+  `CorrelationResult<T>`: environment-scoped opaque subject identity, secret-safe semantic keys,
+  detached typed native references, and explicit cardinality.
 - `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: rendered
   journal views and failure reporting.
 
@@ -156,6 +159,40 @@ boundary. The resulting global journal sequence remains storage/rendering order 
 order. Values from different connections, sessions, or directions are not comparable evidence of
 ordering or causality. Explicit causal relations are outside this layer.
 
+`Environment.proofSubjects()` exposes one narrow facade over the environment-owned correlation
+state. `create()` allocates an opaque reference whose owner token and local value have no public
+constructor or accessor. `arm(...)` accepts only a `CorrelationKey`: a namespaced/versioned schema
+plus 16-64 bytes of domain-produced digest material copied on input and never returned or rendered.
+Domains normalize and digest their source values before core sees the key. Core therefore contains
+no protocol fields, raw selector strings, maps, unchecked casts, phone numbers, message content,
+tokens, SQL parameters, or credentials.
+
+An adapter or domain captures its immutable native reference as a
+`CorrelationContribution<T>` through its own `EvidenceCodec<T>`. Capture retains only a detached
+`EvidenceSnapshot`. After `InteractionSession.observe(...)` returns, the same session validates
+that the reference belongs to a previously recorded interaction and publishes each contribution.
+A typed facade lookup validates the requested schema before decoding a fresh copy. Native HTTP,
+SMPP, or PostgreSQL reference types and schemas remain defined by their adapter modules; core never
+flattens or interprets them.
+
+Current correlation state is linearized by one environment-owned synchronization boundary:
+
+- no distinct candidate is `MISSING`;
+- exactly one distinct candidate is `UNIQUE`;
+- a second distinct candidate or a key shared by subjects is terminal `AMBIGUOUS`;
+- an exact duplicate is idempotent only while the same subject, key, `InteractionRef`, native
+  schema, and encoded native reference match;
+- retries and reconnects have distinct interaction/session identity and therefore cannot silently
+  rebind a unique result;
+- unmatched candidates are journaled as unassigned and are never retroactively selected after
+  later arming;
+- completion, rollback, and teardown do not erase or reclassify recorded facts; teardown rejects
+  new creation, arming, and publication while preserving typed lookup.
+
+Only `CorrelationResult.Unique<T>` exposes the recorded `InteractionRef` and decoded native
+reference. Missing and ambiguous result types expose no candidate. No path selects first, last,
+latest, earliest, next, or arrival-order candidates.
+
 Core encodes and copies evidence before append; the caller-owned value, codec, and returned array
 are not retained. Decoding is typed, schema-checked, and receives another copy, so snapshot access
 cannot mutate storage. The core renderer handles each envelope explicitly and renders only
@@ -167,6 +204,10 @@ Component and connection contributions are deliberately separate. `DriverContext
 disruption operations and cannot publish traffic. A component-scoped context resolves only
 required ports owned by that component. Route providers receive neither `ScenarioJournal` nor
 runtime connection mutators. All observations still append to the same environment-owned
-`ScenarioJournal`; there is no interaction registry or second evidence store.
+`ScenarioJournal`; proof-subject creation, arming, and non-idempotent correlation publications use
+additional core-owned immutable envelopes in that same history. The runtime keeps only a
+thread-safe current-cardinality index, not a second event history. Journal sequence, diagnostic
+time, wall-clock time, rendered order, sleeps, and unrelated stream ordinals never infer
+correlation or causality.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

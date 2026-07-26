@@ -15,14 +15,20 @@ import io.github.jacekkardys.systemproof.model.ConnectionRef;
 final class ConnectionObservationPublisher implements ConnectionObservations {
     private final ConnectionRef connection;
     private final EnvironmentEventLog eventLog;
+    private final ProofSubjectRegistry proofSubjects;
     private long nextSessionValue = SessionId.FIRST_VALUE;
 
     ConnectionObservationPublisher(
         ConnectionRef connection,
-        EnvironmentEventLog eventLog
+        EnvironmentEventLog eventLog,
+        ProofSubjectRegistry proofSubjects
     ) {
         this.connection = Objects.requireNonNull(connection, "connection must not be null");
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.proofSubjects = Objects.requireNonNull(
+            proofSubjects,
+            "proofSubjects must not be null"
+        );
     }
 
     @Override
@@ -40,9 +46,11 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
     }
 
     private final class ScopedInteractionSession implements InteractionSession {
+        private final SessionId sessionId;
         private final Map<FlowDirection, StreamPublisher> streams;
 
         private ScopedInteractionSession(SessionId sessionId) {
+            this.sessionId = sessionId;
             EnumMap<FlowDirection, StreamPublisher> publishers =
                 new EnumMap<>(FlowDirection.class);
             for (FlowDirection direction : FlowDirection.values()) {
@@ -60,12 +68,36 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
             Objects.requireNonNull(direction, "direction must not be null");
             return streams.get(direction).observe(codec, evidence);
         }
+
+        @Override
+        public void correlate(
+            InteractionRef interactionRef,
+            CorrelationContribution<?> contribution
+        ) {
+            Objects.requireNonNull(
+                interactionRef,
+                "interactionRef must not be null"
+            );
+            if (!sessionId.equals(interactionRef.sessionId())) {
+                throw new IllegalArgumentException(
+                    "Interaction reference does not belong to this physical session"
+                );
+            }
+            StreamPublisher stream = streams.get(interactionRef.direction());
+            if (!stream.wasObserved(interactionRef.ordinal())) {
+                throw new IllegalArgumentException(
+                    "Interaction reference was not recorded by this session"
+                );
+            }
+            proofSubjects.publish(interactionRef, contribution);
+        }
     }
 
     private final class StreamPublisher {
         private final SessionId sessionId;
         private final FlowDirection direction;
         private long nextOrdinal = InteractionRef.FIRST_ORDINAL;
+        private long lastObservedOrdinal;
 
         private StreamPublisher(SessionId sessionId, FlowDirection direction) {
             this.sessionId = sessionId;
@@ -90,7 +122,13 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
             InteractionRef interactionRef =
                 new InteractionRef(sessionId, direction, ordinal);
             eventLog.interaction(connection, interactionRef, snapshot);
+            lastObservedOrdinal = ordinal;
             return interactionRef;
+        }
+
+        private synchronized boolean wasObserved(long ordinal) {
+            return ordinal >= InteractionRef.FIRST_ORDINAL
+                && ordinal <= lastObservedOrdinal;
         }
     }
 }

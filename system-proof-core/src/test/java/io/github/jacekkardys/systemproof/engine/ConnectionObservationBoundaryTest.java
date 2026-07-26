@@ -27,6 +27,7 @@ import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
@@ -51,6 +52,75 @@ class ConnectionObservationBoundaryTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
     private static final ComponentType SERVER = ComponentType.of("server");
     private static final Contract<ApiEndpoint> API = contract("api", ApiEndpoint.class);
+
+    @Test
+    void shouldPublishTypedCorrelationOnlyForAnInteractionRecordedByTheSameSession() {
+        Client client = new Client("correlated");
+        Server server = new Server("internal", "external");
+        CorrelationKey key = CorrelationKey.ofDigest(
+            new CorrelationKeySchema("system-proof-test", "operation", 1),
+            new byte[32]
+        );
+        AtomicReference<InteractionRef> observed = new AtomicReference<>();
+        RoutedEnvironment environment = routedEnvironment(
+            Environment.environment()
+                .components(client, server)
+                .connect(client.api, server.api),
+            context -> {
+                InteractionSession session = context.observations().openSession();
+                CorrelationContribution<MutableInteractionEvidence> contribution =
+                    CorrelationContribution.capture(
+                        key,
+                        MutableInteractionEvidence.codec(),
+                        evidence("native-reference")
+                    );
+                InteractionRef unrecorded = new InteractionRef(
+                    new SessionId(context.connection().id(), 99),
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    1
+                );
+                assertThatThrownBy(() -> session.correlate(unrecorded, contribution))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage(
+                        "Interaction reference does not belong to this physical session"
+                    );
+
+                InteractionRef interactionRef = session.observe(
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    MutableInteractionEvidence.codec(),
+                    evidence("observed")
+                );
+                session.correlate(interactionRef, contribution);
+                observed.set(interactionRef);
+                return ConnectionRoute.routed(context.directTarget());
+            }
+        );
+        ProofSubjectRef subject = environment.proofSubjects().create();
+        environment.proofSubjects().arm(subject, key);
+
+        try {
+            environment.start();
+
+            assertThat(environment.proofSubjects().correlation(
+                subject,
+                key,
+                MutableInteractionEvidence.codec()
+            )).isInstanceOfSatisfying(
+                CorrelationResult.Unique.class,
+                result -> assertThat(result.interactionRef())
+                    .isEqualTo(observed.get())
+            );
+            List<ScenarioEvent> events = environment.journalSnapshot().entries().stream()
+                .map(entry -> entry.event())
+                .toList();
+            int observationIndex = indexOf(events, InteractionObservationEvent.class);
+            int correlationIndex = indexOf(events, CorrelationCandidateEvent.class);
+            assertThat(observationIndex).isGreaterThanOrEqualTo(0);
+            assertThat(correlationIndex).isGreaterThan(observationIndex);
+        } finally {
+            environment.close();
+        }
+    }
 
     @Test
     void shouldAssignConnectionSessionDirectionAndOrdinalWithoutCallerSuppliedIdentity() {
@@ -469,6 +539,11 @@ class ConnectionObservationBoundaryTest {
             EvidenceCodec.class,
             Object.class
         );
+        Method correlate = InteractionSession.class.getMethod(
+            "correlate",
+            InteractionRef.class,
+            CorrelationContribution.class
+        );
         Method prepare = ConnectionRouteProvider.class.getMethod(
             "prepare",
             ConnectionRouteContext.class
@@ -485,6 +560,9 @@ class ConnectionObservationBoundaryTest {
                 ScenarioEvent.class,
                 ScenarioJournal.class
             );
+        assertThat(correlate.getReturnType()).isEqualTo(void.class);
+        assertThat(correlate.getParameterTypes())
+            .containsExactly(InteractionRef.class, CorrelationContribution.class);
         assertThat(ConnectionObservations.class.getMethods())
             .extracting(Method::getName)
             .containsExactly("openSession");
@@ -539,6 +617,18 @@ class ConnectionObservationBoundaryTest {
             .filter(eventType::isInstance)
             .map(eventType::cast)
             .toList();
+    }
+
+    private static int indexOf(
+        List<ScenarioEvent> events,
+        Class<? extends ScenarioEvent> eventType
+    ) {
+        for (int index = 0; index < events.size(); index++) {
+            if (eventType.isInstance(events.get(index))) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     private enum Invocation implements InteractionSpec {

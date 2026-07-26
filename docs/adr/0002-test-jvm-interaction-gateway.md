@@ -76,12 +76,13 @@ frame -> record -> decide -> forward exact original bytes
 ```
 
 `InteractionSession.observe(...)` first copies typed evidence into the single environment
-`ScenarioJournal` and returns the stable `InteractionRef`. The one thread-safe environment
-coordinator then returns the current milestone's only decision, `FORWARD`. Only then does the
-gateway write the adapter-preserved bytes. It validates that they equal the current buffered prefix,
-never reconstructs them from evidence, and processes coalesced units serially so later bytes cannot
-overtake earlier complete units. No prefix of an incomplete or undecided unit crosses the downstream
-socket.
+`ScenarioJournal` and returns the stable `InteractionRef`. ADR 0003 extends this boundary with
+immutable correlation contributions: they are published after observation and before the one
+thread-safe environment coordinator returns the current milestone's only decision, `FORWARD`. Only
+then does the gateway write the adapter-preserved bytes. It validates that they equal the current
+buffered prefix, never reconstructs them from evidence, and processes coalesced units serially so
+later bytes cannot overtake earlier complete units. No prefix of an incomplete or undecided unit
+crosses the downstream socket.
 
 ### Address selection and host exposure
 
@@ -149,9 +150,9 @@ ports, or fall back to an unverified hostname.
 - Malformed input, unsupported negotiation or encryption, ambiguous framing, desynchronization,
   excessive frame size, or excessive buffered bytes closes the affected observed socket pair before
   forwarding the unresolved unit.
-- Codec, journal, or coordinator failure applies the same fail-closed policy. Optional observation
-  becomes `DEGRADED`; required observation becomes `FAILED`. Already decided and written units are
-  not rolled back or reordered.
+- Codec, journal, correlation, or coordinator failure applies the same fail-closed policy. Optional
+  observation becomes `DEGRADED`; required observation becomes `FAILED`. Already decided and
+  written units are not rolled back or reordered.
 - EOF on an empty directional buffer propagates half-close. EOF with an incomplete required unit is
   desynchronization and closes the socket pair without forwarding that unit.
 - Route cleanup closes all sockets and reports a connection cleanup failure if its tasks cannot
@@ -194,6 +195,6 @@ shutdown.
   appropriate for deterministic system tests and avoids a Netty dependency.
 - The framework now establishes protocol-aware observe-before-forward ordering, exact-byte
   forwarding, explicit observation status, and fail-closed required semantics.
-- No real HTTP, SMPP, or PostgreSQL codec is included. Semantic `HOLD`/`RELEASE`, proof subjects,
-  correlation, predecessor guards, causal proof, TLS termination, fault injection, and Toxiproxy
-  remain later work.
+- No real HTTP, SMPP, or PostgreSQL codec is included. ADR 0003 supplies only the protocol-neutral
+  proof-subject and correlation contracts. Semantic `HOLD`/`RELEASE`, predecessor guards, causal
+  proof, TLS termination, fault injection, and Toxiproxy remain later work.

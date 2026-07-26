@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
+import io.github.jacekkardys.systemproof.engine.CorrelationKey;
+import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ComponentType;
@@ -294,6 +296,10 @@ class ScenarioJournalTest {
             assertEvidenceSnapshotBoundary();
             return;
         }
+        if (valueType == CorrelationKey.class || valueType == ProofSubjectRef.class) {
+            assertOpaqueImmutableValue(valueType);
+            return;
+        }
         assertClosedImmutableHierarchy(valueType, inspected);
     }
 
@@ -307,6 +313,30 @@ class ScenarioJournalTest {
             });
         assertThat(EvidenceSnapshot.class.getMethods())
             .filteredOn(method -> method.getDeclaringClass() == EvidenceSnapshot.class)
+            .allSatisfy(method -> {
+                Class<?> returnType = method.getReturnType();
+                assertThat(returnType.isArray())
+                    .as("%s must not expose mutable arrays", method)
+                    .isFalse();
+                assertThat(Collection.class.isAssignableFrom(returnType))
+                    .as("%s must not expose mutable collections", method)
+                    .isFalse();
+                assertThat(Map.class.isAssignableFrom(returnType))
+                    .as("%s must not expose mutable maps", method)
+                    .isFalse();
+            });
+    }
+
+    private static void assertOpaqueImmutableValue(Class<?> type) {
+        assertThat(Modifier.isFinal(type.getModifiers())).isTrue();
+        assertThat(type.getDeclaredFields())
+            .filteredOn(field -> !Modifier.isStatic(field.getModifiers()))
+            .allSatisfy(field -> {
+                assertThat(Modifier.isPrivate(field.getModifiers())).isTrue();
+                assertThat(Modifier.isFinal(field.getModifiers())).isTrue();
+            });
+        assertThat(type.getMethods())
+            .filteredOn(method -> method.getDeclaringClass() == type)
             .allSatisfy(method -> {
                 Class<?> returnType = method.getReturnType();
                 assertThat(returnType.isArray())

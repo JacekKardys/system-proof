@@ -33,6 +33,7 @@ public final class EnvironmentRuntime {
     private final List<AbstractComponent<?, ?>> started = new ArrayList<>();
     private final ScenarioJournal journal;
     private final EnvironmentEventLog eventLog;
+    private final ProofSubjectRegistry proofSubjects;
     private final RuntimeDiagnostics diagnostics;
     private EnvironmentState state = EnvironmentState.DECLARED;
     private DriverServices driverServices;
@@ -56,10 +57,12 @@ public final class EnvironmentRuntime {
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
         journal = new ScenarioJournal();
         eventLog = new EnvironmentEventLog(journal, logging);
+        proofSubjects = new ProofSubjectRegistry(eventLog);
         connections = new RuntimeConnectionRegistry(
             topology.connections(),
             eventLog,
-            Objects.requireNonNull(routing, "routing must not be null")
+            Objects.requireNonNull(routing, "routing must not be null"),
+            proofSubjects
         );
         bindings = new RuntimeBindings(connections);
         diagnostics = new RuntimeDiagnostics(journal, eventLog);
@@ -137,6 +140,10 @@ public final class EnvironmentRuntime {
         return journal.snapshot();
     }
 
+    public ProofSubjects proofSubjects() {
+        return proofSubjects;
+    }
+
     public synchronized List<RuntimeConnectionSnapshot> connectionSnapshots() {
         return connections.snapshots();
     }
@@ -151,6 +158,7 @@ public final class EnvironmentRuntime {
         }
         if (state == EnvironmentState.DECLARED) {
             connections.stopRemaining();
+            proofSubjects.completeExecution();
             transitionEnvironment(EnvironmentState.STOPPED);
             return;
         }
@@ -236,6 +244,7 @@ public final class EnvironmentRuntime {
         if (driverServices != null) {
             firstFailure = accumulate(firstFailure, driverServices.closeSharedResources());
         }
+        proofSubjects.completeExecution();
         return firstFailure;
     }
 
