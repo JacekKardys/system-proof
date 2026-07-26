@@ -70,24 +70,28 @@ final class ProofSubjectRegistry implements ProofSubjects {
     }
 
     @Override
-    public synchronized <T> CorrelationResult<T> correlation(
+    public <T> CorrelationResult<T> correlation(
         ProofSubjectRef subject,
         CorrelationKey key,
         EvidenceCodec<T> nativeReferenceCodec
     ) {
-        SubjectState subjectState = requireSubject(subject);
-        key = Objects.requireNonNull(key, "key must not be null");
-        nativeReferenceCodec = Objects.requireNonNull(
-            nativeReferenceCodec,
-            "nativeReferenceCodec must not be null"
-        );
-        Resolution resolution = subjectState.resolutions.get(key);
-        if (resolution == null) {
-            throw new IllegalArgumentException(
-                "Correlation key schema '" + key.schema()
-                    + "' is not armed for proof subject '" + subject + "'"
+        Resolution resolution;
+        synchronized (this) {
+            SubjectState subjectState = requireSubject(subject);
+            key = Objects.requireNonNull(key, "key must not be null");
+            nativeReferenceCodec = Objects.requireNonNull(
+                nativeReferenceCodec,
+                "nativeReferenceCodec must not be null"
             );
+            resolution = subjectState.resolutions.get(key);
+            if (resolution == null) {
+                throw new IllegalArgumentException(
+                    "Correlation key schema '" + key.schema()
+                        + "' is not armed for proof subject '" + subject + "'"
+                );
+            }
         }
+
         return switch (resolution) {
             case Missing missing -> new CorrelationResult.Missing<>();
             case Ambiguous ambiguous -> new CorrelationResult.Ambiguous<>();

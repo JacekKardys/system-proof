@@ -589,21 +589,27 @@ class ObserveBeforeForwardGatewayTest {
         observations.arm("second", secondKey);
         observations.arm("missing", missingKey);
         List<InteractionRef> decisions = new ArrayList<>();
+        AtomicInteger firstKeyDecisions = new AtomicInteger();
         InteractionDecisionCoordinator coordinator = interactionRef -> {
             CorrelationKey publishedKey = observations.publishedKey(interactionRef);
             assertThat(publishedKey)
                 .as("correlation must be published before decision")
                 .isNotNull();
             if (publishedKey.equals(firstKey)) {
+                int matchingDecision = firstKeyDecisions.getAndIncrement();
                 assertThat(observations.cardinality("first", firstKey))
-                    .isIn(
-                        CorrelationCardinality.UNIQUE,
-                        CorrelationCardinality.AMBIGUOUS
+                    .as("first matching decision is unique; retries are ambiguous")
+                    .isEqualTo(
+                        matchingDecision == 0
+                            ? CorrelationCardinality.UNIQUE
+                            : CorrelationCardinality.AMBIGUOUS
                     );
             } else if (publishedKey.equals(secondKey)) {
                 assertThat(observations.cardinality("second", secondKey))
                     .isEqualTo(CorrelationCardinality.UNIQUE);
             }
+            assertThat(observations.cardinality("missing", missingKey))
+                .isEqualTo(CorrelationCardinality.MISSING);
             decisions.add(interactionRef);
             return ForwardingDecision.FORWARD;
         };
@@ -651,6 +657,7 @@ class ObserveBeforeForwardGatewayTest {
             assertThat(observations.cardinality("missing", missingKey))
                 .isEqualTo(CorrelationCardinality.MISSING);
         }
+        assertThat(firstKeyDecisions).hasValue(3);
     }
 
     @Test

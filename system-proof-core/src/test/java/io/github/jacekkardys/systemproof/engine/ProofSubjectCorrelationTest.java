@@ -115,11 +115,12 @@ class ProofSubjectCorrelationTest {
             NATIVE_REFERENCE_CODEC,
             new byte[] {1, 2, 3}
         );
+        EvidenceCodec<byte[]> unusedCodec = codecThatMustNotBeCalled();
 
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            NATIVE_REFERENCE_CODEC
+            unusedCodec
         )).isInstanceOf(CorrelationResult.Missing.class);
 
         InteractionRef first = interaction(1, 1);
@@ -142,14 +143,14 @@ class ProofSubjectCorrelationTest {
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            NATIVE_REFERENCE_CODEC
+            unusedCodec
         )).isInstanceOf(CorrelationResult.Ambiguous.class);
 
         fixture.registry.publish(first, contribution);
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            NATIVE_REFERENCE_CODEC
+            unusedCodec
         )).isInstanceOf(CorrelationResult.Ambiguous.class);
     }
 
@@ -377,6 +378,138 @@ class ProofSubjectCorrelationTest {
             .contains(CorrelationCardinality.UNIQUE, CorrelationCardinality.AMBIGUOUS);
     }
 
+    @Test
+    void shouldRunCodecCallbacksOutsideTheRegistryLockAndKeepTheCapturedResolution()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.registry.create();
+        CorrelationKey key = key("blocking-codec");
+        fixture.registry.arm(subject, key);
+        CorrelationContribution<byte[]> contribution = contribution(key, 11);
+        InteractionRef first = interaction(1, 1);
+        fixture.registry.publish(first, contribution);
+
+        CountDownLatch schemaEntered = new CountDownLatch(1);
+        CountDownLatch releaseSchema = new CountDownLatch(1);
+        CountDownLatch decodeEntered = new CountDownLatch(1);
+        CountDownLatch releaseDecode = new CountDownLatch(1);
+        EvidenceCodec<byte[]> blockingCodec = blockingCodec(
+            schemaEntered,
+            releaseSchema,
+            decodeEntered,
+            releaseDecode
+        );
+
+        try (var executor = Executors.newFixedThreadPool(4)) {
+            Future<CorrelationResult<byte[]>> lookup = executor.submit(() ->
+                fixture.registry.correlation(subject, key, blockingCodec)
+            );
+            try {
+                await(schemaEntered, "schema lookup did not reach the codec");
+                Future<?> schemaPhaseOperations = executor.submit(() -> {
+                    ProofSubjectRef concurrent = fixture.registry.create();
+                    fixture.registry.arm(concurrent, key("schema-phase"));
+                    return null;
+                });
+                schemaPhaseOperations.get(5, TimeUnit.SECONDS);
+
+                releaseSchema.countDown();
+                await(decodeEntered, "lookup did not reach native-reference decoding");
+                Future<?> decodePhaseOperations = executor.submit(() -> {
+                    ProofSubjectRef concurrent = fixture.registry.create();
+                    fixture.registry.arm(concurrent, key("decode-phase"));
+                    return null;
+                });
+                Future<?> publication = executor.submit(() -> {
+                    fixture.registry.publish(interaction(1, 2), contribution);
+                    return null;
+                });
+                decodePhaseOperations.get(5, TimeUnit.SECONDS);
+                publication.get(5, TimeUnit.SECONDS);
+
+                releaseDecode.countDown();
+                assertThat(lookup.get(5, TimeUnit.SECONDS))
+                    .isInstanceOfSatisfying(
+                        CorrelationResult.Unique.class,
+                        result -> {
+                            assertThat(result.interactionRef()).isEqualTo(first);
+                            assertThat((byte[]) result.nativeReference())
+                                .containsExactly(11);
+                        }
+                    );
+            } finally {
+                releaseSchema.countDown();
+                releaseDecode.countDown();
+            }
+        }
+
+        assertThat(fixture.registry.correlation(
+            subject,
+            key,
+            NATIVE_REFERENCE_CODEC
+        )).isInstanceOf(CorrelationResult.Ambiguous.class);
+    }
+
+    @Test
+    void shouldPropagateCodecFailuresWithoutBlockingLaterRegistryOperations()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.registry.create();
+        CorrelationKey key = key("codec-failures");
+        fixture.registry.arm(subject, key);
+        fixture.registry.publish(interaction(1, 1), contribution(key, 12));
+
+        List<CodecFailure> failures = List.of(
+            new CodecFailure(
+                "schema-runtime",
+                new IllegalStateException("schema runtime failure"),
+                null
+            ),
+            new CodecFailure(
+                "schema-error",
+                new AssertionError("schema error"),
+                null
+            ),
+            new CodecFailure(
+                "decode-runtime",
+                null,
+                new IllegalArgumentException("decode runtime failure")
+            ),
+            new CodecFailure(
+                "decode-error",
+                null,
+                new AssertionError("decode error")
+            )
+        );
+
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            for (CodecFailure failure : failures) {
+                assertThatThrownBy(() -> fixture.registry.correlation(
+                    subject,
+                    key,
+                    failingCodec(failure.schemaFailure(), failure.decodeFailure())
+                )).isSameAs(failure.expected());
+
+                Future<CorrelationResult<byte[]>> recovery = executor.submit(() -> {
+                    CorrelationKey recoveryKey = key(failure.name());
+                    ProofSubjectRef recoverySubject = fixture.registry.create();
+                    fixture.registry.arm(recoverySubject, recoveryKey);
+                    fixture.registry.publish(
+                        interaction(2, fixture.correlationEvents().size() + 1L),
+                        contribution(recoveryKey, 13)
+                    );
+                    return fixture.registry.correlation(
+                        recoverySubject,
+                        recoveryKey,
+                        NATIVE_REFERENCE_CODEC
+                    );
+                });
+                assertThat(recovery.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(CorrelationResult.Unique.class);
+            }
+        }
+    }
+
     private static Fixture fixture() {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         EnvironmentEventLog eventLog = new EnvironmentEventLog(
@@ -420,6 +553,105 @@ class ProofSubjectCorrelationTest {
         }
     }
 
+    private static EvidenceCodec<byte[]> blockingCodec(
+        CountDownLatch schemaEntered,
+        CountDownLatch releaseSchema,
+        CountDownLatch decodeEntered,
+        CountDownLatch releaseDecode
+    ) {
+        return new EvidenceCodec<>() {
+            @Override
+            public EvidenceSchemaId schemaId() {
+                schemaEntered.countDown();
+                await(releaseSchema, "schema callback was not released");
+                return NATIVE_REFERENCE_CODEC.schemaId();
+            }
+
+            @Override
+            public byte[] encode(byte[] evidence) {
+                return evidence;
+            }
+
+            @Override
+            public byte[] decode(byte[] encodedEvidence) {
+                decodeEntered.countDown();
+                await(releaseDecode, "decode callback was not released");
+                return encodedEvidence;
+            }
+        };
+    }
+
+    private static EvidenceCodec<byte[]> failingCodec(
+        Throwable schemaFailure,
+        Throwable decodeFailure
+    ) {
+        return new EvidenceCodec<>() {
+            @Override
+            public EvidenceSchemaId schemaId() {
+                if (schemaFailure != null) {
+                    throw propagate(schemaFailure);
+                }
+                return NATIVE_REFERENCE_CODEC.schemaId();
+            }
+
+            @Override
+            public byte[] encode(byte[] evidence) {
+                return evidence;
+            }
+
+            @Override
+            public byte[] decode(byte[] encodedEvidence) {
+                if (decodeFailure != null) {
+                    throw propagate(decodeFailure);
+                }
+                return encodedEvidence;
+            }
+        };
+    }
+
+    private static EvidenceCodec<byte[]> codecThatMustNotBeCalled() {
+        return new EvidenceCodec<>() {
+            @Override
+            public EvidenceSchemaId schemaId() {
+                throw new AssertionError(
+                    "Missing or ambiguous lookup invoked codec schema validation"
+                );
+            }
+
+            @Override
+            public byte[] encode(byte[] evidence) {
+                throw new AssertionError(
+                    "Missing or ambiguous lookup invoked codec encoding"
+                );
+            }
+
+            @Override
+            public byte[] decode(byte[] encodedEvidence) {
+                throw new AssertionError(
+                    "Missing or ambiguous lookup invoked codec decoding"
+                );
+            }
+        };
+    }
+
+    private static RuntimeException propagate(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        throw (Error) failure;
+    }
+
+    private static void await(CountDownLatch latch, String message) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError(message);
+            }
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting: " + message, failure);
+        }
+    }
+
     private static EvidenceCodec<byte[]> binaryCodec(String name) {
         return new EvidenceCodec<>() {
             private final EvidenceSchemaId schema =
@@ -440,6 +672,16 @@ class ProofSubjectCorrelationTest {
                 return encodedEvidence;
             }
         };
+    }
+
+    private record CodecFailure(
+        String name,
+        Throwable schemaFailure,
+        Throwable decodeFailure
+    ) {
+        private Throwable expected() {
+            return schemaFailure != null ? schemaFailure : decodeFailure;
+        }
     }
 
     private record Fixture(
