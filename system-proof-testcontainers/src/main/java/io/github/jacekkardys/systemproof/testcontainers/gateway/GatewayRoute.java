@@ -394,7 +394,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     private void logObservationFailure(FailureStage stage) {
         if (!closed.get()) {
             LOG.warn(
-                "InteractionGateway observation failed closed at stage {}",
+                "InteractionGateway observation failed closed for connection '{}' at stage {}",
+                connectionId,
                 stage
             );
         }
@@ -456,7 +457,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 failObservation();
                 if (!closed.get() && !sessionClosed.get()) {
                     LOG.warn(
-                        "InteractionGateway protocol observation failed closed with classification {}",
+                        "InteractionGateway protocol observation failed closed for connection '{}' with classification {}",
+                        connectionId,
                         failure.kind()
                     );
                 }
