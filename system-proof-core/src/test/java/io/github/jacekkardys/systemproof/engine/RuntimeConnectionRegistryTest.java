@@ -168,9 +168,8 @@ class RuntimeConnectionRegistryTest {
     void shouldCentrallyRejectRepeatedAndBackwardLifecycleTransitions() {
         Client client = new Client("state");
         Server server = new Server();
-        RuntimeConnection<String> connection = new RuntimeConnection<>(
-            Connection.connect(client.api, server.api)
-        );
+        RuntimeConnection<String> connection =
+            runtimeConnection(Connection.connect(client.api, server.api));
 
         assertThatThrownBy(connection::beginStopping)
             .hasMessageContaining("cannot begin stopping from state DECLARED");
@@ -195,7 +194,7 @@ class RuntimeConnectionRegistryTest {
         assertThatThrownBy(connection::beginStartup)
             .hasMessageContaining("cannot transition from STOPPED to STARTING");
 
-        RuntimeConnection<String> failed = new RuntimeConnection<>(
+        RuntimeConnection<String> failed = runtimeConnection(
             Connection.connect(new Client("failed").api, server.api)
         );
         failed.beginStartup();
@@ -219,8 +218,9 @@ class RuntimeConnectionRegistryTest {
         List<ConnectionId> cleanupOrder = new ArrayList<>();
         ConnectionRouting routing = ConnectionRouting.routed(
             API,
-            (descriptor, directTarget) -> {
-                receivedDirectTargets.add(directTarget.internal());
+            context -> {
+                var descriptor = context.connection();
+                receivedDirectTargets.add(context.directTarget().internal());
                 String routeEndpoint = "route-secret-" + descriptor.sourceComponentId();
                 return ConnectionRoute.routed(
                     binding(routeEndpoint, routeEndpoint + "-external"),
@@ -320,7 +320,8 @@ class RuntimeConnectionRegistryTest {
         List<ConnectionId> cleanupOrder = new ArrayList<>();
         ConnectionRouting routing = ConnectionRouting.routed(
             API,
-            (descriptor, directTarget) -> {
+            context -> {
+                var descriptor = context.connection();
                 if (preparations.incrementAndGet() == 3) {
                     throw startupFailure;
                 }
@@ -393,7 +394,7 @@ class RuntimeConnectionRegistryTest {
             journal,
             ConnectionRouting.routed(
                 API,
-                (descriptor, directTarget) -> ConnectionRoute.routed(
+                context -> ConnectionRoute.routed(
                     binding("route", "route-external"),
                     () -> {
                         cleanupCalls.incrementAndGet();
@@ -493,6 +494,19 @@ class RuntimeConnectionRegistryTest {
             declarations,
             new EnvironmentEventLog(journal, EnvironmentLogging.defaults()),
             routing
+        );
+    }
+
+    private static <C> RuntimeConnection<C> runtimeConnection(
+        Connection<C> declaration
+    ) {
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        EnvironmentEventLog eventLog =
+            new EnvironmentEventLog(journal, EnvironmentLogging.defaults());
+        return new RuntimeConnection<>(
+            declaration,
+            ConnectionRouting.direct().select(declaration),
+            new ConnectionObservationPublisher(declaration, eventLog)
         );
     }
 

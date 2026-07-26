@@ -17,13 +17,15 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
+import io.github.jacekkardys.systemproof.engine.ConnectionRoute;
+import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 
@@ -468,14 +470,10 @@ class EnvironmentLifecycleTest {
     @Test
     void shouldPreserveStructuredCollisionIdsAcrossEveryRuntimeInspectionSurface() {
         CollisionProvider provider = new CollisionProvider();
-        CollisionClient unqualified = new CollisionClient(
-            ComponentId.component(ComponentType.of("client-a")),
-            provider
-        );
-        CollisionClient qualified = new CollisionClient(
-            ComponentId.component(CLIENT, "a"),
-            provider
-        );
+        CollisionClient unqualified =
+            new CollisionClient(ComponentId.component(ComponentType.of("client-a")));
+        CollisionClient qualified =
+            new CollisionClient(ComponentId.component(CLIENT, "a"));
         ConnectionId unqualifiedId = ConnectionId.between(
             unqualified.api,
             provider.api
@@ -486,12 +484,25 @@ class EnvironmentLifecycleTest {
             .connectionLevel(unqualified.api, provider.api, LogLevel.DEBUG)
             .connectionLevel(qualified.api, provider.api, LogLevel.TRACE)
             .build();
-        Environment environment = Environment.environment()
-            .components(unqualified, qualified, provider)
-            .connect(unqualified.api, provider.api)
-            .connect(qualified.api, provider.api)
-            .logging(logging)
-            .build()
+        Environment environment = new RoutedEnvironment(
+            Environment.environment()
+                .components(unqualified, qualified, provider)
+                .connect(unqualified.api, provider.api)
+                .connect(qualified.api, provider.api)
+                .logging(logging),
+            ConnectionRouting.routed(API, routeContext -> {
+                ConnectionId connectionId = routeContext.connection().id();
+                routeContext.observations().openSession().observe(
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    MutableInteractionEvidence.codec(),
+                    new MutableInteractionEvidence(
+                        connectionId.toString().getBytes(StandardCharsets.UTF_8),
+                        new ArrayList<>()
+                    )
+                );
+                return ConnectionRoute.routed(routeContext.directTarget());
+            })
+        )
             .start();
 
         assertThat(unqualified.id().toString()).isEqualTo(qualified.id().toString());
@@ -532,7 +543,7 @@ class EnvironmentLifecycleTest {
             .extracting(event -> event.connection().sourceComponentId())
             .containsExactly(unqualified.id(), qualified.id());
         assertThat(events(environment, InteractionObservationEvent.class))
-            .extracting(event -> event.metadata().connectionId().orElseThrow())
+            .extracting(event -> event.interactionRef().connectionId())
             .containsExactly(unqualifiedId, qualifiedId);
 
         environment.close();
@@ -640,28 +651,13 @@ class EnvironmentLifecycleTest {
         private final ComponentType type;
         private final RequiredPort<ApiEndpoint> api;
 
-        private CollisionClient(ComponentId id, CollisionProvider provider) {
+        private CollisionClient(ComponentId id) {
             super(
                 id,
                 new EmptyConfig(),
                 String.class,
                 (component, context) -> {
                     CollisionClient current = (CollisionClient) component;
-                    ConnectionId connectionId = ConnectionId.between(
-                        current.api,
-                        provider.api
-                    );
-                    context.journalContributions().observeInteraction(
-                        InteractionMetadata.onConnection(
-                            connectionId,
-                            InteractionMetadata.Direction.OUTBOUND
-                        ),
-                        MutableInteractionEvidence.codec(),
-                        new MutableInteractionEvidence(
-                            connectionId.toString().getBytes(StandardCharsets.UTF_8),
-                            new ArrayList<>()
-                        )
-                    );
                     return io.github.jacekkardys.systemproof.driver.ComponentRuntime
                         .<String>runtime()
                         .operations(context.resolve(current.api).value())
@@ -704,5 +700,11 @@ class EnvironmentLifecycleTest {
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
+    }
+
+    private static final class RoutedEnvironment extends Environment {
+        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
+            super(builder, routing);
+        }
     }
 }

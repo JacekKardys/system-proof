@@ -1,0 +1,96 @@
+package io.github.jacekkardys.systemproof.engine;
+
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Objects;
+import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
+import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.journal.InteractionRef;
+import io.github.jacekkardys.systemproof.journal.SessionId;
+import io.github.jacekkardys.systemproof.model.ConnectionRef;
+
+/** Environment-owned implementation of one connection-scoped observation capability. */
+final class ConnectionObservationPublisher implements ConnectionObservations {
+    private final ConnectionRef connection;
+    private final EnvironmentEventLog eventLog;
+    private long nextSessionValue = SessionId.FIRST_VALUE;
+
+    ConnectionObservationPublisher(
+        ConnectionRef connection,
+        EnvironmentEventLog eventLog
+    ) {
+        this.connection = Objects.requireNonNull(connection, "connection must not be null");
+        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+    }
+
+    @Override
+    public synchronized InteractionSession openSession() {
+        if (nextSessionValue < SessionId.FIRST_VALUE) {
+            throw new IllegalStateException(
+                "Session identity space exhausted for connection '" + connection.id() + "'"
+            );
+        }
+        SessionId sessionId = new SessionId(connection.id(), nextSessionValue);
+        nextSessionValue = nextSessionValue == Long.MAX_VALUE
+            ? Long.MIN_VALUE
+            : nextSessionValue + 1L;
+        return new ScopedInteractionSession(sessionId);
+    }
+
+    private final class ScopedInteractionSession implements InteractionSession {
+        private final Map<FlowDirection, StreamPublisher> streams;
+
+        private ScopedInteractionSession(SessionId sessionId) {
+            EnumMap<FlowDirection, StreamPublisher> publishers =
+                new EnumMap<>(FlowDirection.class);
+            for (FlowDirection direction : FlowDirection.values()) {
+                publishers.put(direction, new StreamPublisher(sessionId, direction));
+            }
+            streams = Map.copyOf(publishers);
+        }
+
+        @Override
+        public <T> InteractionRef observe(
+            FlowDirection direction,
+            EvidenceCodec<T> codec,
+            T evidence
+        ) {
+            Objects.requireNonNull(direction, "direction must not be null");
+            return streams.get(direction).observe(codec, evidence);
+        }
+    }
+
+    private final class StreamPublisher {
+        private final SessionId sessionId;
+        private final FlowDirection direction;
+        private long nextOrdinal = InteractionRef.FIRST_ORDINAL;
+
+        private StreamPublisher(SessionId sessionId, FlowDirection direction) {
+            this.sessionId = sessionId;
+            this.direction = direction;
+        }
+
+        private synchronized <T> InteractionRef observe(
+            EvidenceCodec<T> codec,
+            T evidence
+        ) {
+            if (nextOrdinal < InteractionRef.FIRST_ORDINAL) {
+                throw new IllegalStateException(
+                    "Interaction ordinal space exhausted for session '" + sessionId
+                        + "' direction " + direction
+                );
+            }
+            EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, evidence);
+            long ordinal = nextOrdinal;
+            nextOrdinal = nextOrdinal == Long.MAX_VALUE
+                ? Long.MIN_VALUE
+                : nextOrdinal + 1L;
+            InteractionRef interactionRef =
+                new InteractionRef(sessionId, direction, ordinal);
+            eventLog.interaction(connection, interactionRef, snapshot);
+            return interactionRef;
+        }
+    }
+}

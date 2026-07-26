@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
@@ -22,9 +21,11 @@ import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
+import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.journal.SessionId;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ComponentType;
@@ -105,9 +106,10 @@ class EnvironmentEventLogTest {
             MutableInteractionEvidence.codec(),
             new MutableInteractionEvidence(new byte[] {1}, new ArrayList<>())
         );
+        ConnectionId connectionId =
+            ConnectionId.of("client[].api->server[].api");
         journal.append(new InteractionObservationEvent(
-            first,
-            InteractionMetadata.unscoped(),
+            interactionRef(connectionId),
             evidence
         ));
         journal.append(new CheckpointEvent(
@@ -121,13 +123,13 @@ class EnvironmentEventLogTest {
         assertThat(eventLog.componentSnapshot(snapshot, first))
             .contains(
                 "[COMPONENT] [service-first] Starting component",
-                "first output",
-                "[INTERACTION] [service-first]"
+                "first output"
             )
             .doesNotContain(
                 "service-second",
                 "second output",
-                "second-checkpoint"
+                "second-checkpoint",
+                "[INTERACTION]"
             );
     }
 
@@ -231,11 +233,7 @@ class EnvironmentEventLogTest {
             )
         );
         journal.append(new InteractionObservationEvent(
-            component,
-            new InteractionMetadata(
-                Optional.of(connectionId),
-                Optional.of(InteractionMetadata.Direction.OUTBOUND)
-            ),
+            interactionRef(connectionId),
             evidence
         ));
         journal.append(new CheckpointEvent(
@@ -267,8 +265,11 @@ class EnvironmentEventLogTest {
                 "Connection cleanup failed: IllegalStateException - broken",
                 "Driver resource 'shared-resource' cleanup failed: "
                     + "IllegalStateException - broken",
-                "[INTERACTION] [service] [connection=client[].api->server[].api] "
-                    + "Observed typed evidence direction=OUTBOUND "
+                "[INTERACTION] [connection=client[].api->server[].api] "
+                    + "[session=client[].api->server[].api/session-1] "
+                    + "[flow=CONSUMER_TO_PROVIDER] [ordinal=1] "
+                    + "[ref=client[].api->server[].api/session-1/"
+                    + "CONSUMER_TO_PROVIDER/1] Observed typed evidence "
                     + "schema=test.external:interaction version=1 encodedBytes=",
                 "[CHECKPOINT] [service] [request-visible] "
                     + "Recorded barrier stage=OBSERVED",
@@ -291,6 +292,14 @@ class EnvironmentEventLogTest {
 
     private static EnvironmentEventLog view(ScenarioJournal journal) {
         return new EnvironmentEventLog(journal, EnvironmentLogging.defaults());
+    }
+
+    private static InteractionRef interactionRef(ConnectionId connectionId) {
+        return new InteractionRef(
+            new SessionId(connectionId, SessionId.FIRST_VALUE),
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            InteractionRef.FIRST_ORDINAL
+        );
     }
 
     private static final class MutableMessageFailure extends RuntimeException {

@@ -22,19 +22,17 @@ public final class RuntimeConnection<C> {
     private final ConnectionDescriptor descriptor;
     private final RoutingMode routingMode;
     private final ConnectionRouteProvider<C> routeProvider;
+    private final ConnectionObservations observations;
     private ConnectionState state = ConnectionState.DECLARED;
     private EndpointBinding<C> directTarget;
     private EndpointBinding<C> consumerTarget;
     private ConnectionRoute<C> route;
     private boolean directTargetWasBound;
 
-    RuntimeConnection(Connection<C> declaration) {
-        this(declaration, ConnectionRouting.direct().select(declaration));
-    }
-
     RuntimeConnection(
         Connection<C> declaration,
-        ConnectionRouting.Selection<C> routing
+        ConnectionRouting.Selection<C> routing,
+        ConnectionObservations observations
     ) {
         this.declaration = Objects.requireNonNull(
             declaration,
@@ -44,6 +42,10 @@ public final class RuntimeConnection<C> {
         descriptor = ConnectionDescriptor.from(declaration);
         routingMode = routing.mode();
         routeProvider = routing.provider();
+        this.observations = Objects.requireNonNull(
+            observations,
+            "observations must not be null"
+        );
     }
 
     public Connection<C> declaration() {
@@ -141,7 +143,11 @@ public final class RuntimeConnection<C> {
         validateCanBindDirectTarget();
         target = validateTarget(target, "directTarget");
         ConnectionRoute<C> preparedRoute = Objects.requireNonNull(
-            routeProvider.prepare(descriptor, target),
+            routeProvider.prepare(new ConnectionRouteContext<>(
+                descriptor,
+                observations,
+                target
+            )),
             "Route provider returned null for connection '" + id() + "'"
         );
         return new RouteOwnership<>(this, target, preparedRoute);

@@ -66,7 +66,7 @@ public final class ConnectionRouting {
         if (rule == null) {
             return new Selection<>(
                 RoutingMode.DIRECT,
-                (descriptor, directTarget) -> ConnectionRoute.direct(directTarget)
+                context -> ConnectionRoute.direct(context.directTarget())
             );
         }
         return routedSelection(connection, rule);

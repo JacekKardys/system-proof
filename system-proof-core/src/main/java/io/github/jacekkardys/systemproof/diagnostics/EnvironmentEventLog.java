@@ -19,13 +19,12 @@ import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
 import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
+import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
@@ -220,20 +219,24 @@ public final class EnvironmentEventLog {
         protectRouteFailure("cleanup", connection, failure);
     }
 
-    /**
-     * Captures externally typed evidence before appending its core-owned interaction envelope.
-     */
-    public <T> void interaction(
-        Component component,
-        InteractionMetadata metadata,
-        EvidenceCodec<T> codec,
-        T evidence
+    /** Appends one connection-scoped interaction whose evidence was already captured. */
+    public void interaction(
+        ConnectionRef connection,
+        InteractionRef interactionRef,
+        EvidenceSnapshot evidence
     ) {
-        Objects.requireNonNull(component, "component must not be null");
-        EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, evidence);
+        Objects.requireNonNull(connection, "connection must not be null");
+        Objects.requireNonNull(interactionRef, "interactionRef must not be null");
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        if (!connection.id().equals(interactionRef.connectionId())) {
+            throw new IllegalArgumentException(
+                "Interaction reference connection '" + interactionRef.connectionId()
+                    + "' does not match bound connection '" + connection.id() + "'"
+            );
+        }
         append(
-            new InteractionObservationEvent(component.id(), metadata, snapshot),
-            configuration.componentLevel(component),
+            new InteractionObservationEvent(interactionRef, evidence),
+            configuration.connectionLevel(connection),
             LogLevel.INFO
         );
     }
@@ -398,8 +401,7 @@ public final class EnvironmentEventLog {
                 failure.componentId().equals(componentId);
             case FailureEvent.ComponentCleanup failure ->
                 failure.componentId().equals(componentId);
-            case InteractionObservationEvent observation ->
-                observation.observingComponentId().equals(componentId);
+            case InteractionObservationEvent observation -> false;
             case CheckpointEvent checkpoint ->
                 checkpoint.observingComponentId().equals(componentId);
             case DisruptionLifecycleEvent disruption ->
@@ -432,18 +434,18 @@ public final class EnvironmentEventLog {
     }
 
     private static String interactionLabels(InteractionObservationEvent observation) {
-        return "[INTERACTION] [" + observation.observingComponentId() + "]"
-            + observation.metadata().connectionId()
-                .map(connectionId -> " [connection=" + connectionId + "]")
-                .orElse("");
+        InteractionRef reference = observation.interactionRef();
+        return "[INTERACTION]"
+            + " [connection=" + reference.connectionId() + "]"
+            + " [session=" + reference.sessionId() + "]"
+            + " [flow=" + reference.direction() + "]"
+            + " [ordinal=" + reference.ordinal() + "]"
+            + " [ref=" + reference + "]";
     }
 
     private static String interactionMessage(InteractionObservationEvent observation) {
         EvidenceSchemaId schemaId = observation.evidence().schemaId();
         return "Observed typed evidence"
-            + observation.metadata().direction()
-                .map(direction -> " direction=" + direction)
-                .orElse("")
             + " schema=" + schemaId.namespace() + ":" + schemaId.name()
             + " version=" + schemaId.version()
             + " encodedBytes=" + observation.evidence().encodedSize();

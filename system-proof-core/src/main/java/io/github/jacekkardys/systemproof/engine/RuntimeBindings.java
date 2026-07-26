@@ -8,7 +8,6 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 
@@ -60,10 +59,6 @@ final class RuntimeBindings {
 
     <T> T resolve(RequiredPort<T> required) {
         return connections.resolve(required);
-    }
-
-    boolean containsConnection(ConnectionId connectionId) {
-        return connections.contains(connectionId);
     }
 
     <C extends io.github.jacekkardys.systemproof.model.RuntimeConfig, O> O operations(

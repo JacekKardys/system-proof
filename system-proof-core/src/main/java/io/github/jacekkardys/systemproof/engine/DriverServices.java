@@ -16,8 +16,6 @@ import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
-import io.github.jacekkardys.systemproof.journal.InteractionMetadata;
 import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.LogLevel;
@@ -179,24 +177,6 @@ final class DriverServices {
 
         private ScopedJournalContributions(Component owner) {
             this.owner = owner;
-        }
-
-        @Override
-        public <T> void observeInteraction(
-            InteractionMetadata metadata,
-            EvidenceCodec<T> codec,
-            T evidence
-        ) {
-            Objects.requireNonNull(metadata, "metadata must not be null");
-            metadata.connectionId().ifPresent(connectionId -> {
-                if (!bindings.containsConnection(connectionId)) {
-                    throw new IllegalArgumentException(
-                        "Interaction metadata references connection '" + connectionId
-                            + "' outside the environment"
-                    );
-                }
-            });
-            eventLog.interaction(owner, metadata, codec, evidence);
         }
 
         @Override

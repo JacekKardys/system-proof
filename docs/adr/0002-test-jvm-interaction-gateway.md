@@ -23,8 +23,10 @@ source of truth and would make concurrent HTTP, PostgreSQL, and SMPP contracts a
 ### Ownership and concurrent contracts
 
 `InteractionGateway` is a protocol-neutral Testcontainers adapter. One instance supplies typed
-`ConnectionRouteProvider<C>` values through `gateway.tcp(adapter)`. An immutable
-`TcpEndpointAdapter<C>` knows only how to:
+`ConnectionRouteProvider<C>` values through `gateway.tcp(adapter)`. Each invocation receives one
+immutable route context for the exact materialized connection. The context now also contains the
+connection-bound observation capability, but this reachability spike deliberately leaves it unused.
+An immutable `TcpEndpointAdapter<C>` knows only how to:
 
 1. extract the JVM-reachable TCP address from endpoint value `C`;
 2. copy `C` with a different host and port while preserving its other fields.

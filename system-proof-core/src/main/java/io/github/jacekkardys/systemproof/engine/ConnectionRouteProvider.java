@@ -1,21 +1,17 @@
 package io.github.jacekkardys.systemproof.engine;
 
-import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-
 /**
- * Prepares one typed consumer route from the direct endpoint published by its provider.
+ * Prepares one typed consumer route from one exact runtime connection context.
  *
  * <p>The runtime invokes a provider independently for every matching connection. Implementations
- * may therefore retain connection-owned resources without sharing endpoint state across consumers.
- * Once this method returns, the runtime owns the returned route and its resource. The provider
- * remains responsible for cleaning resources created before it returns a {@link ConnectionRoute},
- * because the runtime cannot take ownership before receiving that object.
+ * receive immutable semantic metadata, a connection-bound observation capability, and the direct
+ * endpoint published by the provider. They may therefore retain connection-owned resources without
+ * sharing endpoint state across consumers. Once this method returns, the runtime owns the returned
+ * route and its resource. The provider remains responsible for cleaning resources created before
+ * it returns a {@link ConnectionRoute}, because the runtime cannot take ownership before receiving
+ * that object.
  */
 @FunctionalInterface
 public interface ConnectionRouteProvider<C> {
-    ConnectionRoute<C> prepare(
-        ConnectionDescriptor connection,
-        EndpointBinding<C> directTarget
-    );
+    ConnectionRoute<C> prepare(ConnectionRouteContext<C> context);
 }

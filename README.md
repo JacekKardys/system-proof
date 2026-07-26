@@ -174,14 +174,15 @@ direct/consumer target availability.
 `ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
 An immutable routing policy can contain multiple rules keyed by semantic `Contract<C>` or a stable
 structured `ConnectionId`; connection-specific rules take precedence and unmatched connections stay
-direct. The provider receives that connection's stable descriptor and direct binding, then returns
-the effective binding and an optional connection-owned resource. All routes for one provider are
-prepared before any targeted connection becomes `RUNNING`. Partial creation closes already prepared
-resources in reverse order and retains cleanup failures as suppressed. Normal cleanup first makes
-consumer targets unavailable, then closes routes in reverse order, and invalidates direct targets
-before provider cleanup completes. Route failure diagnostics retain only failure type, lifecycle
-stage, and connection identity; the original throwable and suppressed ordering returned to the
-caller remain unchanged.
+direct. The provider receives one immutable `ConnectionRouteContext<C>` containing that
+connection's stable descriptor, direct binding, and a traffic-observation capability bound to the
+same materialized `RuntimeConnection`. It then returns the effective binding and an optional
+connection-owned resource. All routes for one provider are prepared before any targeted connection
+becomes `RUNNING`. Partial creation closes already prepared resources in reverse order and retains
+cleanup failures as suppressed. Normal cleanup first makes consumer targets unavailable, then
+closes routes in reverse order, and invalidates direct targets before provider cleanup completes.
+Route failure diagnostics retain only failure type, lifecycle stage, and connection identity; the
+original throwable and suppressed ordering returned to the caller remain unchanged.
 
 `ROUTED` means only that the consumer receives an interposed endpoint; it does not claim that
 traffic was observed. The protected environment runtime seam accepts `ConnectionRouting` without
@@ -189,7 +190,7 @@ adding route or proxy declarations to the topology DSL. The Testcontainers modul
 seam with one test-JVM `InteractionGateway`: each matching `RuntimeConnection` owns its transparent
 TCP listener and typed endpoint adapter, while Testcontainers exposes that listener to consumer
 containers as `host.testcontainers.internal`. The gateway proves transport and lifecycle only;
-`OBSERVED` semantics and protocol evidence remain later roadmap work.
+it does not yet open observation sessions, frame TCP traffic, or publish protocol evidence.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
@@ -206,21 +207,28 @@ structured history. The sealed event hierarchy contains core-owned immutable env
 - checkpoint or barrier records;
 - disruption lifecycle records.
 
-Protocol modules do not implement `ScenarioEvent` and do not place protocol fields in core.
-Instead, a module supplies a typed `EvidenceCodec<T>` and its value through the component-scoped
-`JournalContributions` capability on `DriverContext`. Core invokes the codec synchronously, copies
-the encoded bytes into a private `EvidenceSnapshot`, and retains neither the source value, codec,
-nor codec-produced array. Typed inspection uses the same codec against a fresh byte-array copy.
-Mutable source arrays, collections, decoded values, and adapters therefore cannot mutate stored
-history. No reflection, Java serialization, event registry, or parallel evidence store is used.
+Protocol modules do not implement `ScenarioEvent` and do not place protocol fields in core. A route
+provider obtains `ConnectionObservations` from its preparation context and opens a new
+`InteractionSession` for each physical transport session. The session accepts only
+`FlowDirection`, `EvidenceCodec<T>`, and typed evidence. It binds the logical `ConnectionId`,
+allocates a connection-local `SessionId`, allocates a monotonic ordinal independently for each
+session direction, creates the complete `InteractionRef`, and returns that reference after append.
+The caller cannot supply a connection, session, ordinal, interaction reference, component, or
+arbitrary event.
 
-The driver capability supplies the observing component identity and exposes only interaction,
-checkpoint, and disruption contributions. It cannot append environment/component lifecycle,
-framework failure, or free-form diagnostic events, and it never exposes the mutable journal.
-Existing `DriverContext.log(...)` remains journal-backed and is restricted to the driver-owned
-component. A scoped driver can resolve only required ports owned by that component, and contributed
-interaction metadata may name only a typed `ConnectionId` present in the current environment.
-`Environment.journalSnapshot()` returns a detached immutable snapshot for typed assertions.
+Core invokes the codec synchronously, copies the encoded bytes into a private `EvidenceSnapshot`,
+and retains neither the source value, codec, nor codec-produced array. Typed inspection uses the
+same codec against a fresh byte-array copy. Mutable source arrays, collections, decoded values, and
+adapters therefore cannot mutate stored history. No reflection, Java serialization, event
+registry, or parallel evidence store is used.
+
+Component-originated and connection-originated contributions are separate. The component-scoped
+`JournalContributions` capability on `DriverContext` retains only checkpoints and disruption
+lifecycle records; it cannot publish traffic observations. It cannot append environment/component
+lifecycle, framework failure, or free-form diagnostic events, and it never exposes the mutable
+journal. Existing `DriverContext.log(...)` remains journal-backed and restricted to the
+driver-owned component. `Environment.journalSnapshot()` returns a detached immutable snapshot for
+typed assertions.
 
 Textual environment logs are rendered views of one captured journal snapshot. They retain the
 readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
@@ -233,11 +241,13 @@ and deterministic rendering only. It is not a wall-clock or distributed sequence
 `EvidencePosition`, or proof that one external event caused or happened before another.
 Diagnostic timestamps and rendered or container log-line order likewise establish no causal
 relationship. A checkpoint/barrier record and its position in the journal are also reported facts,
-not proof of barrier evaluation, external ordering, or causality. Future protocol modules can add
-their own typed codecs and values through the existing contribution boundary; causal proof still
-requires explicit stream-local positions and semantic evaluation in the later roadmap tasks.
-Runtime-connection lifecycle order and elapsed time have the same limitation: target binding before
-another stored event is not proof of external protocol ordering or causality.
+not proof of barrier evaluation, external ordering, or causality. An `InteractionRef` identifies
+one observation through its connection-bound session, `CONSUMER_TO_PROVIDER` or
+`PROVIDER_TO_CONSUMER` flow, and stream-local ordinal. Ordinals begin at one and are monotonic only
+inside the same connection, session, and direction; values from different streams must not be
+compared to infer causality. Explicit causal relations remain work for the later proof layer.
+Runtime-connection lifecycle order and elapsed time have the same limitation: target binding
+before another stored event is not proof of external protocol ordering or causality.
 
 Failed JUnit tests write:
 

@@ -13,14 +13,17 @@ Public contracts:
   directional typed topology without runtime addresses.
 - `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
   runtime materialization per logical connection, without exposing endpoint values.
-- `ConnectionRouting`, `ConnectionRouteProvider<C>`, and `ConnectionRoute<C>`: typed runtime
-  selection and a connection-owned effective endpoint/resource seam without topology proxy DSL.
+- `ConnectionRouting`, `ConnectionRouteProvider<C>`, `ConnectionRouteContext<C>`, and
+  `ConnectionRoute<C>`: typed runtime selection, connection-scoped observation access, and a
+  connection-owned effective endpoint/resource seam without topology proxy DSL.
 - `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
 - `ScenarioJournal`, its sealed core-owned `ScenarioEvent` envelopes, `EvidenceCodec<T>`,
   `EvidenceSnapshot`, and immutable journal snapshots: the single authoritative structured
   scenario history and external typed-evidence copy boundary.
+- `ConnectionObservations`, `InteractionSession`, `SessionId`, `FlowDirection`, and
+  `InteractionRef`: protocol-neutral, connection-bound traffic identity and contribution boundary.
 - `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: rendered
   journal views and failure reporting.
 
@@ -83,9 +86,11 @@ ports, aliases, or credentials.
 `Contract<C>` or one stable structured connection identity. A policy can contain several rules,
 connection-specific rules take precedence, and unmatched connections remain `DIRECT`. This keeps
 distinct contracts using the same Java class separate. The provider is invoked once per
-`RuntimeConnection`, receives its stable descriptor and typed direct binding, and returns a typed
-consumer binding plus an optional connection-owned resource. The sole unchecked conversion is
-confined to the private contract-and-connection-validated routing boundary.
+`RuntimeConnection`, receives one immutable context containing its stable descriptor, typed direct
+binding, and exact connection-scoped observation capability, and returns a typed consumer binding
+plus an optional connection-owned resource. The context exposes no journal, mutable runtime state,
+topology mutation, socket, or container details. The sole unchecked conversion is confined to the
+private contract-and-connection-validated routing boundary.
 
 Provider fan-out preparation is atomic: the runtime prepares every route before publishing any
 targeted connection as `RUNNING`. A later preparation failure closes prior routes in reverse order,
@@ -100,11 +105,12 @@ replaced with safe metadata containing the failure type, route stage, and struct
 identity. Connection, component, and environment rendering therefore share the same redacted
 details without creating a second history.
 
-`ROUTED` is not `OBSERVED` and records no traffic-observation claim. `ConnectionRouting` enters
-through the protected runtime construction seam rather than the public topology DSL. The
-Testcontainers module uses this seam for the executable JVM gateway, container host exposure, and
-bidirectional TCP proof without adding transport concepts to core. Issue #8 owns the later
-environment-scoped observed gateway policy and `OBSERVED` semantics.
+`ROUTED` is not `OBSERVED`: access to a connection-bound capability records nothing by itself.
+`ConnectionRouting` enters through the protected runtime construction seam rather than the public
+topology DSL. The Testcontainers module uses this seam for the executable JVM gateway, container
+host exposure, and bidirectional TCP proof without adding transport concepts to core. The current
+gateway remains a transparent `transferTo` relay and deliberately does not open sessions, frame TCP
+traffic, or contribute evidence. Issue #8 owns that later observation behavior.
 
 `Environment.start()` starts providers before consumers when a consumer needs the provider's
 runtime binding to materialize its driver. It attaches each runtime to the same component object.
@@ -127,22 +133,29 @@ protocol ordering or causality.
 
 Framework lifecycle, failure, and diagnostic events are created only by the runtime. Interaction,
 checkpoint/barrier, and disruption contributions use closed immutable envelopes owned by core.
-External modules define a typed `EvidenceCodec<T>` for their observation value and contribute it
-through the component-scoped `JournalContributions` sink. Core encodes and copies the value before
-append; the caller-owned value, codec, and returned array are not retained. Decoding is typed,
-schema-checked, and receives another copy, so snapshot access cannot mutate storage.
+External modules define a typed `EvidenceCodec<T>` for their observation value. A route provider
+opens an `InteractionSession` from the `ConnectionObservations` capability bound to its exact
+runtime connection. The session accepts only flow direction, codec, and evidence; it allocates the
+connection-bound `SessionId`, direction-local ordinal, and complete `InteractionRef`.
 
-`DriverContext` does not expose `ScenarioJournal`. Its contribution sink has no operation for
-framework lifecycle, framework failures, or arbitrary diagnostics, and the runtime binds the
-observing component identity instead of trusting a supplied identity. Protocol modules can
-therefore add typed evidence without changing core's sealed `permits` list or adding protocol
-classes to core. The core renderer handles each envelope explicitly and renders only stable
-metadata, schema identity, and encoded size for contributed observations; it never renders the
-payload or calls an arbitrary payload `toString()`.
+Every physical session receives a new connection-local session value. Ordinals begin at one and
+increase independently for `CONSUMER_TO_PROVIDER` and `PROVIDER_TO_CONSUMER` within each session.
+Identity allocation and append are serialized only per session direction. Values from different
+connections, sessions, or directions are not comparable evidence of ordering or causality, and the
+global journal storage sequence remains rendering order only. Explicit causal relations are outside
+this layer.
 
-A component-scoped `DriverContext` resolves only required ports owned by that component.
-`InteractionMetadata` uses `ConnectionId`, and the journal contribution boundary rejects IDs not
-present in the current environment. Drivers cannot obtain the mutable registry or runtime
-connection mutators.
+Core encodes and copies evidence before append; the caller-owned value, codec, and returned array
+are not retained. Decoding is typed, schema-checked, and receives another copy, so snapshot access
+cannot mutate storage. The core renderer handles each envelope explicitly and renders only
+connection, session, flow, ordinal, interaction reference, schema identity, and encoded size; it
+never renders the payload or calls an arbitrary payload `toString()`.
+
+Component and connection contributions are deliberately separate. `DriverContext` does not expose
+`ScenarioJournal`; its `JournalContributions` sink contains only component-owned checkpoint and
+disruption operations and cannot publish traffic. A component-scoped context resolves only
+required ports owned by that component. Route providers receive neither `ScenarioJournal` nor
+runtime connection mutators. All observations still append to the same environment-owned
+`ScenarioJournal`; there is no interaction registry or second evidence store.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.
