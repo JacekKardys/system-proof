@@ -33,12 +33,18 @@ final class RuntimeConnectionRegistry {
         new IdentityHashMap<>();
     private final EnvironmentEventLog eventLog;
     private final ConnectionRouting routing;
+    private final InteractionDecisionCoordinator coordinator;
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
         EnvironmentEventLog eventLog
     ) {
-        this(declarations, eventLog, ConnectionRouting.direct());
+        this(
+            declarations,
+            eventLog,
+            ConnectionRouting.direct(),
+            new ImmediateForwardDecisionCoordinator()
+        );
     }
 
     RuntimeConnectionRegistry(
@@ -46,9 +52,24 @@ final class RuntimeConnectionRegistry {
         EnvironmentEventLog eventLog,
         ConnectionRouting routing
     ) {
+        this(
+            declarations,
+            eventLog,
+            routing,
+            new ImmediateForwardDecisionCoordinator()
+        );
+    }
+
+    RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventLog eventLog,
+        ConnectionRouting routing,
+        InteractionDecisionCoordinator coordinator
+    ) {
         Objects.requireNonNull(declarations, "declarations must not be null");
         this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
         this.routing = Objects.requireNonNull(routing, "routing must not be null");
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
 
         List<RuntimeConnection<?>> materialized = new ArrayList<>(declarations.size());
         Map<ConnectionId, RuntimeConnection<?>> byId = new LinkedHashMap<>();
@@ -310,7 +331,8 @@ final class RuntimeConnectionRegistry {
         return new RuntimeConnection<>(
             declaration,
             routing.select(declaration),
-            new ConnectionObservationPublisher(declaration, eventLog)
+            new ConnectionObservationPublisher(declaration, eventLog),
+            coordinator
         );
     }
 

@@ -58,6 +58,12 @@ final class RuntimeDiagnostics {
                 .append(" protocol=").append(descriptor.protocolId())
                 .append(" scheme=").append(descriptor.protocolScheme())
                 .append(" mode=").append(connection.routingMode())
+                .append(" observationRequirement=").append(
+                    connection.observationRequirement()
+                )
+                .append(" effectiveObservationStatus=").append(
+                    connection.effectiveObservationStatus()
+                )
                 .append(" state=").append(connection.state())
                 .append(" directTargetAvailable=").append(
                     connection.directTargetAvailable()

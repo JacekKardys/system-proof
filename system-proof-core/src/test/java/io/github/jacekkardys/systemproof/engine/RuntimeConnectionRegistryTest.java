@@ -18,7 +18,10 @@ import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
+import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.journal.SessionId;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
@@ -131,6 +134,42 @@ class RuntimeConnectionRegistryTest {
             .snapshot()
             .content())
             .doesNotContain("internal-secret-endpoint", "external-secret-endpoint");
+    }
+
+    @Test
+    void shouldShareOneEnvironmentCoordinatorAcrossAllConnectionRouteContexts() {
+        Client first = new Client("coordinator-first");
+        Client second = new Client("coordinator-second");
+        Server server = new Server();
+        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
+        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        List<InteractionDecisionCoordinator> coordinators = new ArrayList<>();
+        ConnectionRouting routing = ConnectionRouting.routed(
+            API,
+            context -> {
+                coordinators.add(context.coordinator());
+                return ConnectionRoute.routed(context.directTarget());
+            }
+        );
+        RuntimeConnectionRegistry registry = registry(
+            List.of(firstDeclaration, secondDeclaration),
+            new ScenarioJournal(() -> 0L),
+            routing
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("internal", "external"))
+            .build();
+
+        registry.bindTargets(registry.prepareTargets(server, provider));
+
+        assertThat(coordinators).hasSize(2);
+        assertThat(coordinators.get(0)).isSameAs(coordinators.get(1));
+        assertThat(coordinators.getFirst().decide(new InteractionRef(
+            new SessionId(firstDeclaration.id(), 1L),
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            1L
+        ))).isEqualTo(ForwardingDecision.FORWARD);
     }
 
     @Test
@@ -506,7 +545,8 @@ class RuntimeConnectionRegistryTest {
         return new RuntimeConnection<>(
             declaration,
             ConnectionRouting.direct().select(declaration),
-            new ConnectionObservationPublisher(declaration, eventLog)
+            new ConnectionObservationPublisher(declaration, eventLog),
+            interactionRef -> ForwardingDecision.FORWARD
         );
     }
 

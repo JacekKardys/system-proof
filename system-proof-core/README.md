@@ -14,8 +14,12 @@ Public contracts:
 - `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
   runtime materialization per logical connection, without exposing endpoint values.
 - `ConnectionRouting`, `ConnectionRouteProvider<C>`, `ConnectionRouteContext<C>`, and
-  `ConnectionRoute<C>`: typed runtime selection, connection-scoped observation access, and a
-  connection-owned effective endpoint/resource seam without topology proxy DSL.
+  `ConnectionRoute<C>`: typed runtime selection, orthogonal observation policy, connection-scoped
+  observation access, and a connection-owned effective endpoint/resource seam without topology
+  proxy DSL.
+- `ObservationRequirement`, `EffectiveObservationStatus`, `InteractionDecisionCoordinator`, and
+  `ForwardingDecision`: explicit observation intent, immutable effective state, and one
+  environment-scoped decision boundary.
 - `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
@@ -67,9 +71,10 @@ validates the same canonical ID against its structured endpoint metadata.
 The registry materializes each declaration exactly once, rejects duplicate IDs or required-port
 materialization, and indexes by ID, required port, provider, and provided port. A
 `RuntimeConnection<C>` owns its immutable descriptor, `DECLARED -> STARTING -> RUNNING -> STOPPING
--> STOPPED` lifecycle or terminal `FAILED` state, routing mode, one-shot direct
-`EndpointBinding<C>`, and a separate effective consumer binding. State transitions are centrally
-checked. A connection cannot become `RUNNING` until both targets are available.
+-> STOPPED` lifecycle or terminal `FAILED` state, routing mode, observation requirement, effective
+observation status, one-shot direct `EndpointBinding<C>`, and a separate effective consumer
+binding. State transitions are centrally checked. A connection cannot become `RUNNING` until both
+targets are available.
 
 Drivers still publish both internal and external endpoint values as the direct binding.
 `DriverContext.resolve(...)` reaches the required port's runtime connection and returns only the
@@ -77,9 +82,9 @@ internal value of its consumer binding. `ComponentRuntime` has no public binding
 resolution method. It only transfers its published bindings into a non-publicly-constructible,
 engine-owned typed boundary used by `RuntimeConnectionRegistry`. The external direct form is
 retained for JVM gateway routing. Public inspection returns detached immutable snapshots
-containing semantic metadata, state, mode, and separate direct/consumer availability; it never
-returns endpoint values, route implementations, closeable resources, Testcontainers objects, mapped
-ports, aliases, or credentials.
+containing semantic metadata, state, mode, observation requirement, effective observation status,
+and separate direct/consumer availability; it never returns endpoint values, route implementations,
+closeable resources, Testcontainers objects, mapped ports, aliases, or credentials.
 
 `DIRECT` aliases the consumer target to the direct binding and allocates no route resource.
 `ROUTED` selects a typed `ConnectionRouteProvider<C>` using immutable rules keyed by semantic
@@ -87,8 +92,9 @@ ports, aliases, or credentials.
 connection-specific rules take precedence, and unmatched connections remain `DIRECT`. This keeps
 distinct contracts using the same Java class separate. The provider is invoked once per
 `RuntimeConnection`, receives one immutable context containing its stable descriptor, typed direct
-binding, and exact connection-scoped observation capability, and returns a typed consumer binding
-plus an optional connection-owned resource. The context exposes no journal, mutable runtime state,
+binding, `ObservationRequirement`, exact connection-scoped observation capability, and the one
+environment-scoped `InteractionDecisionCoordinator`, and returns a typed consumer binding plus an
+optional connection-owned resource. The context exposes no journal, mutable runtime state,
 topology mutation, socket, or container details. The sole unchecked conversion is confined to the
 private contract-and-connection-validated routing boundary.
 
@@ -106,11 +112,15 @@ identity. Connection, component, and environment rendering therefore share the s
 details without creating a second history.
 
 `ROUTED` is not `OBSERVED`: access to a connection-bound capability records nothing by itself.
-`ConnectionRouting` enters through the protected runtime construction seam rather than the public
-topology DSL. The Testcontainers module uses this seam for the executable JVM gateway, container
-host exposure, and bidirectional TCP proof without adding transport concepts to core. The current
-gateway remains a transparent `transferTo` relay and deliberately does not open sessions, frame TCP
-traffic, or contribute evidence. Issue #8 owns that later observation behavior.
+`ConnectionRouting` keeps `RoutingMode` at `DIRECT | ROUTED` and attaches the separate
+`ObservationRequirement.DISABLED | OPTIONAL | REQUIRED` to a route rule. A route must report a
+compatible `EffectiveObservationStatus`; required observation cannot bind a transparent route.
+Observation is `PENDING` before route preparation and `INACTIVE` after clean shutdown of a formerly
+active route. Snapshots expose this state without exposing transport internals. The environment
+constructs one thread-safe coordinator shared by all route contexts; its current serialized
+decision is `FORWARD`. `ConnectionRouting` enters through the protected runtime construction seam
+rather than the public topology DSL. Protocol framing, buffers, and sockets remain in the
+Testcontainers adapter module.
 
 `Environment.start()` starts providers before consumers when a consumer needs the provider's
 runtime binding to materialize its driver. It attaches each runtime to the same component object.

@@ -3,6 +3,7 @@ package io.github.jacekkardys.systemproof.testcontainers.gateway;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.assertj.core.groups.Tuple.tuple;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
 import static io.github.jacekkardys.systemproof.testcontainers.gateway.TcpEndpointAdapter.endpoint;
@@ -35,8 +36,10 @@ import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.ObservationRequirement;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 import io.github.jacekkardys.systemproof.model.RoutingMode;
@@ -50,6 +53,88 @@ class InteractionGatewayTest {
         contract("command", CommandEndpoint.class);
     private static final Contract<SessionEndpoint> SESSION =
         contract("session", SessionEndpoint.class);
+
+    @Test
+    void shouldExposeActiveRequiredAndUnsupportedOptionalObservationStatuses()
+        throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        Server server = server(new ArrayList<>(), new AtomicInteger());
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        Environment.Builder builder = Environment.environment()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter(
+                    "required-route",
+                    listenerAddresses,
+                    new ArrayList<>()
+                ),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            ObservationRequirement.OPTIONAL,
+            gateway.tcp(sessionAdapter(
+                "optional-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+
+        try {
+            environment.start();
+
+            assertThat(environment.runtimeConnections())
+                .extracting(
+                    snapshot -> snapshot.observationRequirement(),
+                    snapshot -> snapshot.effectiveObservationStatus()
+                )
+                .containsExactly(
+                    tuple(
+                        ObservationRequirement.REQUIRED,
+                        EffectiveObservationStatus.ACTIVE
+                    ),
+                    tuple(
+                        ObservationRequirement.OPTIONAL,
+                        EffectiveObservationStatus.UNSUPPORTED
+                    )
+                );
+
+            try (Socket socket = connect(listenerAddresses.getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.control(
+                        LengthPrefixedProtocolAdapter.UNSUPPORTED_ENCRYPTION
+                    )
+                );
+                socket.getOutputStream().flush();
+                assertPeerClosed(socket);
+            }
+            assertThat(environment.runtimeConnections())
+                .extracting(snapshot -> snapshot.effectiveObservationStatus())
+                .containsExactly(
+                    EffectiveObservationStatus.FAILED,
+                    EffectiveObservationStatus.UNSUPPORTED
+                );
+        } finally {
+            environment.close();
+        }
+        listenerAddresses.forEach(InteractionGatewayTest::assertPortCanBeRebound);
+    }
 
     @Test
     void shouldKeepDistinctTypedRoutesAndLongLivedSessionsConnectionOwned() throws Exception {
@@ -105,6 +190,10 @@ class InteractionGatewayTest {
                 .allSatisfy(snapshot -> {
                     assertThat(snapshot.state()).isEqualTo(ConnectionState.RUNNING);
                     assertThat(snapshot.routingMode()).isEqualTo(RoutingMode.ROUTED);
+                    assertThat(snapshot.observationRequirement())
+                        .isEqualTo(ObservationRequirement.DISABLED);
+                    assertThat(snapshot.effectiveObservationStatus())
+                        .isEqualTo(EffectiveObservationStatus.DISABLED);
                 });
 
             ResolvedRoutes resolved = environment.routes(client);

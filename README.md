@@ -155,42 +155,55 @@ object identity, hash codes, or mapped ports. For example, `client-a[].api` and
 Each environment runtime materializes every logical declaration exactly once as a typed
 `RuntimeConnection<C>`. One environment-owned registry preserves topology declaration order,
 indexes runtime connections by `ConnectionId`, required port, provider, and provided port, and owns
-their lifecycle, routing mode, direct provider target, and effective consumer target. A provider
-still publishes one typed `EndpointBinding<C>`. The runtime retains it as `directTarget`, prepares
-the connection's `consumerTarget`, and commits both only after every connection targeting that
-provider is ready. Consumer resolution follows the required port to its `RuntimeConnection` and
-returns only the consumer target's internal typed endpoint; it never resolves independently through
-the provider runtime. `ComponentRuntime` exposes no public provider-binding lookup; it can only
-transfer published bindings into an engine-owned boundary that external callers cannot construct.
+their lifecycle, routing mode, observation requirement, effective observation status, direct
+provider target, and effective consumer target. A provider still publishes one typed
+`EndpointBinding<C>`. The runtime retains it as `directTarget`, prepares the connection's
+`consumerTarget`, and commits both only after every connection targeting that provider is ready.
+Consumer resolution follows the required port to its `RuntimeConnection` and returns only the
+consumer target's internal typed endpoint; it never resolves independently through the provider
+runtime. `ComponentRuntime` exposes no public provider-binding lookup; it can only transfer
+published bindings into an engine-owned boundary that external callers cannot construct.
 
 The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
 communication and the external test-host endpoint used by JVM gateway routing. Endpoint values
 remain internal because they may contain credentials, aliases, or other secrets.
 `Environment.runtimeConnections()` and `Environment.runtimeConnection(ConnectionId)` expose only
-detached immutable snapshots with semantic metadata, lifecycle state, routing mode, and separate
-direct/consumer target availability.
+detached immutable snapshots with semantic metadata, lifecycle state, routing mode,
+`ObservationRequirement`, `EffectiveObservationStatus`, and separate direct/consumer target
+availability.
 
 `DIRECT` makes the consumer target the direct provider binding and creates no routing resource.
 `ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
 An immutable routing policy can contain multiple rules keyed by semantic `Contract<C>` or a stable
 structured `ConnectionId`; connection-specific rules take precedence and unmatched connections stay
 direct. The provider receives one immutable `ConnectionRouteContext<C>` containing that
-connection's stable descriptor, direct binding, and a traffic-observation capability bound to the
-same materialized `RuntimeConnection`. It then returns the effective binding and an optional
-connection-owned resource. All routes for one provider are prepared before any targeted connection
-becomes `RUNNING`. Partial creation closes already prepared resources in reverse order and retains
-cleanup failures as suppressed. Normal cleanup first makes consumer targets unavailable, then
-closes routes in reverse order, and invalidates direct targets before provider cleanup completes.
-Route failure diagnostics retain only failure type, lifecycle stage, and connection identity; the
-original throwable and suppressed ordering returned to the caller remain unchanged.
+connection's stable descriptor, direct binding, observation requirement, connection-bound
+observation capability, and the one environment-scoped decision coordinator. It then returns the
+effective binding, effective observation-status provider, and an optional connection-owned
+resource. All routes for one provider are prepared before any targeted connection becomes
+`RUNNING`. Partial creation closes already prepared resources in reverse order and retains cleanup
+failures as suppressed. Normal cleanup first makes consumer targets unavailable, then closes routes
+in reverse order, and invalidates direct targets before provider cleanup completes. Route failure
+diagnostics retain only failure type, lifecycle stage, and connection identity; the original
+throwable and suppressed ordering returned to the caller remain unchanged.
 
 `ROUTED` means only that the consumer receives an interposed endpoint; it does not claim that
-traffic was observed. The protected environment runtime seam accepts `ConnectionRouting` without
-adding route or proxy declarations to the topology DSL. The Testcontainers module builds on this
-seam with one test-JVM `InteractionGateway`: each matching `RuntimeConnection` owns its transparent
-TCP listener and typed endpoint adapter, while Testcontainers exposes that listener to consumer
-containers as `host.testcontainers.internal`. The gateway proves transport and lifecycle only;
-it does not yet open observation sessions, frame TCP traffic, or publish protocol evidence.
+traffic was observed. Observation is configured independently as `DISABLED`, `OPTIONAL`, or
+`REQUIRED`. Disabled routes use the simple transparent relay. Optional routes either establish
+`ACTIVE` protocol observation or report `UNSUPPORTED`; a later observation failure is
+`DEGRADED`. Required routes must start `ACTIVE` and fail closed to `FAILED` rather than silently
+relaying undecided bytes. Requested observation is `PENDING` before route preparation, and a
+cleanly stopped formerly active route is `INACTIVE`.
+
+The protected environment runtime seam accepts `ConnectionRouting` without adding route or proxy
+declarations to the topology DSL. The Testcontainers `InteractionGateway` adds protocol framing
+through a neutral adapter SPI. For every physical socket pair it opens exactly one
+`InteractionSession`, two independent directional protocol streams, and two bounded byte buffers.
+Each complete forwarding unit follows `frame -> record -> decide -> forward`: typed evidence is
+copied into the scenario journal, the returned stable `InteractionRef` is passed to the shared
+coordinator, and only `FORWARD` writes the adapter-preserved original bytes. No unit prefix is sent
+before that boundary. Complete coalesced units remain ordered; incomplete units remain buffered
+within explicit frame and aggregate limits.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
@@ -215,6 +228,11 @@ allocates a connection-local `SessionId`, allocates a monotonic ordinal independ
 session direction, creates the complete `InteractionRef`, and returns that reference after append.
 The caller cannot supply a connection, session, ordinal, interaction reference, component, or
 arbitrary event.
+
+The environment owns one thread-safe `InteractionDecisionCoordinator` shared by all route contexts.
+Its current serialized decision is immediate `FORWARD`. This is deliberately only the decision
+boundary: semantic holds, releases, predecessor guards, and causal proof remain outside this
+milestone.
 
 Core invokes the codec synchronously, copies the encoded bytes into a private `EvidenceSnapshot`,
 and retains neither the source value, codec, nor codec-produced array. Typed inspection uses the

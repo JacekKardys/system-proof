@@ -7,6 +7,8 @@ import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.ObservationRequirement;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
 import io.github.jacekkardys.systemproof.model.RoutingMode;
 import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
@@ -21,9 +23,12 @@ public final class RuntimeConnection<C> {
     private final Connection<C> declaration;
     private final ConnectionDescriptor descriptor;
     private final RoutingMode routingMode;
+    private final ObservationRequirement observationRequirement;
     private final ConnectionRouteProvider<C> routeProvider;
     private final ConnectionObservations observations;
+    private final InteractionDecisionCoordinator coordinator;
     private ConnectionState state = ConnectionState.DECLARED;
+    private EffectiveObservationStatus observationStatus;
     private EndpointBinding<C> directTarget;
     private EndpointBinding<C> consumerTarget;
     private ConnectionRoute<C> route;
@@ -32,7 +37,8 @@ public final class RuntimeConnection<C> {
     RuntimeConnection(
         Connection<C> declaration,
         ConnectionRouting.Selection<C> routing,
-        ConnectionObservations observations
+        ConnectionObservations observations,
+        InteractionDecisionCoordinator coordinator
     ) {
         this.declaration = Objects.requireNonNull(
             declaration,
@@ -41,11 +47,16 @@ public final class RuntimeConnection<C> {
         routing = Objects.requireNonNull(routing, "routing must not be null");
         descriptor = ConnectionDescriptor.from(declaration);
         routingMode = routing.mode();
+        observationRequirement = routing.observationRequirement();
         routeProvider = routing.provider();
         this.observations = Objects.requireNonNull(
             observations,
             "observations must not be null"
         );
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
+        observationStatus = observationRequirement == ObservationRequirement.DISABLED
+            ? EffectiveObservationStatus.DISABLED
+            : EffectiveObservationStatus.PENDING;
     }
 
     public Connection<C> declaration() {
@@ -104,6 +115,10 @@ public final class RuntimeConnection<C> {
         return routingMode;
     }
 
+    public ObservationRequirement observationRequirement() {
+        return observationRequirement;
+    }
+
     public synchronized boolean directTargetAvailable() {
         return directTarget != null;
     }
@@ -117,6 +132,8 @@ public final class RuntimeConnection<C> {
             descriptor,
             state,
             routingMode,
+            observationRequirement,
+            currentObservationStatus(),
             directTarget != null,
             consumerTarget != null
         );
@@ -145,7 +162,9 @@ public final class RuntimeConnection<C> {
         ConnectionRoute<C> preparedRoute = Objects.requireNonNull(
             routeProvider.prepare(new ConnectionRouteContext<>(
                 descriptor,
+                observationRequirement,
                 observations,
+                coordinator,
                 target
             )),
             "Route provider returned null for connection '" + id() + "'"
@@ -162,6 +181,7 @@ public final class RuntimeConnection<C> {
             );
         }
         validateTarget(ownership.route().consumerTarget(), "consumerTarget");
+        validateObservationStatus(ownership.route().observationStatus());
         return new PreparedTargets<>(ownership);
     }
 
@@ -179,6 +199,7 @@ public final class RuntimeConnection<C> {
         directTarget = prepared.directTarget();
         consumerTarget = prepared.route().consumerTarget();
         route = prepared.route();
+        observationStatus = route.observationStatus();
         directTargetWasBound = true;
         transition(ConnectionState.RUNNING);
     }
@@ -211,6 +232,7 @@ public final class RuntimeConnection<C> {
             );
         }
         directTarget = null;
+        observationStatus = stoppedObservationStatus();
         route = null;
     }
 
@@ -236,6 +258,9 @@ public final class RuntimeConnection<C> {
         directTarget = null;
         consumerTarget = null;
         route = null;
+        observationStatus = observationRequirement == ObservationRequirement.DISABLED
+            ? EffectiveObservationStatus.DISABLED
+            : EffectiveObservationStatus.FAILED;
         transition(ConnectionState.FAILED);
     }
 
@@ -281,6 +306,54 @@ public final class RuntimeConnection<C> {
         declaration.from().contract().cast(target.internal());
         declaration.from().contract().cast(target.external());
         return target;
+    }
+
+    private EffectiveObservationStatus currentObservationStatus() {
+        if (route != null) {
+            observationStatus = route.observationStatus();
+        }
+        return observationStatus;
+    }
+
+    private void validateObservationStatus(EffectiveObservationStatus effectiveStatus) {
+        Objects.requireNonNull(effectiveStatus, "effectiveStatus must not be null");
+        switch (observationRequirement) {
+            case DISABLED -> {
+                if (effectiveStatus != EffectiveObservationStatus.DISABLED) {
+                    throw new IllegalStateException(
+                        "Connection '" + id()
+                            + "' disabled observation but its route reported " + effectiveStatus
+                    );
+                }
+            }
+            case OPTIONAL -> {
+                if (effectiveStatus != EffectiveObservationStatus.ACTIVE
+                    && effectiveStatus != EffectiveObservationStatus.UNSUPPORTED) {
+                    throw new IllegalStateException(
+                        "Connection '" + id()
+                            + "' optional observation route reported invalid initial status "
+                            + effectiveStatus
+                    );
+                }
+            }
+            case REQUIRED -> {
+                if (effectiveStatus != EffectiveObservationStatus.ACTIVE) {
+                    throw new IllegalStateException(
+                        "Connection '" + id()
+                            + "' requires active observation but its route reported "
+                            + effectiveStatus
+                    );
+                }
+            }
+        }
+    }
+
+    private EffectiveObservationStatus stoppedObservationStatus() {
+        EffectiveObservationStatus effectiveStatus = currentObservationStatus();
+        if (effectiveStatus == EffectiveObservationStatus.ACTIVE) {
+            return EffectiveObservationStatus.INACTIVE;
+        }
+        return effectiveStatus;
     }
 
     private void transition(ConnectionState next) {
