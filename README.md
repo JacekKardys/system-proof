@@ -159,7 +159,8 @@ still publishes one typed `EndpointBinding<C>`. The runtime retains it as `direc
 the connection's `consumerTarget`, and commits both only after every connection targeting that
 provider is ready. Consumer resolution follows the required port to its `RuntimeConnection` and
 returns only the consumer target's internal typed endpoint; it never resolves independently through
-the provider runtime.
+the provider runtime. `ComponentRuntime` exposes no public provider-binding lookup; it can only
+transfer published bindings into an engine-owned boundary that external callers cannot construct.
 
 The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
 communication and the external test-host endpoint needed by later gateway work. Endpoint values
@@ -170,12 +171,16 @@ direct/consumer target availability.
 
 `DIRECT` makes the consumer target the direct provider binding and creates no routing resource.
 `ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
-The provider receives that connection's stable descriptor and direct binding, then returns the
-effective binding and an optional connection-owned resource. All routes for one provider are
+An immutable routing policy can contain multiple rules keyed by semantic `Contract<C>` or a stable
+structured `ConnectionId`; connection-specific rules take precedence and unmatched connections stay
+direct. The provider receives that connection's stable descriptor and direct binding, then returns
+the effective binding and an optional connection-owned resource. All routes for one provider are
 prepared before any targeted connection becomes `RUNNING`. Partial creation closes already prepared
 resources in reverse order and retains cleanup failures as suppressed. Normal cleanup first makes
 consumer targets unavailable, then closes routes in reverse order, and invalidates direct targets
-before provider cleanup completes.
+before provider cleanup completes. Route failure diagnostics retain only failure type, lifecycle
+stage, and connection identity; the original throwable and suppressed ordering returned to the
+caller remain unchanged.
 
 `ROUTED` means only that the consumer receives an interposed endpoint; it does not claim that
 traffic was observed. The protected environment runtime seam accepts `ConnectionRouting` without

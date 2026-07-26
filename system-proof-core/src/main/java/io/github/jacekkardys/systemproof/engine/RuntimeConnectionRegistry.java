@@ -18,6 +18,7 @@ import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.RoutingMode;
 import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
 
 /** One environment-owned materialization of the immutable topology connection declarations. */
@@ -135,14 +136,22 @@ final class RuntimeConnectionRegistry {
     ) {
         Objects.requireNonNull(provider, "provider must not be null");
         Objects.requireNonNull(runtime, "runtime must not be null");
+        RuntimeEndpointBindings endpointBindings = new RuntimeEndpointBindings();
+        runtime.publishBindingsTo(endpointBindings);
         List<RuntimeConnection.PreparedTargets<?>> prepared = new ArrayList<>();
-        try {
-            for (RuntimeConnection<?> connection : targeting(provider)) {
-                prepared.add(prepareTargets(connection, runtime));
+        for (RuntimeConnection<?> connection : targeting(provider)) {
+            try {
+                prepared.add(prepareTargets(connection, endpointBindings));
+            } catch (RuntimeException | Error failure) {
+                if (connection.routingMode() == RoutingMode.ROUTED) {
+                    eventLog.protectRoutePreparationFailure(
+                        connection.declaration(),
+                        failure
+                    );
+                }
+                rollbackPreparedRoutes(prepared, failure);
+                throw failure;
             }
-        } catch (RuntimeException | Error failure) {
-            rollbackPreparedRoutes(prepared, failure);
-            throw failure;
         }
         return List.copyOf(prepared);
     }
@@ -307,17 +316,17 @@ final class RuntimeConnectionRegistry {
 
     private static RuntimeConnection.PreparedTargets<?> prepareTargets(
         RuntimeConnection<?> connection,
-        ComponentRuntime<?> runtime
+        RuntimeEndpointBindings endpointBindings
     ) {
-        return prepareTyped(connection, runtime);
+        return prepareTyped(connection, endpointBindings);
     }
 
     private static <C> RuntimeConnection.PreparedTargets<C> prepareTyped(
         RuntimeConnection<C> connection,
-        ComponentRuntime<?> runtime
+        RuntimeEndpointBindings endpointBindings
     ) {
         connection.validateCanBindDirectTarget();
-        EndpointBinding<C> target = runtime.binding(connection.declaration().to());
+        EndpointBinding<C> target = endpointBindings.binding(connection.declaration().to());
         return connection.prepareTargets(target);
     }
 
@@ -364,6 +373,10 @@ final class RuntimeConnectionRegistry {
                 targets.closeRoute();
             } catch (Exception | Error cleanupFailure) {
                 startupFailure.addSuppressed(cleanupFailure);
+                eventLog.protectRouteCleanupFailure(
+                    targets.connection().declaration(),
+                    cleanupFailure
+                );
                 eventLog.connectionCleanupFailure(
                     targets.connection().declaration(),
                     cleanupFailure
@@ -383,6 +396,10 @@ final class RuntimeConnectionRegistry {
             try {
                 connection.closeRoute();
             } catch (Exception | Error cleanupFailure) {
+                eventLog.protectRouteCleanupFailure(
+                    connection.declaration(),
+                    cleanupFailure
+                );
                 connection.fail();
                 recordLifecycle(connection);
                 eventLog.connectionCleanupFailure(

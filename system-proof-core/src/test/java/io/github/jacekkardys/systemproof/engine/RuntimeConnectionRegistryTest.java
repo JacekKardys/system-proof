@@ -216,7 +216,7 @@ class RuntimeConnectionRegistryTest {
         List<String> receivedDirectTargets = new ArrayList<>();
         List<ConnectionId> cleanupOrder = new ArrayList<>();
         ConnectionRouting routing = ConnectionRouting.routed(
-            String.class,
+            API,
             (descriptor, directTarget) -> {
                 receivedDirectTargets.add(directTarget.internal());
                 String routeEndpoint = "route-secret-" + descriptor.sourceComponentId();
@@ -317,7 +317,7 @@ class RuntimeConnectionRegistryTest {
         AtomicInteger preparations = new AtomicInteger();
         List<ConnectionId> cleanupOrder = new ArrayList<>();
         ConnectionRouting routing = ConnectionRouting.routed(
-            String.class,
+            API,
             (descriptor, directTarget) -> {
                 if (preparations.incrementAndGet() == 3) {
                     throw startupFailure;
@@ -390,7 +390,7 @@ class RuntimeConnectionRegistryTest {
             List.of(declaration),
             journal,
             ConnectionRouting.routed(
-                String.class,
+                API,
                 (descriptor, directTarget) -> ConnectionRoute.routed(
                     binding("route", "route-external"),
                     () -> {

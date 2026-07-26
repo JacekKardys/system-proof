@@ -3,13 +3,14 @@ package io.github.jacekkardys.systemproof.driver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import io.github.jacekkardys.systemproof.engine.RuntimeEndpointBindings;
 import io.github.jacekkardys.systemproof.model.EndpointBinding;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 
 /** Driver result owned by the environment runtime for one running component. */
 public final class ComponentRuntime<O> implements AutoCloseable {
     private final AutoCloseable resource;
-    private final List<PublishedEndpoint> endpoints;
+    private final List<PublishedEndpoint<?>> endpoints;
     private final O operations;
     private final List<DiagnosticSource> diagnostics;
 
@@ -28,16 +29,15 @@ public final class ComponentRuntime<O> implements AutoCloseable {
         return new Builder<>(() -> {});
     }
 
-    public <T> EndpointBinding<T> binding(ProvidedPort<T> port) {
-        EndpointBinding<?> binding = published(port).binding();
-        return EndpointBinding.binding(
-            port.contract().cast(binding.internal()),
-            port.contract().cast(binding.external())
-        );
-    }
-
-    public <T> T resolve(ProvidedPort<T> port) {
-        return binding(port).internal();
+    /**
+     * Transfers published bindings into an engine-owned access boundary.
+     *
+     * <p>The boundary cannot be constructed outside the runtime engine and exposes no public
+     * endpoint lookup. Component drivers can publish endpoints but cannot retrieve them here.
+     */
+    public void publishBindingsTo(RuntimeEndpointBindings target) {
+        Objects.requireNonNull(target, "target must not be null");
+        endpoints.forEach(endpoint -> endpoint.publishTo(target));
     }
 
     public boolean materializes(ProvidedPort<?> port) {
@@ -59,7 +59,7 @@ public final class ComponentRuntime<O> implements AutoCloseable {
 
     public static final class Builder<O> {
         private final AutoCloseable resource;
-        private final List<PublishedEndpoint> endpoints = new ArrayList<>();
+        private final List<PublishedEndpoint<?>> endpoints = new ArrayList<>();
         private final List<DiagnosticSource> diagnostics = new ArrayList<>();
         private O operations;
 
@@ -77,7 +77,7 @@ public final class ComponentRuntime<O> implements AutoCloseable {
                     "Port '" + port.qualifiedName() + "' was materialized more than once"
                 );
             }
-            endpoints.add(new PublishedEndpoint(port, binding));
+            endpoints.add(new PublishedEndpoint<>(port, binding));
             return this;
         }
 
@@ -96,14 +96,12 @@ public final class ComponentRuntime<O> implements AutoCloseable {
         }
     }
 
-    private PublishedEndpoint published(ProvidedPort<?> port) {
-        return endpoints.stream()
-            .filter(endpoint -> endpoint.port() == port)
-            .findFirst()
-            .orElseThrow(() -> new IllegalStateException(
-                "Runtime did not materialize port '" + port.qualifiedName() + "'"
-            ));
+    private record PublishedEndpoint<T>(
+        ProvidedPort<T> port,
+        EndpointBinding<T> binding
+    ) {
+        private void publishTo(RuntimeEndpointBindings target) {
+            target.publish(port, binding);
+        }
     }
-
-    private record PublishedEndpoint(ProvidedPort<?> port, EndpointBinding<?> binding) {}
 }

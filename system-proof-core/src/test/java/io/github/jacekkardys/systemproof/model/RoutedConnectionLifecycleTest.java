@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
 
@@ -14,6 +15,7 @@ import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.engine.ConnectionRoute;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 
@@ -58,7 +60,7 @@ class RoutedConnectionLifecycleTest {
         Environment environment = new RoutedEnvironment(
             builder,
             ConnectionRouting.routed(
-                ApiEndpoint.class,
+                API,
                 (descriptor, directTarget) -> {
                     assertThat(directTarget.internal().value())
                         .isEqualTo("direct-secret-internal");
@@ -129,9 +131,124 @@ class RoutedConnectionLifecycleTest {
     }
 
     @Test
+    void shouldSanitizeRoutePreparationAndRollbackFailuresWithoutChangingTheThrownFailure() {
+        String directInternal = "direct-internal-preparation-secret";
+        String directExternal = "direct-external-preparation-secret";
+        String routedInternal = "routed-internal-preparation-secret";
+        String routedExternal = "routed-external-preparation-secret";
+        IllegalStateException startupFailure = new IllegalStateException(
+            "route preparation exposed " + directInternal + " " + directExternal
+                + " " + routedInternal
+        );
+        IllegalStateException cleanupFailure = new IllegalStateException(
+            "route rollback exposed " + routedInternal + " " + routedExternal
+        );
+        AtomicInteger preparations = new AtomicInteger();
+        Server server = new Server((component, context) ->
+            ComponentRuntime.<Void>runtime()
+                .provides(
+                    ((Server) component).api,
+                    binding(
+                        new ApiEndpoint(directInternal),
+                        new ApiEndpoint(directExternal)
+                    )
+                )
+                .build()
+        );
+        Client first = new Client("first", (component, context) -> {
+            throw new AssertionError("Consumer should not start");
+        });
+        Client second = new Client("second", (component, context) -> {
+            throw new AssertionError("Consumer should not start");
+        });
+        Environment environment = new RoutedEnvironment(
+            Environment.environment()
+                .components(first, second, server)
+                .connect(first.api, server.api)
+                .connect(second.api, server.api),
+            ConnectionRouting.routed(
+                API,
+                (descriptor, directTarget) -> {
+                    assertThat(directTarget.internal().value()).isEqualTo(directInternal);
+                    assertThat(directTarget.external().value()).isEqualTo(directExternal);
+                    if (preparations.incrementAndGet() == 2) {
+                        throw startupFailure;
+                    }
+                    return ConnectionRoute.routed(
+                        binding(
+                            new ApiEndpoint(routedInternal),
+                            new ApiEndpoint(routedExternal)
+                        ),
+                        () -> {
+                            throw cleanupFailure;
+                        }
+                    );
+                }
+            )
+        );
+        ConnectionId firstId = environment.connections().get(0).id();
+        ConnectionId secondId = environment.connections().get(1).id();
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause()).isSameAs(startupFailure);
+        assertThat(startupFailure.getSuppressed()).containsExactly(cleanupFailure);
+        assertThat(startupFailure).hasMessageContaining(
+            directInternal,
+            directExternal,
+            routedInternal
+        );
+        assertThat(cleanupFailure).hasMessageContaining(routedInternal, routedExternal);
+
+        String preparationContext =
+            "Route preparation failed for connection '" + secondId + "'";
+        String cleanupContext =
+            "Route cleanup failed for connection '" + firstId + "'";
+        assertThat(events(environment, FailureEvent.ConnectionMaterialization.class))
+            .hasSize(2)
+            .allSatisfy(event ->
+                assertThat(event.failure().message()).contains(preparationContext)
+            );
+        assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
+            .singleElement()
+            .satisfies(event -> {
+                assertThat(event.connectionId()).isEqualTo(firstId);
+                assertThat(event.failure().message()).contains(cleanupContext);
+            });
+        assertThat(events(environment, FailureEvent.ComponentStartup.class))
+            .singleElement()
+            .satisfies(event ->
+                assertThat(event.failure().message()).contains(preparationContext)
+            );
+        assertThat(events(environment, FailureEvent.EnvironmentStartup.class))
+            .singleElement()
+            .satisfies(event ->
+                assertThat(event.failure().message()).contains(preparationContext)
+            );
+        assertThat(thrown.diagnostics().content())
+            .contains(preparationContext, cleanupContext)
+            .doesNotContain(
+                directInternal,
+                directExternal,
+                routedInternal,
+                routedExternal
+            );
+    }
+
+    @Test
     void shouldPreserveProviderCleanupAsSuppressedAfterRouteCleanupFails() {
+        String directInternal = "direct-internal-cleanup-secret";
+        String directExternal = "direct-external-cleanup-secret";
+        String routedInternal = "routed-internal-cleanup-secret";
+        String routedExternal = "routed-external-cleanup-secret";
         IllegalStateException routeFailure =
-            new IllegalStateException("route cleanup failed");
+            new IllegalStateException(
+                "route cleanup exposed " + directInternal + " " + directExternal
+                    + " " + routedInternal + " " + routedExternal
+            );
         IllegalStateException providerFailure =
             new IllegalStateException("provider cleanup failed");
         AtomicInteger routeCleanupCalls = new AtomicInteger();
@@ -141,7 +258,10 @@ class RoutedConnectionLifecycleTest {
             })
                 .provides(
                     ((Server) component).api,
-                    binding(new ApiEndpoint("direct"), new ApiEndpoint("direct-external"))
+                    binding(
+                        new ApiEndpoint(directInternal),
+                        new ApiEndpoint(directExternal)
+                    )
                 )
                 .build()
         );
@@ -155,9 +275,12 @@ class RoutedConnectionLifecycleTest {
                 .components(client, server)
                 .connect(client.api, server.api),
             ConnectionRouting.routed(
-                ApiEndpoint.class,
+                API,
                 (descriptor, directTarget) -> ConnectionRoute.routed(
-                    binding(new ApiEndpoint("route"), new ApiEndpoint("route-external")),
+                    binding(
+                        new ApiEndpoint(routedInternal),
+                        new ApiEndpoint(routedExternal)
+                    ),
                     () -> {
                         routeCleanupCalls.incrementAndGet();
                         throw routeFailure;
@@ -169,6 +292,12 @@ class RoutedConnectionLifecycleTest {
 
         assertThatThrownBy(environment::close)
             .isSameAs(routeFailure)
+            .hasMessageContaining(
+                directInternal,
+                directExternal,
+                routedInternal,
+                routedExternal
+            )
             .satisfies(failure ->
                 assertThat(failure.getSuppressed()).containsExactly(providerFailure)
             );
@@ -183,8 +312,28 @@ class RoutedConnectionLifecycleTest {
             });
         assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
             .singleElement()
+            .satisfies(event -> {
+                assertThat(event.connectionId())
+                    .isEqualTo(environment.connections().getFirst().id());
+                assertThat(event.failure().message()).contains(
+                    "Route cleanup failed for connection '"
+                        + environment.connections().getFirst().id() + "'"
+                );
+            });
+        assertThat(events(environment, FailureEvent.ComponentCleanup.class))
+            .singleElement()
             .satisfies(event ->
-                assertThat(event.failure().message()).contains("route cleanup failed")
+                assertThat(event.failure().message()).contains(
+                    "Route cleanup failed for connection '"
+                        + environment.connections().getFirst().id() + "'"
+                )
+            );
+        assertThat(environment.diagnostics().content())
+            .doesNotContain(
+                directInternal,
+                directExternal,
+                routedInternal,
+                routedExternal
             );
     }
 
@@ -230,7 +379,21 @@ class RoutedConnectionLifecycleTest {
         private final RequiredPort<ApiEndpoint> api;
 
         private Client(ComponentDriver<EmptyConfig, String> driver) {
-            super(ComponentId.component(CLIENT), new EmptyConfig(), String.class, driver);
+            this(null, driver);
+        }
+
+        private Client(
+            String qualifier,
+            ComponentDriver<EmptyConfig, String> driver
+        ) {
+            super(
+                qualifier == null
+                    ? ComponentId.component(CLIENT)
+                    : ComponentId.component(CLIENT, qualifier),
+                new EmptyConfig(),
+                String.class,
+                driver
+            );
             api = requiresAtStartup("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
