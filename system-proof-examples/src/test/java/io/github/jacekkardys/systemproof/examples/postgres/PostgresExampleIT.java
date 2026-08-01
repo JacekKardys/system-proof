@@ -2,11 +2,11 @@ package io.github.jacekkardys.systemproof.examples.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jacekkardys.systemproof.junit.EnvironmentTest;
+import io.github.jacekkardys.systemproof.junit.SystemProof;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-@EnvironmentTest(environment = PostgresExampleEnvironment.class)
+@SystemProof(environment = PostgresExampleEnvironment.class)
 @Tag("docker")
 final class PostgresExampleIT {
 

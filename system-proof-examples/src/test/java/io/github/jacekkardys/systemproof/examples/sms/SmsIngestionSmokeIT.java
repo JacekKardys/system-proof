@@ -7,14 +7,14 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.examples.sms.environment.SmsExampleEnvironment;
 import io.github.jacekkardys.systemproof.examples.sms.environment.domain.SmsPersistence;
 import io.github.jacekkardys.systemproof.examples.sms.environment.domain.TestSms;
-import io.github.jacekkardys.systemproof.junit.EnvironmentTest;
+import io.github.jacekkardys.systemproof.junit.SystemProof;
 
 /**
  * Baseline smoke test for end-to-end reachability and persistence.
  *
  * <p>This test does not prove the T1 commit-before-positive-acknowledgement invariant.
  */
-@EnvironmentTest(environment = SmsExampleEnvironment.class)
+@SystemProof(environment = SmsExampleEnvironment.class)
 @Tag("docker")
 @Tag("smoke")
 final class SmsIngestionSmokeIT {

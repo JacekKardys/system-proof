@@ -19,7 +19,7 @@ import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Environment;
 
-class EnvironmentTestExtensionTest {
+class SystemProofTestExtension {
     @Test
     void shouldCreateStartInjectAndCloseTheExactEnvironmentForEveryTest() {
         Recording.reset();
@@ -100,7 +100,7 @@ class EnvironmentTestExtensionTest {
         }
     }
 
-    @EnvironmentTest(environment = RecordingEnvironment.class)
+    @SystemProof(environment = RecordingEnvironment.class)
     static class SuccessfulScenario {
         @Test
         void first(RecordingEnvironment environment) {
@@ -115,7 +115,7 @@ class EnvironmentTestExtensionTest {
         }
     }
 
-    @EnvironmentTest(environment = RecordingEnvironment.class)
+    @SystemProof(environment = RecordingEnvironment.class)
     static class FailingScenario {
         @Test
         void fails(RecordingEnvironment environment) {
@@ -123,7 +123,7 @@ class EnvironmentTestExtensionTest {
         }
     }
 
-    @EnvironmentTest(environment = CleanupFailingEnvironment.class)
+    @SystemProof(environment = CleanupFailingEnvironment.class)
     static class CleanupFailingScenario {
         @Test
         void passes(CleanupFailingEnvironment environment) {
