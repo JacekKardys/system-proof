@@ -6,7 +6,7 @@ import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-@SystemProof(environment = PostgresExampleEnvironment.class)
+@SystemProof(PostgresExampleEnvironment.class)
 @Tag("docker")
 final class PostgresExampleIT {
 

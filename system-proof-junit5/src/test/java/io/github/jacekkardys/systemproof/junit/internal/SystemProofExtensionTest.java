@@ -9,8 +9,12 @@ import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.val;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.platform.engine.TestExecutionResult;
+import org.junit.platform.engine.reporting.ReportEntry;
 import org.junit.platform.testkit.engine.EngineTestKit;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
@@ -116,7 +120,66 @@ class SystemProofExtensionTest {
         assertThat(Recording.diagnosticsFailureCloses).hasValue(1);
     }
 
-    @SystemProof(environment = RecordingEnvironment.class)
+    @Test
+    void shouldInjectTheSameEnvironmentIntoPerTestLifecycleMethods() {
+        Recording.reset();
+
+        val execution = EngineTestKit.engine("junit-jupiter")
+            .selectors(selectClass(LifecycleInjectionScenario.class))
+            .execute();
+
+        execution.testEvents().assertStatistics(statistics -> statistics.started(1).succeeded(1));
+        assertThat(Recording.beforeEachEnvironment.get()).isSameAs(Recording.current.get());
+        assertThat(Recording.testEnvironment.get()).isSameAs(Recording.current.get());
+        assertThat(Recording.afterEachEnvironment.get()).isSameAs(Recording.current.get());
+        assertThat(Recording.closes).hasValue(1);
+    }
+
+    @Test
+    void shouldPublishOptionalScenarioMetadata() {
+        Recording.reset();
+
+        val execution = EngineTestKit.engine("junit-jupiter")
+            .selectors(selectClass(MetadataScenario.class))
+            .execute();
+
+        execution.testEvents().assertStatistics(statistics -> statistics.started(1).succeeded(1));
+        assertThat(execution.containerEvents().started().list())
+            .extracting(event -> event.getTestDescriptor().getDisplayName())
+            .contains("SMS ingestion");
+        val reportEvents = execution.allEvents().reportingEntryPublished().list();
+        assertThat(reportEvents).hasSize(1);
+        val entries = reportEvents.getFirst()
+            .getRequiredPayload(ReportEntry.class)
+            .getKeyValuePairs();
+        assertThat(entries)
+            .hasSize(2)
+            .containsEntry("system-proof.title", "SMS ingestion")
+            .containsEntry("system-proof.description", "Persists one inbound SMS");
+    }
+
+    @Test
+    void shouldRejectAMismatchedLifecycleEnvironmentBeforeInvokingTheMethod() {
+        Recording.reset();
+
+        val execution = EngineTestKit.engine("junit-jupiter")
+            .selectors(selectClass(MismatchedLifecycleScenario.class))
+            .execute();
+
+        execution.testEvents().assertStatistics(statistics -> statistics.started(1).failed(1));
+        val failure = execution.testEvents().failed().list().getFirst()
+            .getRequiredPayload(TestExecutionResult.class)
+            .getThrowable()
+            .orElseThrow();
+        assertThat(failure)
+            .hasMessageContaining("MismatchedLifecycleScenario#setUp")
+            .hasMessageContaining("exact type " + RecordingEnvironment.class.getName())
+            .hasMessageContaining(DiagnosticsFailingEnvironment.class.getName());
+        assertThat(Recording.mismatchedLifecycleInvocations).hasValue(0);
+        assertThat(Recording.closes).hasValue(1);
+    }
+
+    @SystemProof(RecordingEnvironment.class)
     static class SuccessfulScenario {
         @Test
         void first(RecordingEnvironment environment) {
@@ -131,7 +194,7 @@ class SystemProofExtensionTest {
         }
     }
 
-    @SystemProof(environment = RecordingEnvironment.class)
+    @SystemProof(RecordingEnvironment.class)
     static class FailingScenario {
         @Test
         void fails(RecordingEnvironment environment) {
@@ -139,7 +202,7 @@ class SystemProofExtensionTest {
         }
     }
 
-    @SystemProof(environment = CleanupFailingEnvironment.class)
+    @SystemProof(CleanupFailingEnvironment.class)
     static class CleanupFailingScenario {
         @Test
         void passes(CleanupFailingEnvironment environment) {
@@ -147,13 +210,56 @@ class SystemProofExtensionTest {
         }
     }
 
-    @SystemProof(environment = DiagnosticsFailingEnvironment.class)
+    @SystemProof(DiagnosticsFailingEnvironment.class)
     static class DiagnosticsFailingScenario {
         @Test
         void fails(DiagnosticsFailingEnvironment environment) {
             assertThat(environment.isRunning()).isTrue();
             throw new IllegalStateException("test exploded");
         }
+    }
+
+    @SystemProof(RecordingEnvironment.class)
+    static class LifecycleInjectionScenario {
+        @BeforeEach
+        void setUp(RecordingEnvironment environment) {
+            assertThat(environment.isRunning()).isTrue();
+            Recording.beforeEachEnvironment.set(environment);
+        }
+
+        @Test
+        void exercisesBehavior(RecordingEnvironment environment) {
+            assertThat(environment).isSameAs(Recording.beforeEachEnvironment.get());
+            Recording.testEnvironment.set(environment);
+        }
+
+        @AfterEach
+        void tearDown(RecordingEnvironment environment) {
+            assertThat(environment).isSameAs(Recording.testEnvironment.get());
+            assertThat(environment.isRunning()).isTrue();
+            Recording.afterEachEnvironment.set(environment);
+        }
+    }
+
+    @SystemProof(
+        value = RecordingEnvironment.class,
+        title = " SMS ingestion ",
+        description = " Persists one inbound SMS "
+    )
+    static class MetadataScenario {
+        @Test
+        void passes() {}
+    }
+
+    @SystemProof(RecordingEnvironment.class)
+    static class MismatchedLifecycleScenario {
+        @BeforeEach
+        void setUp(DiagnosticsFailingEnvironment environment) {
+            Recording.mismatchedLifecycleInvocations.incrementAndGet();
+        }
+
+        @Test
+        void passes() {}
     }
 
     private static final class RecordingEnvironment extends Environment {
@@ -263,7 +369,14 @@ class SystemProofExtensionTest {
         private static final AtomicInteger closes = new AtomicInteger();
         private static final AtomicInteger diagnosticsCaptures = new AtomicInteger();
         private static final AtomicInteger diagnosticsFailureCloses = new AtomicInteger();
+        private static final AtomicInteger mismatchedLifecycleInvocations = new AtomicInteger();
         private static final AtomicReference<RecordingEnvironment> current = new AtomicReference<>();
+        private static final AtomicReference<RecordingEnvironment> beforeEachEnvironment =
+            new AtomicReference<>();
+        private static final AtomicReference<RecordingEnvironment> testEnvironment =
+            new AtomicReference<>();
+        private static final AtomicReference<RecordingEnvironment> afterEachEnvironment =
+            new AtomicReference<>();
 
         private static RecordingEnvironment create() {
             definitions.incrementAndGet();
@@ -278,7 +391,11 @@ class SystemProofExtensionTest {
             closes.set(0);
             diagnosticsCaptures.set(0);
             diagnosticsFailureCloses.set(0);
+            mismatchedLifecycleInvocations.set(0);
             current.set(null);
+            beforeEachEnvironment.set(null);
+            testEnvironment.set(null);
+            afterEachEnvironment.set(null);
         }
     }
 }

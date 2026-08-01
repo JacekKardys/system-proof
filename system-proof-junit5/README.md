@@ -5,7 +5,7 @@ This module adapts a concrete `Environment` to the standard JUnit 5 per-test lif
 Public API:
 
 - `io.github.jacekkardys.systemproof.junit.annotation.SystemProof`: class-level lifecycle
-  integration and facade selection.
+  integration and facade selection through `@SystemProof(EnvironmentType.class)`.
 - `io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition`: exactly one static
   zero-argument factory on that concrete facade.
 
@@ -21,8 +21,13 @@ For each test method, the System Proof JUnit extensions:
 1. locates and validates the facade definition;
 2. invokes its static factory;
 3. starts exactly the returned object;
-4. injects that same concrete object into a matching test parameter;
+4. injects that same concrete object into matching test, `@BeforeEach`, and `@AfterEach`
+   parameters;
 5. captures retained diagnostics before cleanup when the test fails;
 6. closes it after success or failure and writes the captured failure artifact.
 
 Reflection is confined to this JUnit boundary. The module has no Testcontainers dependency.
+
+`@SystemProof` also accepts optional `title` and `description` values. They are published as
+`system-proof.title` and `system-proof.description` JUnit report entries. A non-blank `title` is
+also used as the test class display name shown in JUnit-compatible IDE test trees.

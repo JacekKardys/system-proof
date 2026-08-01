@@ -36,7 +36,7 @@ Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
 ```java
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 
-@SystemProof(environment = ExampleEnvironment.class)
+@SystemProof(ExampleEnvironment.class)
 final class ExampleIT {
 
     @Test
@@ -51,7 +51,9 @@ final class ExampleIT {
 `@SystemProof` points to a concrete environment facade. That facade declares exactly one
 static, zero-argument `@EnvironmentDefinition` method returning its own type. System Proof validates
 the closed topology before startup, starts dependencies in order, injects the exact returned object,
-and closes partial or complete startup in reverse order.
+supports injection into test, `@BeforeEach`, and `@AfterEach` method parameters, and closes partial
+or complete startup in reverse order. An optional `title` becomes the test class display name;
+`title` and `description` are also published as JUnit report entries.
 
 ## Component declarations
 

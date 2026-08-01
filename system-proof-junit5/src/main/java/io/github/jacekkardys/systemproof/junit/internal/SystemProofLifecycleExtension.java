@@ -13,8 +13,9 @@ import org.junit.platform.commons.support.AnnotationSupport;
 public final class SystemProofLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
 
     private final EnvironmentDefinitionLocator definitionLocator = new EnvironmentDefinitionLocator();
-    private final SystemProofTestParameterValidator parameterValidator =
-        new SystemProofTestParameterValidator();
+    private final SystemProofParameterValidator parameterValidator =
+        new SystemProofParameterValidator();
+    private final SystemProofMetadataReporter metadataReporter = new SystemProofMetadataReporter();
     private final SystemProofDiagnostics diagnostics = new SystemProofDiagnostics();
     private final SystemProofLifecycleFailureAdapter failures =
         new SystemProofLifecycleFailureAdapter();
@@ -22,8 +23,9 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
     @Override
     public void beforeEach(ExtensionContext context) {
         val declaration = findSystemProof(context);
-        val definition = definitionLocator.locate(declaration.environment());
-        parameterValidator.validate(
+        metadataReporter.report(context, declaration);
+        val definition = definitionLocator.locate(declaration.value());
+        parameterValidator.validateConfiguration(
             context.getRequiredTestMethod(),
             definition.environmentType()
         );

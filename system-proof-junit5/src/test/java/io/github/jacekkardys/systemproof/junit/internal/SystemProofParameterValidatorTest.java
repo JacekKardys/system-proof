@@ -4,72 +4,90 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jacekkardys.systemproof.model.Environment;
-import java.lang.reflect.Method;
+import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
+import org.junit.jupiter.api.extension.ParameterResolutionException;
 
-class SystemProofTestParameterValidatorTest {
+class SystemProofParameterValidatorTest {
 
-    private final SystemProofTestParameterValidator validator =
-        new SystemProofTestParameterValidator();
+    private final SystemProofParameterValidator validator =
+        new SystemProofParameterValidator();
 
     @Test
     void shouldAcceptExactlyOneConcreteEnvironmentParameterAndUnrelatedParameters()
         throws Exception {
-        Method testMethod = Scenario.class.getDeclaredMethod(
+        val testMethod = Scenario.class.getDeclaredMethod(
             "valid",
             TestEnvironment.class,
             String.class
         );
 
-        assertThatCode(() -> validator.validate(testMethod, TestEnvironment.class))
+        assertThatCode(() -> validator.validateConfiguration(testMethod, TestEnvironment.class))
             .doesNotThrowAnyException();
     }
 
     @Test
-    void shouldRejectMissingEnvironmentParameter() throws Exception {
-        Method testMethod = Scenario.class.getDeclaredMethod("missing", Environment.class);
+    void shouldAcceptAMethodWithoutAnEnvironmentParameter() throws Exception {
+        val testMethod = Scenario.class.getDeclaredMethod("withoutEnvironment", String.class);
 
-        assertThatThrownBy(() -> validator.validate(testMethod, TestEnvironment.class))
+        assertThatCode(() -> validator.validateConfiguration(testMethod, TestEnvironment.class))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectABroaderEnvironmentParameter() throws Exception {
+        val testMethod = Scenario.class.getDeclaredMethod("broader", Environment.class);
+
+        assertThatThrownBy(() -> validator.validateConfiguration(
+            testMethod,
+            TestEnvironment.class
+        ))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
-                Scenario.class.getName() + "#missing",
-                "exactly one",
-                TestEnvironment.class.getName()
+                Scenario.class.getName() + "#broader",
+                "exact type " + TestEnvironment.class.getName(),
+                Environment.class.getName()
             );
     }
 
     @Test
     void shouldRejectMultipleEnvironmentParameters() throws Exception {
-        Method testMethod = Scenario.class.getDeclaredMethod(
+        val testMethod = Scenario.class.getDeclaredMethod(
             "multiple",
             TestEnvironment.class,
             TestEnvironment.class
         );
 
-        assertThatThrownBy(() -> validator.validate(testMethod, TestEnvironment.class))
+        assertThatThrownBy(() -> validator.validateConfiguration(
+            testMethod,
+            TestEnvironment.class
+        ))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 Scenario.class.getName() + "#multiple",
-                "exactly one",
+                "at most one",
                 TestEnvironment.class.getName()
             );
     }
 
     @Test
     void shouldRejectAnAdditionalAssignableEnvironmentParameter() throws Exception {
-        Method testMethod = Scenario.class.getDeclaredMethod(
+        val testMethod = Scenario.class.getDeclaredMethod(
             "ambiguous",
             TestEnvironment.class,
             Environment.class
         );
 
-        assertThatThrownBy(() -> validator.validate(testMethod, TestEnvironment.class))
-            .isInstanceOf(ExtensionConfigurationException.class)
+        assertThatThrownBy(() -> validator.validateResolution(
+            testMethod,
+            TestEnvironment.class
+        ))
+            .isInstanceOf(ParameterResolutionException.class)
             .hasMessageContaining(
                 Scenario.class.getName() + "#ambiguous",
-                "exactly one",
-                "no other parameter assignable"
+                "at most one",
+                "exact type"
             );
     }
 
@@ -78,7 +96,10 @@ class SystemProofTestParameterValidatorTest {
         void valid(TestEnvironment environment, String unrelated) {}
 
         @SuppressWarnings("unused")
-        void missing(Environment environment) {}
+        void withoutEnvironment(String unrelated) {}
+
+        @SuppressWarnings("unused")
+        void broader(Environment environment) {}
 
         @SuppressWarnings("unused")
         void multiple(TestEnvironment first, TestEnvironment second) {}

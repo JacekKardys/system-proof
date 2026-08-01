@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.junit.internal;
 
 import io.github.jacekkardys.systemproof.model.Environment;
+import java.lang.reflect.Method;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ParameterContext;
@@ -10,10 +11,15 @@ import org.junit.jupiter.api.extension.ParameterResolver;
 /** Internal callback injecting the environment owned by the current JUnit test invocation. */
 public final class SystemProofParameterResolver implements ParameterResolver {
 
+    private final SystemProofParameterValidator parameterValidator =
+        new SystemProofParameterValidator();
+
     @Override
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext context) {
         val environment = SystemProofSharedContext.of(context).getEnvironment();
-        return environment != null && isEnvironmentParameter(parameterContext, environment);
+        return environment != null
+            && parameterContext.getDeclaringExecutable() instanceof Method
+            && Environment.class.isAssignableFrom(parameterContext.getParameter().getType());
     }
 
     @Override
@@ -24,17 +30,11 @@ public final class SystemProofParameterResolver implements ParameterResolver {
             throw new ParameterResolutionException("Environment has not been started");
         }
 
-        if (isEnvironmentParameter(parameterContext, environment)) {
-            return environment;
-        }
-
-        throw new ParameterResolutionException(
-            "Environment " + environment.getClass().getName() + " cannot resolve parameter "
-                + parameterContext.getParameter().getType().getName()
+        val environmentType = environment.getClass().asSubclass(Environment.class);
+        parameterValidator.validateResolution(
+            parameterContext.getDeclaringExecutable(),
+            environmentType
         );
-    }
-
-    private static boolean isEnvironmentParameter(ParameterContext parameterContext, Environment environment) {
-        return parameterContext.getParameter().getType().isInstance(environment);
+        return environment;
     }
 }
