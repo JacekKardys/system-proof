@@ -14,7 +14,11 @@ import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
  *
  * <p>This test does not prove the T1 commit-before-positive-acknowledgement invariant.
  */
-@SystemProof(SmsExampleEnvironment.class)
+@SystemProof(
+    value = SmsExampleEnvironment.class,
+    title = "SMS ingestion smoke test",
+    description = "Verifies end-to-end SMS reachability and raw/outbox persistence"
+)
 @Tag("docker")
 @Tag("smoke")
 final class SmsIngestionSmokeIT {
