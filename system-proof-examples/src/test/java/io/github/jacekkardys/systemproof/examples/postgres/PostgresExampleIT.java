@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.examples.postgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jacekkardys.systemproof.junit.SystemProof;
+import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 

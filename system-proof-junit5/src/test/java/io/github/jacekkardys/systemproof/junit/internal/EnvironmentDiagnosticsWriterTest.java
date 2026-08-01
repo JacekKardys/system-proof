@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit;
+package io.github.jacekkardys.systemproof.junit.internal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

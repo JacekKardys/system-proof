@@ -1,12 +1,14 @@
-package io.github.jacekkardys.systemproof.junit;
+package io.github.jacekkardys.systemproof.junit.internal;
 
+import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
+import io.github.jacekkardys.systemproof.model.Environment;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
-import java.util.List;
 import java.util.stream.Collectors;
-import io.github.jacekkardys.systemproof.model.Environment;
+import lombok.val;
+import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
 /** The only reflection adapter: validates and invokes one environment facade definition. */
 final class EnvironmentDefinitionLocator {
@@ -24,11 +26,11 @@ final class EnvironmentDefinitionLocator {
             );
         }
 
-        List<Method> methods = Arrays.stream(environmentType.getDeclaredMethods())
+        val methods = Arrays.stream(environmentType.getDeclaredMethods())
             .filter(method -> method.isAnnotationPresent(EnvironmentDefinition.class))
             .toList();
         if (methods.size() != 1) {
-            String actual = methods.isEmpty()
+            val actual = methods.isEmpty()
                 ? "none"
                 : methods.stream().map(EnvironmentDefinitionLocator::signature)
                     .sorted().collect(Collectors.joining(", "));
@@ -40,7 +42,7 @@ final class EnvironmentDefinitionLocator {
             );
         }
 
-        Method method = methods.getFirst();
+        val method = methods.getFirst();
         if (!Modifier.isStatic(method.getModifiers())) {
             throw invalid(
                 environmentType,
@@ -83,16 +85,16 @@ final class EnvironmentDefinitionLocator {
         }
     }
 
-    private static IllegalStateException invalid(
+    private static ExtensionConfigurationException invalid(
         Class<?> environmentType,
         Method method,
         String reason,
         String actual
     ) {
-        String location = method == null
+        val location = method == null
             ? environmentType.getName()
             : environmentType.getName() + "#" + method.getName();
-        return new IllegalStateException(
+        return new ExtensionConfigurationException(
             "Invalid environment definition at '" + location + "': " + reason
                 + "; expected=" + EXPECTED + "; actual=" + actual
         );
@@ -108,7 +110,7 @@ final class EnvironmentDefinitionLocator {
     record LocatedDefinition(Method method, Class<? extends Environment> environmentType) {
         Environment invoke() {
             try {
-                Object result = method.invoke(null);
+                val result = method.invoke(null);
                 if (result == null) {
                     throw invalid(
                         method.getDeclaringClass(),
@@ -127,19 +129,19 @@ final class EnvironmentDefinitionLocator {
                 }
                 return environmentType.cast(result);
             } catch (IllegalAccessException exception) {
-                throw new IllegalStateException(
+                throw new ExtensionConfigurationException(
                     "Cannot invoke @EnvironmentDefinition method '" + qualifiedName() + "'",
                     exception
                 );
             } catch (InvocationTargetException exception) {
-                Throwable cause = exception.getCause();
+                val cause = exception.getCause();
                 if (cause instanceof RuntimeException runtime) {
                     throw runtime;
                 }
                 if (cause instanceof Error error) {
                     throw error;
                 }
-                throw new IllegalStateException(
+                throw new ExtensionConfigurationException(
                     "@EnvironmentDefinition method '" + qualifiedName() + "' failed",
                     cause
                 );
