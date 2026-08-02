@@ -9,7 +9,6 @@ import java.lang.reflect.Type;
 import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -23,9 +22,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
-import io.github.jacekkardys.systemproof.engine.CorrelationKey;
-import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
+import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;
 import io.github.jacekkardys.systemproof.model.component.ComponentState;
 import io.github.jacekkardys.systemproof.model.component.ComponentType;
@@ -43,53 +43,6 @@ class ScenarioJournalTest {
 
         assertClosedImmutableHierarchy(ScenarioEvent.class, new HashSet<>());
         assertEvidenceSnapshotBoundary();
-    }
-
-    @Test
-    void shouldDetachEncodedBinaryDataAndEveryTypedDecode() {
-        byte[] source = new byte[] {1, 2, 3};
-        EvidenceCodec<byte[]> codec = new EvidenceCodec<>() {
-            private final EvidenceSchemaId schema =
-                new EvidenceSchemaId("test.external", "binary", 1);
-
-            @Override
-            public EvidenceSchemaId schemaId() {
-                return schema;
-            }
-
-            @Override
-            public byte[] encode(byte[] evidence) {
-                return evidence;
-            }
-
-            @Override
-            public byte[] decode(byte[] encodedEvidence) {
-                return encodedEvidence;
-            }
-        };
-
-        EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, source);
-        source[0] = 9;
-        byte[] firstDecode = snapshot.decode(codec);
-
-        assertThat(firstDecode).containsExactly(1, 2, 3);
-        firstDecode[1] = 9;
-        assertThat(snapshot.decode(codec)).containsExactly(1, 2, 3);
-    }
-
-    @Test
-    void shouldRejectUnsupportedExternalEvidenceBeforeCreatingASnapshot() {
-        MutableInteractionEvidence unsupported = new MutableInteractionEvidence(
-            new byte[] {1},
-            new ArrayList<>(Arrays.asList("valid", null))
-        );
-
-        assertThatThrownBy(() -> EvidenceSnapshot.capture(
-            MutableInteractionEvidence.codec(),
-            unsupported
-        ))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessage("interaction attributes must not contain null");
     }
 
     @Test

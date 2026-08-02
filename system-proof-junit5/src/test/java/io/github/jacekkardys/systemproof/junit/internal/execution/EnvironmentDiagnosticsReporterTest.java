@@ -8,7 +8,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
+import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.io.TempDir;

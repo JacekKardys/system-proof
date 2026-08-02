@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.driver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.engine.RuntimeEndpointBindings;
+import io.github.jacekkardys.systemproof.engine.execution.RuntimeEndpointBindings;
 import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 

@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.junit.internal.extension;
 
-import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
+import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDiagnosticsReporter;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDefinitionResolver;

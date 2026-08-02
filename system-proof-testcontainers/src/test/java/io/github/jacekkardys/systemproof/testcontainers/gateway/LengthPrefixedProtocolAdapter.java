@@ -7,12 +7,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
-import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
-import io.github.jacekkardys.systemproof.engine.CorrelationKey;
-import io.github.jacekkardys.systemproof.engine.CorrelationKeySchema;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
-import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
-import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
+import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
+import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.observation.FlowDirection;
 
 /** Test-only four-byte length-prefixed protocol. */
 final class LengthPrefixedProtocolAdapter

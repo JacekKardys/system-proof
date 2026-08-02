@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
+import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;

@@ -20,12 +20,12 @@ import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
-import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
-import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
@@ -42,9 +42,9 @@ import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
 import io.github.jacekkardys.systemproof.model.logging.LogLevel;
 import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
-import io.github.jacekkardys.systemproof.engine.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.engine.CorrelationKey;
-import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
+import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 /**
  * Appending and textual rendering view over one supplied {@link ScenarioJournal}.

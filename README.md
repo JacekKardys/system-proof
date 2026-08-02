@@ -159,6 +159,24 @@ application code should let `EnvironmentBuilder` perform validation and create i
 `Environment` subclass. It runs once after topology and logging validation and should only invoke
 that facade's constructor.
 
+## Core package boundaries
+
+- `model.*` contains immutable topology, component, endpoint, and runtime snapshots.
+- `routing` contains immutable route selection and the typed route-provider SPI.
+- `observation` contains evidence schemas/snapshots, interaction identity, and restricted traffic
+  observation and forwarding-decision capabilities.
+- `proof` contains proof-subject and correlation contracts and immutable values.
+- `journal` owns append-only storage and journal events; it consumes observation and proof values
+  without defining them.
+- `diagnostics` renders runtime state and journal snapshots without depending on execution
+  implementations.
+- `engine.execution` owns one mutable environment execution. Lifecycle, component bindings,
+  connection materialization, proof indexing, and cleanup collaborators remain co-located so their
+  mutators can stay package-private.
+
+Dependencies point from the stable model and capability packages toward journal/diagnostics and
+then into execution. Journal and diagnostics never depend back on execution implementations.
+
 ## Runtime model
 
 Each `AbstractComponent<C, O>` owns:

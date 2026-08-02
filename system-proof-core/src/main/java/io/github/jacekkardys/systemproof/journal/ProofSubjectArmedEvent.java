@@ -1,8 +1,8 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.engine.CorrelationKey;
-import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
+import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 /**
  * Core-owned fact that a proof subject was armed with one safe key.

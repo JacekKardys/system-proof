@@ -10,8 +10,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
-import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
+import io.github.jacekkardys.systemproof.observation.FlowDirection;
 
 class ProtocolAdapterTest {
     private static final ProtocolLimits LIMITS = new ProtocolLimits(128, 256);

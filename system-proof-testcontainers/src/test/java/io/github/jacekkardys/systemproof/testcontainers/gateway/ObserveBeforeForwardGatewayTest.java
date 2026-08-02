@@ -25,20 +25,20 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.engine.ConnectionObservations;
-import io.github.jacekkardys.systemproof.engine.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.engine.CorrelationContribution;
-import io.github.jacekkardys.systemproof.engine.CorrelationKey;
-import io.github.jacekkardys.systemproof.engine.ForwardingDecision;
-import io.github.jacekkardys.systemproof.engine.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.engine.InteractionSession;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
-import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
-import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.observation.ConnectionObservations;
+import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
+import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
+import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
+import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
+import io.github.jacekkardys.systemproof.observation.InteractionSession;
+import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
-import io.github.jacekkardys.systemproof.journal.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
-import io.github.jacekkardys.systemproof.journal.SessionId;
+import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
@@ -245,7 +245,7 @@ class ObserveBeforeForwardGatewayTest {
         EvidenceCodec<LengthPrefixedProtocolAdapter.FrameEvidence> failingCodec =
             new EvidenceCodec<>() {
                 @Override
-                public io.github.jacekkardys.systemproof.journal.EvidenceSchemaId schemaId() {
+                public io.github.jacekkardys.systemproof.observation.EvidenceSchemaId schemaId() {
                     return LengthPrefixedProtocolAdapter.CODEC.schemaId();
                 }
 

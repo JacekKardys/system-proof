@@ -7,8 +7,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
-import io.github.jacekkardys.systemproof.journal.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 
 /**
  * Intentionally mutable test-only value that models an evidence type owned outside the journal

@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
-import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 
 /**
  * Protocol-neutral framing and typed-evidence SPI.

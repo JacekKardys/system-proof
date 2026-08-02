@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
-import io.github.jacekkardys.systemproof.journal.FlowDirection;
+import io.github.jacekkardys.systemproof.observation.FlowDirection;
 
 /**
  * Protocol state for one physical socket pair.
