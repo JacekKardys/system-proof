@@ -52,10 +52,9 @@ public class EnvironmentTopology {
         List<? extends AbstractComponent<?, ?>> components,
         List<ConnectionRef> connections
     ) {
-        Objects.requireNonNull(components, "components must not be null");
+        List<AbstractComponent<?, ?>> runtimeComponents = copyRuntimeComponents(components);
         Objects.requireNonNull(connections, "connections must not be null");
 
-        List<AbstractComponent<?, ?>> runtimeComponents = List.copyOf(components);
         List<ConnectionRef> connectionSnapshot = List.copyOf(connections);
 
         Map<RequiredPort<?>, ConnectionRef> byRequired = new IdentityHashMap<>();
@@ -104,5 +103,22 @@ public class EnvironmentTopology {
             );
         }
         return connection;
+    }
+
+    private static List<AbstractComponent<?, ?>> copyRuntimeComponents(
+        List<? extends AbstractComponent<?, ?>> components
+    ) {
+        Objects.requireNonNull(components, "components must not be null");
+        for (Object component : components) {
+            Objects.requireNonNull(component, "components must not contain null");
+            if (!(component instanceof AbstractComponent<?, ?>)) {
+                throw new IllegalArgumentException(
+                    "EnvironmentTopology accepts only runtime components extending "
+                        + AbstractComponent.class.getName() + "; unsupported component type='"
+                        + component.getClass().getName() + "'"
+                );
+            }
+        }
+        return List.copyOf(components);
     }
 }
