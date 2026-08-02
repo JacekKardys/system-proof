@@ -2,6 +2,8 @@ package io.github.jacekkardys.systemproof.engine;
 
 import java.util.List;
 import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
@@ -19,6 +21,7 @@ import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 
 /** Owns one environment execution: start, readiness, operations, diagnostics, stop, and cleanup. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 public final class EnvironmentRuntime {
     private final List<AbstractComponent<?, ?>> components;
     private final List<AbstractComponent<?, ?>> startOrder;
@@ -31,72 +34,12 @@ public final class EnvironmentRuntime {
     private final EnvironmentLifecycle lifecycle;
     private DriverServices driverServices;
 
-    public static EnvironmentRuntime of(
-        EnvironmentTopology topology,
-        EnvironmentLogging logging
-    ) {
-        return of(topology, logging, ConnectionRouting.direct());
+    public static EnvironmentRuntime of(EnvironmentTopology topology, EnvironmentLogging logging) {
+        return EnvironmentRuntimeFactory.create(topology, logging);
     }
 
-    public static EnvironmentRuntime of(
-        EnvironmentTopology topology,
-        EnvironmentLogging logging,
-        ConnectionRouting routing
-    ) {
-        topology = Objects.requireNonNull(topology, "topology must not be null");
-        List<AbstractComponent<?, ?>> components = topology.runtimeComponents();
-        List<AbstractComponent<?, ?>> startOrder =
-            ComponentStartPlan.order(components, topology::connectionFrom);
-        logging = Objects.requireNonNull(logging, "logging must not be null");
-        logging.validateAgainst(topology);
-        routing = Objects.requireNonNull(routing, "routing must not be null");
-
-        ScenarioJournal journal = new ScenarioJournal();
-        EnvironmentEventLog eventLog = new EnvironmentEventLog(journal, logging);
-        ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(eventLog);
-        RuntimeConnectionRegistry connections = new RuntimeConnectionRegistry(
-            topology.connections(),
-            eventLog,
-            routing,
-            proofSubjects
-        );
-        RuntimeBindings bindings = new RuntimeBindings(connections);
-        RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, eventLog);
-        EnvironmentLifecycle lifecycle = new EnvironmentLifecycle(components, eventLog);
-
-        return new EnvironmentRuntime(
-            components,
-            startOrder,
-            connections,
-            bindings,
-            journal,
-            eventLog,
-            proofSubjects,
-            diagnostics,
-            lifecycle
-        );
-    }
-
-    private EnvironmentRuntime(
-        List<AbstractComponent<?, ?>> components,
-        List<AbstractComponent<?, ?>> startOrder,
-        RuntimeConnectionRegistry connections,
-        RuntimeBindings bindings,
-        ScenarioJournal journal,
-        EnvironmentEventLog eventLog,
-        ProofSubjectRegistry proofSubjects,
-        RuntimeDiagnostics diagnostics,
-        EnvironmentLifecycle lifecycle
-    ) {
-        this.components = components;
-        this.startOrder = startOrder;
-        this.connections = connections;
-        this.bindings = bindings;
-        this.journal = journal;
-        this.eventLog = eventLog;
-        this.proofSubjects = proofSubjects;
-        this.diagnostics = diagnostics;
-        this.lifecycle = lifecycle;
+    public static EnvironmentRuntime of(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+        return EnvironmentRuntimeFactory.create(topology, logging, routing);
     }
 
     public synchronized void start() {
