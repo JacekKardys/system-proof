@@ -23,7 +23,7 @@ public final class EnvironmentFactory {
     private static void makeAccessible(Method method) {
         if (!method.trySetAccessible()) {
             throw new ExtensionConfigurationException(
-                "Cannot access @EnvironmentDefinition method '" + qualifiedName(method) + "'"
+                "Cannot access @EnvironmentDefinition method '%s'".formatted(qualifiedName(method))
             );
         }
     }
@@ -38,7 +38,7 @@ public final class EnvironmentFactory {
             return environmentType.cast(result);
         } catch (IllegalAccessException exception) {
             throw new ExtensionConfigurationException(
-                "Cannot invoke @EnvironmentDefinition method '" + qualifiedName(method) + "'",
+                "Cannot invoke @EnvironmentDefinition method '%s'".formatted(qualifiedName(method)),
                 exception
             );
         } catch (InvocationTargetException exception) {
