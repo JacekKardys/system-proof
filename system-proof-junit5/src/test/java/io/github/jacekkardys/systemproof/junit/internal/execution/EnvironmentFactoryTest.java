@@ -1,64 +1,69 @@
-package io.github.jacekkardys.systemproof.junit;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.Environment;
 import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
 
-class EnvironmentDefinitionLocatorTest {
-    private final EnvironmentDefinitionLocator locator = new EnvironmentDefinitionLocator();
+class EnvironmentFactoryTest {
+    private final EnvironmentFactory factory = new EnvironmentFactory();
 
     @Test
     void shouldInvokeStaticZeroArgumentDefinitionOnTheEnvironmentFacade() {
         ZeroArguments.invocations = 0;
 
-        assertThat(locator.locate(ZeroArguments.class).invoke())
+        assertThat(factory.create(ZeroArguments.class))
             .isInstanceOf(ZeroArguments.class);
         assertThat(ZeroArguments.invocations).isEqualTo(1);
     }
 
     @Test
     void shouldRejectMissingAndMultipleDefinitionsWithExpectedAndActualSignatures() {
-        assertThatThrownBy(() -> locator.locate(Missing.class))
+        assertThatThrownBy(() -> factory.create(Missing.class))
+            .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Missing.class.getName(), "exactly one", "expected=", "actual=none");
 
-        assertThatThrownBy(() -> locator.locate(Multiple.class))
+        assertThatThrownBy(() -> factory.create(Multiple.class))
+            .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Multiple.class.getName(), "first()", "second()", "expected=", "actual=");
     }
 
     @Test
     void shouldRejectInvalidDefinitionSignaturesAndEnvironmentTypes() {
-        assertThatThrownBy(() -> locator.locate(InstanceMethod.class))
+        assertThatThrownBy(() -> factory.create(InstanceMethod.class))
+            .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 InstanceMethod.class.getName() + "#define",
                 "static method"
             );
-        assertThatThrownBy(() -> locator.locate(Parameterized.class))
+        assertThatThrownBy(() -> factory.create(Parameterized.class))
             .hasMessageContaining(
                 Parameterized.class.getName() + "#define",
                 "must not declare parameters",
                 EnvironmentConfiguration.class.getName()
             );
-        assertThatThrownBy(() -> locator.locate(WrongReturn.class))
+        assertThatThrownBy(() -> factory.create(WrongReturn.class))
             .hasMessageContaining(
                 WrongReturn.class.getName() + "#define",
                 "return type must match",
                 WrongReturn.class.getName()
             );
-        assertThatThrownBy(() -> locator.locate(BaseReturn.class))
+        assertThatThrownBy(() -> factory.create(BaseReturn.class))
             .hasMessageContaining(
                 BaseReturn.class.getName() + "#define",
                 "return type must match",
                 BaseReturn.class.getName()
             );
-        assertThatThrownBy(() -> locator.locate(AbstractDefinition.class))
+        assertThatThrownBy(() -> factory.create(AbstractDefinition.class))
             .hasMessageContaining(
                 AbstractDefinition.class.getName(),
                 "environment type must be concrete"
@@ -67,7 +72,8 @@ class EnvironmentDefinitionLocatorTest {
 
     @Test
     void shouldRejectNullBeforeAnyEnvironmentCanStart() {
-        assertThatThrownBy(() -> locator.locate(NullReturn.class).invoke())
+        assertThatThrownBy(() -> factory.create(NullReturn.class))
+            .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 NullReturn.class.getName() + "#define",
                 "returned null",

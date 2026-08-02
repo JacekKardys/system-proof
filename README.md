@@ -18,7 +18,7 @@ system-proof-examples/fixtures
 ```
 
 - `system-proof-core`: typed components, ports, connections, lifecycle, logging, and diagnostics.
-- `system-proof-junit5`: `@EnvironmentTest`, `@EnvironmentDefinition`, environment injection, and
+- `system-proof-junit5`: `@SystemProof`, `@EnvironmentDefinition`, environment injection, and
   failure artifacts.
 - `system-proof-testcontainers`: container-backed drivers, runtime port bindings, and test-JVM
   interaction gateway routes.
@@ -34,10 +34,15 @@ Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
 ## Minimal test
 
 ```java
-@EnvironmentTest(environment = ExampleEnvironment.class)
+import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
+
 final class ExampleIT {
 
-    @Test
+    @SystemProof(
+        value = ExampleEnvironment.class,
+        title = "Stores and reads one value",
+        description = "Exercises the database through the running example environment"
+    )
     void exercisesBehavior(ExampleEnvironment environment) {
         environment.database().insert("value");
 
@@ -46,10 +51,13 @@ final class ExampleIT {
 }
 ```
 
-`@EnvironmentTest` points to a concrete environment facade. That facade declares exactly one
-static, zero-argument `@EnvironmentDefinition` method returning its own type. System Proof validates
-the closed topology before startup, starts dependencies in order, injects the exact returned object,
-and closes partial or complete startup in reverse order.
+The method-level `@SystemProof` declaration is the JUnit test and points to a concrete environment
+facade, so no separate `@Test` annotation is required. That facade declares exactly one static,
+zero-argument `@EnvironmentDefinition` method returning its own type. System Proof validates the
+closed topology before startup, starts dependencies in order, injects the exact returned object,
+supports injection into the test, `@BeforeEach`, and `@AfterEach` method parameters, and closes
+partial or complete startup in reverse order. An optional `title` becomes the test display name;
+`title` and `description` are also published as JUnit report entries.
 
 ## Component declarations
 

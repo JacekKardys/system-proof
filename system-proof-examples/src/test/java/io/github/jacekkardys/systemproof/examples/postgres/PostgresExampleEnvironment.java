@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.examples.postgres;
 
-import io.github.jacekkardys.systemproof.junit.EnvironmentDefinition;
+import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.Environment;
 
 final class PostgresExampleEnvironment extends Environment {
