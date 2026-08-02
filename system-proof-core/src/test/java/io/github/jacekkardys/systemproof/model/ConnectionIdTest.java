@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 
 class ConnectionIdTest {
@@ -80,7 +81,7 @@ class ConnectionIdTest {
         assertThat(ConnectionId.of(qualifiedConnection.id().toString()))
             .isEqualTo(qualifiedConnection.id());
 
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(unqualified, qualified, provider)
             .connect(unqualified.api, provider.api)
             .connect(qualified.api, provider.api)
@@ -205,7 +206,7 @@ class ConnectionIdTest {
         Client client = new Client();
         Server server = new Server();
         ConnectionId expected = ConnectionId.between(client.first, server.shared);
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.first, server.shared)
             .connect(client.second, server.shared)
@@ -218,7 +219,7 @@ class ConnectionIdTest {
 
         Client duplicateClient = new Client();
         Server duplicateServer = new Server();
-        assertThatThrownBy(() -> Environment.environment()
+        assertThatThrownBy(() -> new EnvironmentBuilder()
             .components(duplicateClient, duplicateServer)
             .connect(duplicateClient.first, duplicateServer.shared)
             .connect(duplicateClient.first, duplicateServer.shared)

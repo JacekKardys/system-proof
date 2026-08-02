@@ -6,6 +6,7 @@ import static io.github.jacekkardys.systemproof.api.EnvironmentLogging.logs;
 import static io.github.jacekkardys.systemproof.model.Contract.contract;
 
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 
 class EnvironmentTest {
@@ -21,7 +22,7 @@ class EnvironmentTest {
         Client client = new Client();
         Server server = new Server(null, API);
 
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .build();
@@ -41,7 +42,7 @@ class EnvironmentTest {
         Server first = new Server("first", API);
         Server second = new Server("second", API);
 
-        assertThatThrownBy(() -> Environment.environment().components(client, first).build())
+        assertThatThrownBy(() -> new EnvironmentBuilder().components(client, first).build())
             .hasMessageContaining(
                 "required port [component='client'",
                 "localName='api'",
@@ -52,7 +53,7 @@ class EnvironmentTest {
             )
             .hasMessageContaining("is not connected");
 
-        assertThatThrownBy(() -> Environment.environment()
+        assertThatThrownBy(() -> new EnvironmentBuilder()
             .components(client, first, second)
             .connect(client.api, first.api)
             .connect(client.api, second.api)
@@ -73,7 +74,7 @@ class EnvironmentTest {
         Client client = new Client();
         Server server = new Server(null, contract("different-api", Api.class));
 
-        assertThatThrownBy(() -> Environment.environment()
+        assertThatThrownBy(() -> new EnvironmentBuilder()
             .components(client, server)
             .connect((RequiredPort) client.api, (ProvidedPort) server.api))
             .isInstanceOf(IllegalArgumentException.class)
@@ -98,7 +99,7 @@ class EnvironmentTest {
         assertThat(primary.id()).isEqualTo(ComponentId.component(SERVER));
         assertThat(primary.id().toString()).isEqualTo("server");
         assertThat(secondary.id().toString()).isEqualTo("server-secondary");
-        assertThatThrownBy(() -> Environment.environment()
+        assertThatThrownBy(() -> new EnvironmentBuilder()
             .components(primary, new Server(null, API))
             .build())
             .hasMessage("Duplicate component ID 'server'");
@@ -114,7 +115,7 @@ class EnvironmentTest {
             .info(server)
             .connectionLevel(client.api, server.api, LogLevel.DEBUG)
             .build();
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .logging(logging)

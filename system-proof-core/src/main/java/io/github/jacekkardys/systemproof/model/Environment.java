@@ -1,11 +1,10 @@
 package io.github.jacekkardys.systemproof.model;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
-import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.EnvironmentRuntime;
 import io.github.jacekkardys.systemproof.engine.ProofSubjects;
@@ -17,31 +16,18 @@ public class Environment implements AutoCloseable {
     private final EnvironmentLogging logging;
     private final EnvironmentRuntime runtime;
 
-    protected Environment(Builder builder) {
-        this(builder, ConnectionRouting.direct());
+    protected Environment(EnvironmentTopology topology, EnvironmentLogging logging) {
+        this(topology, logging, ConnectionRouting.direct());
     }
 
     /**
      * Runtime extension seam for framework-owned connection routing without changing topology DSL.
      */
-    protected Environment(Builder builder, ConnectionRouting routing) {
-        Objects.requireNonNull(builder, "builder must not be null");
-        topology = new EnvironmentTopology(builder.components, builder.connections);
-        logging = builder.logging;
-        logging.validateAgainst(this);
-        runtime = new EnvironmentRuntime(
-            topology,
-            logging,
-            Objects.requireNonNull(routing, "routing must not be null")
-        );
-    }
-
-    public static Builder environment() {
-        return environment(EnvironmentConfiguration.system());
-    }
-
-    public static Builder environment(EnvironmentConfiguration configuration) {
-        return new Builder(configuration);
+    protected Environment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+        this.topology = Objects.requireNonNull(topology, "topology must not be null");
+        this.logging = Objects.requireNonNull(logging, "logging must not be null");
+        runtime = new EnvironmentRuntime(this.topology, this.logging,
+            Objects.requireNonNull(routing, "routing must not be null"));
     }
 
     public final List<Component> components() {
@@ -105,9 +91,7 @@ public class Environment implements AutoCloseable {
         return runtime.connectionSnapshot(id);
     }
 
-    protected final <C extends RuntimeConfig, O> O operations(
-        AbstractComponent<C, O> component
-    ) {
+    protected final <C extends RuntimeConfig, O> O operations(AbstractComponent<C, O> component) {
         if (!contains(component)) {
             throw new IllegalArgumentException(
                 "Component '" + component.id() + "' is outside the environment"
@@ -125,95 +109,4 @@ public class Environment implements AutoCloseable {
         runtime.close();
     }
 
-    public static class Builder {
-        private final List<AbstractComponent<?, ?>> components = new ArrayList<>();
-        private final List<ConnectionRef> connections = new ArrayList<>();
-        private final ComponentFactory componentFactory;
-        private EnvironmentLogging logging = EnvironmentLogging.defaults();
-
-        protected Builder() {
-            this(EnvironmentConfiguration.system());
-        }
-
-        protected Builder(EnvironmentConfiguration configuration) {
-            componentFactory = ComponentFactory.from(
-                Objects.requireNonNull(configuration, "configuration must not be null")
-            );
-        }
-
-        public <
-            C extends RuntimeConfig,
-            O,
-            T extends AbstractComponent<C, O>
-        > T component(Class<T> componentClass) {
-            return register(componentFactory.create(componentClass));
-        }
-
-        public <
-            C extends RuntimeConfig,
-            O,
-            T extends AbstractComponent<C, O>
-        > T component(String qualifier, Class<T> componentClass) {
-            return register(componentFactory.create(componentClass, qualifier));
-        }
-
-        public <
-            C extends RuntimeConfig,
-            O,
-            T extends AbstractComponent<C, O>
-        > T component(
-            Class<T> componentClass,
-            C configuration,
-            ComponentDriver<C, O> driver
-        ) {
-            return component(null, componentClass, configuration, driver);
-        }
-
-        public <
-            C extends RuntimeConfig,
-            O,
-            T extends AbstractComponent<C, O>
-        > T component(
-            String qualifier,
-            Class<T> componentClass,
-            C configuration,
-            ComponentDriver<C, O> driver
-        ) {
-            return register(AbstractComponent.component(
-                componentClass,
-                qualifier,
-                configuration,
-                driver
-            ));
-        }
-
-        public Builder components(AbstractComponent<?, ?>... values) {
-            components.addAll(List.of(Objects.requireNonNull(values, "components must not be null")));
-            return this;
-        }
-
-        private <T extends AbstractComponent<?, ?>> T register(T component) {
-            components.add(component);
-            return component;
-        }
-
-        public <C> Builder connect(RequiredPort<C> from, ProvidedPort<C> to) {
-            connections.add(Connection.connect(from, to));
-            return this;
-        }
-
-        public Builder logging(EnvironmentLogging.Builder builder) {
-            logging = Objects.requireNonNull(builder, "logging must not be null").build();
-            return this;
-        }
-
-        public Builder logging(EnvironmentLogging configuration) {
-            logging = Objects.requireNonNull(configuration, "logging must not be null");
-            return this;
-        }
-
-        public Environment build() {
-            return new Environment(this);
-        }
-    }
 }

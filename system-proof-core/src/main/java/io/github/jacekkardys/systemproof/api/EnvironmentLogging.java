@@ -9,7 +9,7 @@ import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.Connection;
 import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.RequiredPort;
@@ -60,9 +60,9 @@ public final class EnvironmentLogging {
         );
     }
 
-    public void validateAgainst(Environment environment) {
+    public void validateAgainst(EnvironmentTopology topology) {
         componentLevels.keySet().stream()
-            .filter(component -> !environment.contains(component))
+            .filter(component -> !topology.contains(component))
             .findFirst()
             .ifPresent(component -> {
                 throw new IllegalArgumentException(
@@ -70,7 +70,7 @@ public final class EnvironmentLogging {
                 );
             });
         connectionLevels.keySet().stream()
-            .filter(id -> environment.connections().stream().noneMatch(connection -> connection.id().equals(id)))
+            .filter(id -> topology.connections().stream().noneMatch(connection -> connection.id().equals(id)))
             .findFirst()
             .ifPresent(id -> {
                 throw new IllegalArgumentException(

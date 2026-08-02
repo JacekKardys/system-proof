@@ -8,6 +8,7 @@ import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.DriverConfig;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.SystemComponent;
 
 class ComponentDriverMetadataTest {
@@ -15,7 +16,7 @@ class ComponentDriverMetadataTest {
     @Test
     void shouldRejectATestcontainersDriverBoundToAnotherComponentClass() {
         assertThatThrownBy(() ->
-            Environment.environment().component(DeclaredComponent.class)
+            new EnvironmentBuilder().component(DeclaredComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(

@@ -22,6 +22,7 @@ import io.github.jacekkardys.systemproof.model.Component;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
@@ -45,7 +46,7 @@ class JournalContributionBoundaryTest {
             renderedByDriver.set(context.componentEvents(current));
             return ComponentRuntime.<Void>runtime().build();
         });
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(component)
             .build()
             .start();
@@ -114,7 +115,7 @@ class JournalContributionBoundaryTest {
             (component, context) -> ComponentRuntime.<Void>runtime().build()
         );
         other.set(victim);
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(intruder, victim)
             .build();
 

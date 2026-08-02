@@ -17,47 +17,15 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
 
     protected AbstractComponent() {}
 
-    protected AbstractComponent(
-        ComponentId id,
-        C configuration,
-        Class<O> operationsType,
-        ComponentDriver<C, O> driver
-    ) {
+    protected AbstractComponent(ComponentId id, C configuration, Class<O> operationsType, ComponentDriver<C, O> driver) {
         initialize(id, configuration, operationsType, driver, false);
     }
 
-    public static <
-        C extends RuntimeConfig,
-        O,
-        T extends AbstractComponent<C, O>
-    > T component(
-        Class<T> componentClass,
-        String qualifier,
-        C configuration,
-        ComponentDriver<C, O> driver
-    ) {
-        return ComponentMetadata.<C, O, T>analyze(componentClass)
-            .materialize(qualifier, configuration, driver);
-    }
-
-    public static <
-        C extends RuntimeConfig,
-        O,
-        T extends AbstractComponent<C, O>
-    > T component(
-        Class<T> componentClass,
-        ComponentType componentType,
-        String qualifier,
-        C configuration,
-        ComponentDriver<C, O> driver
-    ) {
-        return ComponentMetadata.materialize(
-            componentClass,
-            componentType,
-            qualifier,
-            configuration,
-            driver
-        );
+    /** Narrow framework hook used after declarative construction has validated all reflected metadata. */
+    protected static <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T completeConstruction(T component,
+        ComponentId id, C configuration, Class<O> operationsType, ComponentDriver<C, O> driver) {
+        component.initialize(id, configuration, operationsType, driver, true);
+        return component;
     }
 
     @Override

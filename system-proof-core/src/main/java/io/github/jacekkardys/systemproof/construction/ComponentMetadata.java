@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.model;
+package io.github.jacekkardys.systemproof.construction;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
@@ -14,14 +14,17 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
 import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
+import io.github.jacekkardys.systemproof.model.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.DriverConfig;
+import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
+import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.SystemComponent;
 
 /** Central validated reflection boundary for declarative component materialization. */
-final class ComponentMetadata<
-    C extends RuntimeConfig,
-    D extends DriverConfig,
-    O,
-    T extends AbstractComponent<C, O>
-> {
+final class ComponentMetadata<C extends RuntimeConfig, D extends DriverConfig, O,
+    T extends AbstractComponent<C, O>> {
     private final Class<T> componentClass;
     private final ComponentType componentType;
     private final Class<C> configurationType;
@@ -31,16 +34,10 @@ final class ComponentMetadata<
     private final Constructor<T> componentConstructor;
     private final Constructor<? extends ComponentDriver<C, O>> driverConstructor;
 
-    private ComponentMetadata(
-        Class<T> componentClass,
-        ComponentType componentType,
-        Class<C> configurationType,
-        Class<D> driverConfigurationType,
-        Class<O> operationsType,
-        Class<? extends ComponentDriver<C, O>> driverClass,
-        Constructor<T> componentConstructor,
-        Constructor<? extends ComponentDriver<C, O>> driverConstructor
-    ) {
+    private ComponentMetadata(Class<T> componentClass, ComponentType componentType, Class<C> configurationType,
+        Class<D> driverConfigurationType, Class<O> operationsType,
+        Class<? extends ComponentDriver<C, O>> driverClass, Constructor<T> componentConstructor,
+        Constructor<? extends ComponentDriver<C, O>> driverConstructor) {
         this.componentClass = componentClass;
         this.componentType = componentType;
         this.configurationType = configurationType;
@@ -51,11 +48,8 @@ final class ComponentMetadata<
         this.driverConstructor = driverConstructor;
     }
 
-    static <
-        C extends RuntimeConfig,
-        O,
-        T extends AbstractComponent<C, O>
-    > ComponentMetadata<C, ?, O, T> analyze(Class<T> componentClass) {
+    static <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> ComponentMetadata<C, ?, O, T> analyze(
+        Class<T> componentClass) {
         Objects.requireNonNull(componentClass, "componentClass must not be null");
         SystemComponent declaration = componentClass.getAnnotation(SystemComponent.class);
         if (declaration == null) {
@@ -160,17 +154,8 @@ final class ComponentMetadata<
         );
     }
 
-    static <
-        C extends RuntimeConfig,
-        O,
-        T extends AbstractComponent<C, O>
-    > T materialize(
-        Class<T> componentClass,
-        ComponentType componentType,
-        String qualifier,
-        C configuration,
-        ComponentDriver<C, O> driver
-    ) {
+    static <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T materialize(Class<T> componentClass,
+        ComponentType componentType, String qualifier, C configuration, ComponentDriver<C, O> driver) {
         Objects.requireNonNull(componentClass, "componentClass must not be null");
         Objects.requireNonNull(componentType, "componentType must not be null");
         Objects.requireNonNull(configuration, "configuration must not be null");
@@ -220,20 +205,10 @@ final class ComponentMetadata<
         return materialize(qualifier, configuration, driver);
     }
 
-    T materialize(
-        String qualifier,
-        C configuration,
-        ComponentDriver<C, O> driver
-    ) {
+    T materialize(String qualifier, C configuration, ComponentDriver<C, O> driver) {
         T component = instantiateComponent();
-        component.initialize(
-            ComponentId.component(componentType, qualifier),
-            configuration,
-            operationsType,
-            driver,
-            true
-        );
-        return component;
+        return ComponentInitializer.initialize(component, ComponentId.component(componentType, qualifier),
+            configuration, operationsType, driver);
     }
 
     private ComponentDriver<C, O> instantiateDriver(D configuration) {
@@ -270,10 +245,7 @@ final class ComponentMetadata<
         }
     }
 
-    private static Type[] componentDriverArguments(
-        Class<?> componentClass,
-        Class<?> driverClass
-    ) {
+    private static Type[] componentDriverArguments(Class<?> componentClass, Class<?> driverClass) {
         Type[] arguments = typeArguments(driverClass, ComponentDriver.class);
         if (arguments != null) {
             return arguments;
@@ -285,10 +257,7 @@ final class ComponentMetadata<
         );
     }
 
-    private static void validateBoundComponent(
-        Class<?> componentClass,
-        Class<?> driverClass
-    ) {
+    private static void validateBoundComponent(Class<?> componentClass, Class<?> driverClass) {
         Type[] arguments = typeArguments(driverClass, ComponentBoundDriver.class);
         if (arguments == null) {
             return;
@@ -316,11 +285,8 @@ final class ComponentMetadata<
         return typeArguments(source, Map.of(), target);
     }
 
-    private static Type[] typeArguments(
-        Type declaration,
-        Map<TypeVariable<?>, Type> inheritedBindings,
-        Class<?> target
-    ) {
+    private static Type[] typeArguments(Type declaration, Map<TypeVariable<?>, Type> inheritedBindings,
+        Class<?> target) {
         if (declaration == null) {
             return null;
         }
@@ -359,10 +325,7 @@ final class ComponentMetadata<
         return typeArguments(rawType.getGenericSuperclass(), bindings, target);
     }
 
-    private static Type resolve(
-        Type type,
-        Map<TypeVariable<?>, Type> bindings
-    ) {
+    private static Type resolve(Type type, Map<TypeVariable<?>, Type> bindings) {
         Type resolved = type;
         while (resolved instanceof TypeVariable<?> variable) {
             Type replacement = bindings.get(variable);
@@ -389,11 +352,8 @@ final class ComponentMetadata<
         }
     }
 
-    private static Constructor<?> driverConstructor(
-        Class<?> componentClass,
-        Class<?> driverClass,
-        Class<?> driverConfigurationType
-    ) {
+    private static Constructor<?> driverConstructor(Class<?> componentClass, Class<?> driverClass,
+        Class<?> driverConfigurationType) {
         if (Modifier.isAbstract(driverClass.getModifiers())) {
             throw invalid(
                 componentClass,
@@ -426,13 +386,8 @@ final class ComponentMetadata<
         return constructor;
     }
 
-    private static void requireSameType(
-        Class<?> componentClass,
-        Class<?> driverClass,
-        String role,
-        Class<?> expected,
-        Type actual
-    ) {
+    private static void requireSameType(Class<?> componentClass, Class<?> driverClass, String role,
+        Class<?> expected, Type actual) {
         if (!(actual instanceof Class<?> actualClass) || actualClass != expected) {
             throw invalid(
                 componentClass,
@@ -442,12 +397,8 @@ final class ComponentMetadata<
         }
     }
 
-    private static Type[] directTypeArguments(
-        Class<?> componentClass,
-        Type declaration,
-        Class<?> expectedRawType,
-        String reason
-    ) {
+    private static Type[] directTypeArguments(Class<?> componentClass, Type declaration, Class<?> expectedRawType,
+        String reason) {
         if (!(declaration instanceof ParameterizedType parameterized)
             || parameterized.getRawType() != expectedRawType) {
             throw invalid(componentClass, reason);
@@ -455,11 +406,7 @@ final class ComponentMetadata<
         return parameterized.getActualTypeArguments();
     }
 
-    private static Class<?> concreteType(
-        Class<?> componentClass,
-        String role,
-        Type type
-    ) {
+    private static Class<?> concreteType(Class<?> componentClass, String role, Type type) {
         if (type instanceof Class<?> concreteType) {
             return concreteType;
         }
@@ -469,31 +416,17 @@ final class ComponentMetadata<
         );
     }
 
-    private static IllegalArgumentException invalid(
-        Class<?> componentClass,
-        String reason
-    ) {
+    private static IllegalArgumentException invalid(Class<?> componentClass, String reason) {
         return new IllegalArgumentException(
             "Component " + componentClass.getName() + " " + reason
         );
     }
 
     @SuppressWarnings("unchecked")
-    private static <
-        C extends RuntimeConfig,
-        D extends DriverConfig,
-        O,
-        T extends AbstractComponent<C, O>
-    > ComponentMetadata<C, D, O, T> typed(
-        Class<T> componentClass,
-        ComponentType componentType,
-        Class<?> configurationType,
-        Class<?> driverConfigurationType,
-        Class<?> operationsType,
-        Class<?> driverClass,
-        Constructor<?> componentConstructor,
-        Constructor<?> driverConstructor
-    ) {
+    private static <C extends RuntimeConfig, D extends DriverConfig, O, T extends AbstractComponent<C, O>>
+        ComponentMetadata<C, D, O, T> typed(Class<T> componentClass, ComponentType componentType,
+        Class<?> configurationType, Class<?> driverConfigurationType, Class<?> operationsType, Class<?> driverClass,
+        Constructor<?> componentConstructor, Constructor<?> driverConstructor) {
         return new ComponentMetadata<>(
             componentClass,
             componentType,

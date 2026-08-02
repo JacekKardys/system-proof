@@ -32,6 +32,7 @@ import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 class ProofSubjectCorrelationTest {
@@ -46,10 +47,10 @@ class ProofSubjectCorrelationTest {
 
     @Test
     void shouldAllocateBeforeTrafficRejectCrossEnvironmentUseAndKeepLookupAfterTeardown() {
-        Environment first = Environment.environment()
+        Environment first = new EnvironmentBuilder()
             .components(new TestComponent("first-environment"))
             .build();
-        Environment second = Environment.environment()
+        Environment second = new EnvironmentBuilder()
             .components(new TestComponent("second-environment"))
             .build();
         CorrelationKey key = key("scenario-operation");

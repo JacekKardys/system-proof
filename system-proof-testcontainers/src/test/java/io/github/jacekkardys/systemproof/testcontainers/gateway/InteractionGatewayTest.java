@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
@@ -49,6 +50,8 @@ import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
@@ -82,7 +85,7 @@ class InteractionGatewayTest {
                 .build();
         });
         InteractionGateway gateway = new InteractionGateway(port -> {});
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -107,7 +110,7 @@ class InteractionGatewayTest {
                 new ArrayList<>()
             ))
         );
-        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
 
         try {
             environment.start();
@@ -165,7 +168,7 @@ class InteractionGatewayTest {
                 .build();
         });
         InteractionGateway gateway = new InteractionGateway(port -> {});
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -189,7 +192,7 @@ class InteractionGatewayTest {
                 new ArrayList<>()
             ))
         );
-        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
         String payload = "production-registry-correlation";
         CorrelationKey key = LengthPrefixedProtocolAdapter.correlationKey(payload);
         ProofSubjectRef subject = environment.proofSubjects().create();
@@ -534,7 +537,7 @@ class InteractionGatewayTest {
         TcpEndpointAdapter<CommandEndpoint> commands,
         TcpEndpointAdapter<SessionEndpoint> sessions
     ) {
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -545,7 +548,7 @@ class InteractionGatewayTest {
             SESSION,
             gateway.tcp(sessions)
         );
-        return new RoutedEnvironment(builder, routing);
+        return routedEnvironment(builder, routing);
     }
 
     private static Server server(
@@ -842,9 +845,15 @@ class InteractionGatewayTest {
         }
     }
 
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder, ConnectionRouting routing) {
+        return builder.build((topology, logging) ->
+            new RoutedEnvironment(topology, logging, routing)
+        );
+    }
+
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
 
         private ResolvedRoutes routes(Client client) {

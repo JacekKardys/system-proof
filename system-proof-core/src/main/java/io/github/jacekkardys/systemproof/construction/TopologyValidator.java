@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.model;
+package io.github.jacekkardys.systemproof.construction;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -8,15 +8,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import io.github.jacekkardys.systemproof.model.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
+import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.PortDirection;
+import io.github.jacekkardys.systemproof.model.PortRef;
+import io.github.jacekkardys.systemproof.model.RequiredPort;
 
-/** Structural topology validation independent of lifecycle planning and execution. */
+/** Structural validation performed while an environment topology is constructed. */
 final class TopologyValidator {
     private TopologyValidator() {}
 
-    static Map<RequiredPort<?>, ConnectionRef> validate(
-        List<AbstractComponent<?, ?>> components,
-        List<ConnectionRef> connections
-    ) {
+    static Map<RequiredPort<?>, ConnectionRef> validate(List<AbstractComponent<?, ?>> components,
+        List<ConnectionRef> connections) {
         if (components.isEmpty()) {
             throw new IllegalArgumentException("Environment must contain at least one component");
         }
@@ -38,27 +43,19 @@ final class TopologyValidator {
             requireRegistered(connection.to(), registeredPorts);
             if (connection.from().direction() != PortDirection.REQUIRED
                 || connection.to().direction() != PortDirection.PROVIDED) {
-                throw new IllegalArgumentException(
-                    "Connection '" + connection.id() + "' must be REQUIRED -> PROVIDED"
-                );
+                throw new IllegalArgumentException("Connection '" + connection.id() + "' must be REQUIRED -> PROVIDED");
             }
             ConnectionRef duplicate = connectionsById.putIfAbsent(connection.id(), connection);
             if (duplicate != null) {
-                throw new IllegalArgumentException(
-                    "Duplicate connection '" + connection.id() + "': existing "
-                        + Connection.describe(duplicate) + "; conflicting "
-                        + Connection.describe(connection)
-                );
+                throw new IllegalArgumentException("Duplicate connection '" + connection.id() + "': existing "
+                    + describe(duplicate) + "; conflicting " + describe(connection));
             }
             RequiredPort<?> required = (RequiredPort<?>) connection.from();
             ConnectionRef existing = connected.putIfAbsent(required, connection);
             if (existing != null) {
-                throw new IllegalArgumentException(
-                    Connection.describePort("required", required)
-                        + " is connected more than once: existing "
-                        + Connection.describe(existing) + "; conflicting "
-                        + Connection.describe(connection)
-                );
+                throw new IllegalArgumentException(describePort("required", required)
+                    + " is connected more than once: existing " + describe(existing)
+                    + "; conflicting " + describe(connection));
             }
         }
 
@@ -69,23 +66,29 @@ final class TopologyValidator {
             .filter(required -> !connected.containsKey(required))
             .findFirst()
             .ifPresent(required -> {
-                throw new IllegalArgumentException(
-                    Connection.describePort("required", required) + " is not connected"
-                );
+                throw new IllegalArgumentException(describePort("required", required) + " is not connected");
             });
         return Collections.unmodifiableMap(connected);
     }
 
+    static String describePort(String role, PortRef port) {
+        return role + " port [component='" + port.owner().id()
+            + "', localName='" + port.name()
+            + "', contractId='" + port.contractId()
+            + "', contractType='" + port.contractType().getName()
+            + "', interaction='" + port.interaction().id()
+            + "', protocol='" + port.protocol().id() + "']";
+    }
+
     private static void requireRegistered(PortRef port, Set<PortRef> registered) {
-        if (!registered.contains(port)
-            || port.owner().ports().stream().noneMatch(candidate -> candidate == port)) {
-            throw new IllegalArgumentException(
-                Connection.describePort(
-                    port.direction() == PortDirection.REQUIRED ? "required" : "provided",
-                    port
-                )
-                    + " is not owned by a component in this environment"
-            );
+        if (!registered.contains(port) || port.owner().ports().stream().noneMatch(candidate -> candidate == port)) {
+            throw new IllegalArgumentException(describePort(
+                port.direction() == PortDirection.REQUIRED ? "required" : "provided", port)
+                + " is not owned by a component in this environment");
         }
+    }
+
+    private static String describe(ConnectionRef connection) {
+        return describePort("required", connection.from()) + " to " + describePort("provided", connection.to());
     }
 }

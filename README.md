@@ -115,29 +115,43 @@ public interface SmscConfig extends ComponentConfig<SmscConfig.Driver> {
 }
 ```
 
+Environment assembly is exposed from `io.github.jacekkardys.systemproof.construction`; runtime
+facades and immutable topology types remain in `model`.
+
 Every configuration method retains its `@ConfigurationSource` and validation annotations. The
 environment builder binds both interfaces from one immutable `EnvironmentConfiguration`, constructs
 the declared driver, creates the component, initializes annotated ports, and registers the component
 only after all steps succeed:
 
 ```java
-Environment.Builder environment = Environment.environment();
-SmscComponent smsc = environment.component(SmscComponent.class);
-JasminComponent jasmin = environment.component(JasminComponent.class);
+EnvironmentBuilder builder = new EnvironmentBuilder();
+SmscComponent smsc = builder.component(SmscComponent.class);
+JasminComponent jasmin = builder.component(JasminComponent.class);
 
-Environment.Builder isolated = Environment.environment(configuration);
+EnvironmentBuilder isolated = new EnvironmentBuilder(configuration);
 SmscComponent primary = isolated.component("primary", SmscComponent.class);
 SmscComponent secondary = isolated.component("secondary", SmscComponent.class);
 ```
 
 The builder returns the exact instance retained by the topology and later runtime. Component classes
-do not know `ComponentFactory` or `Environment.Builder`. Core derives and validates the component
+do not know `ComponentFactory` or `EnvironmentBuilder`. Core derives and validates the component
 configuration, operations, driver configuration, and driver through its generic hierarchy before
 binding values. Runtime technologies that bind to one concrete component declare that target
 through `ComponentBoundDriver<C, O, T>`; Testcontainers uses this explicit SPI. Tests and
-programmatic configuration can use the typed low-level
-`AbstractComponent.component(...)` path with an already prepared configuration and driver; this does
-not add a factory method or constructor DSL to the concrete component.
+programmatic configuration can pass an already prepared configuration and driver to a typed
+`EnvironmentBuilder.component(...)` overload without adding factory methods to component classes.
+
+`EnvironmentBuilder.build()` creates a plain `Environment`. A typed facade is created by supplying
+its constructor after the builder has validated and frozen the topology and logging configuration:
+
+```java
+return builder.build((topology, logging) ->
+    new ExampleEnvironment(topology, logging, smsc, jasmin)
+);
+```
+
+The facade constructor accepts only immutable `EnvironmentTopology` and `EnvironmentLogging`.
+`Environment` and its runtime collaborators do not depend on the mutable construction DSL.
 
 ## Runtime model
 

@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.model;
+package io.github.jacekkardys.systemproof.construction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
 import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
@@ -14,8 +15,21 @@ import io.github.jacekkardys.systemproof.configuration.Literal;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
+import io.github.jacekkardys.systemproof.model.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.Communication;
+import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.DriverConfig;
+import io.github.jacekkardys.systemproof.model.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
+import io.github.jacekkardys.systemproof.model.PortContract;
+import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.SystemComponent;
 
-class DeclarativeComponentApiTest {
+class EnvironmentBuilderTest {
     private static final Map<String, String> VALUES = Map.of(
         "TEST_COMPONENT_NAME", "configured-service",
         "TEST_DRIVER_IMAGE", "service:test"
@@ -28,7 +42,7 @@ class DeclarativeComponentApiTest {
 
     @Test
     void shouldMaterializeAndRegisterAnAnnotatedComponentExactlyOnce() {
-        Environment.Builder builder = Environment.environment(
+        EnvironmentBuilder builder = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         );
 
@@ -49,7 +63,7 @@ class DeclarativeComponentApiTest {
 
     @Test
     void shouldStartTheExactComponentInstanceReturnedByTheBuilder() {
-        Environment.Builder builder = Environment.environment(
+        EnvironmentBuilder builder = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         );
         ValidComponent component = builder.component(ValidComponent.class);
@@ -61,8 +75,18 @@ class DeclarativeComponentApiTest {
     }
 
     @Test
+    void shouldCreateATypedFacadeFromValidatedConstructionResults() {
+        EnvironmentBuilder builder = new EnvironmentBuilder(EnvironmentConfiguration.of(VALUES));
+        ValidComponent component = builder.component(ValidComponent.class);
+
+        TestEnvironment environment = builder.build(TestEnvironment::new);
+
+        assertThat(environment.components()).containsExactly(component);
+    }
+
+    @Test
     void shouldMaterializeTwoQualifiedInstancesOfTheSameComponentType() {
-        Environment.Builder builder = Environment.environment(
+        EnvironmentBuilder builder = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         );
 
@@ -83,7 +107,7 @@ class DeclarativeComponentApiTest {
         ValidConfig configuration = values.bind(ValidConfig.class);
         ComponentDriver<ValidConfig, Void> driver = (component, context) ->
             ComponentRuntime.<Void>runtime(() -> {}).build();
-        Environment.Builder builder = Environment.environment(values);
+        EnvironmentBuilder builder = new EnvironmentBuilder(values);
 
         ValidComponent component = builder.component(
             "manual",
@@ -99,7 +123,7 @@ class DeclarativeComponentApiTest {
 
     @Test
     void shouldResolveDriverTypesFromAnInheritedDeclaration() {
-        InheritedDriverComponent component = Environment.environment(
+        InheritedDriverComponent component = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         ).component(InheritedDriverComponent.class);
 
@@ -109,7 +133,7 @@ class DeclarativeComponentApiTest {
 
     @Test
     void shouldIgnoreAnUnrelatedThirdDriverBaseTypeArgument() {
-        RetryingDriverComponent component = Environment.environment(
+        RetryingDriverComponent component = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         ).component(RetryingDriverComponent.class);
 
@@ -120,7 +144,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectAComponentWithoutSystemComponentMetadata() {
         assertThatThrownBy(() ->
-            Environment.environment().component(MissingAnnotationComponent.class)
+            new EnvironmentBuilder().component(MissingAnnotationComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -132,7 +156,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectABlankComponentType() {
         assertThatThrownBy(() ->
-            Environment.environment().component(BlankTypeComponent.class)
+            new EnvironmentBuilder().component(BlankTypeComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -144,7 +168,7 @@ class DeclarativeComponentApiTest {
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void shouldRejectANonConcreteComponentConfigurationType() {
-        assertThatThrownBy(() -> ComponentMetadata.analyze(GenericComponent.class))
+        assertThatThrownBy(() -> new EnvironmentBuilder().component((Class) GenericComponent.class))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
                 GenericComponent.class.getName(),
@@ -155,7 +179,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectAConfigurationWithoutComponentConfigAssociation() {
         assertThatThrownBy(() ->
-            Environment.environment().component(UnassociatedConfigurationComponent.class)
+            new EnvironmentBuilder().component(UnassociatedConfigurationComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -168,7 +192,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectADriverWithAnotherComponentConfigurationType() {
         assertThatThrownBy(() ->
-            Environment.environment().component(WrongConfigurationComponent.class)
+            new EnvironmentBuilder().component(WrongConfigurationComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -182,7 +206,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectADriverWithAnotherOperationsType() {
         assertThatThrownBy(() ->
-            Environment.environment().component(WrongOperationsComponent.class)
+            new EnvironmentBuilder().component(WrongOperationsComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -196,7 +220,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectAnAmbiguousDriverConfigurationConstructor() {
         assertThatThrownBy(() ->
-            Environment.environment().component(AmbiguousDriverComponent.class)
+            new EnvironmentBuilder().component(AmbiguousDriverComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -210,7 +234,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldRejectAComponentWithoutANoArgumentConstructor() {
         assertThatThrownBy(() ->
-            Environment.environment().component(MissingConstructorComponent.class)
+            new EnvironmentBuilder().component(MissingConstructorComponent.class)
         )
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
@@ -222,7 +246,7 @@ class DeclarativeComponentApiTest {
     @Test
     void shouldReportDriverCreationWithoutLeakingSecrets() {
         assertThatThrownBy(() ->
-            Environment.environment(
+            new EnvironmentBuilder(
                 EnvironmentConfiguration.of(VALUES)
             ).component(FailingDriverComponent.class)
         )
@@ -238,7 +262,7 @@ class DeclarativeComponentApiTest {
 
     @Test
     void shouldNotRegisterAPartiallyMaterializedComponent() {
-        Environment.Builder builder = Environment.environment(
+        EnvironmentBuilder builder = new EnvironmentBuilder(
             EnvironmentConfiguration.of(VALUES)
         );
 
@@ -482,5 +506,11 @@ class DeclarativeComponentApiTest {
         private ProvidedPort<String> output;
 
         private InvalidPortComponent() {}
+    }
+
+    private static final class TestEnvironment extends Environment {
+        private TestEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
     }
 }

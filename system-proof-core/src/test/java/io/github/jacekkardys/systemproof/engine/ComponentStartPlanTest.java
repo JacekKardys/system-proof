@@ -13,6 +13,7 @@ import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
@@ -30,7 +31,7 @@ class ComponentStartPlanTest {
         Node database = new Node("database", false, true, false);
         Node service = new Node("service", true, true, true);
         Node client = new Node("client", true, false, true);
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, service, database)
             .connect(client.required, service.provided)
             .connect(service.required, database.provided)
@@ -50,7 +51,7 @@ class ComponentStartPlanTest {
         Node first = new Node("first", true, true, false);
         Node second = new Node("second", true, true, false);
 
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(first, second)
             .connect(first.required, second.provided)
             .connect(second.required, first.provided)
@@ -68,7 +69,7 @@ class ComponentStartPlanTest {
         Node first = new Node("first", true, true, true);
         Node second = new Node("second", true, true, true);
 
-        assertThatThrownBy(() -> Environment.environment()
+        assertThatThrownBy(() -> new EnvironmentBuilder()
             .components(first, second)
             .connect(first.required, second.provided)
             .connect(second.required, first.provided)

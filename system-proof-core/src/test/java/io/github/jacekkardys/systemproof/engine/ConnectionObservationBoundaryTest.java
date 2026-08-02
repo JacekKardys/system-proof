@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
@@ -42,6 +43,8 @@ import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
@@ -63,7 +66,7 @@ class ConnectionObservationBoundaryTest {
         );
         AtomicReference<InteractionRef> observed = new AtomicReference<>();
         RoutedEnvironment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(client, server)
                 .connect(client.api, server.api),
             context -> {
@@ -144,7 +147,7 @@ class ConnectionObservationBoundaryTest {
         List<InteractionRef> assigned = new CopyOnWriteArrayList<>();
 
         Environment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(first, second, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api),
@@ -277,7 +280,7 @@ class ConnectionObservationBoundaryTest {
         Map<ConnectionId, ConnectionObservations> capabilities =
             new ConcurrentHashMap<>();
         Environment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(first, second, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api),
@@ -591,13 +594,11 @@ class ConnectionObservationBoundaryTest {
         );
     }
 
-    private static RoutedEnvironment routedEnvironment(
-        Environment.Builder builder,
-        ConnectionRouteProvider<ApiEndpoint> provider
-    ) {
-        return new RoutedEnvironment(
-            builder,
-            ConnectionRouting.routed(API, provider)
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder,
+        ConnectionRouteProvider<ApiEndpoint> provider) {
+        ConnectionRouting routing = ConnectionRouting.routed(API, provider);
+        return builder.build((topology, logging) ->
+            new RoutedEnvironment(topology, logging, routing)
         );
     }
 
@@ -719,8 +720,8 @@ class ConnectionObservationBoundaryTest {
     }
 
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
     }
 }

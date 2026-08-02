@@ -18,7 +18,7 @@ import io.github.jacekkardys.systemproof.model.ComponentLifecycleException;
 import io.github.jacekkardys.systemproof.model.ComponentState;
 import io.github.jacekkardys.systemproof.model.ConnectionId;
 import io.github.jacekkardys.systemproof.model.EnvironmentState;
-import io.github.jacekkardys.systemproof.model.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.LogLevel;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;

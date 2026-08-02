@@ -21,6 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
@@ -32,6 +33,8 @@ import io.github.jacekkardys.systemproof.model.ConnectionState;
 import io.github.jacekkardys.systemproof.model.Contract;
 import io.github.jacekkardys.systemproof.model.EndpointAddress;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.InteractionSpec;
 import io.github.jacekkardys.systemproof.model.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.ProvidedPort;
@@ -189,7 +192,7 @@ class InteractionGatewayIT {
                 );
             }
         );
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(consumer, provider)
             .connect(consumer.http, provider.http)
             .connect(consumer.smpp, provider.smpp);
@@ -200,7 +203,9 @@ class InteractionGatewayIT {
             SMPP,
             gateway.tcp(smpp)
         );
-        return new GatewayEnvironment(builder, routing);
+        return builder.build((topology, logging) ->
+            new GatewayEnvironment(topology, logging, routing)
+        );
     }
 
     private static void recordTestHostPort(
@@ -458,8 +463,8 @@ class InteractionGatewayIT {
     }
 
     private static final class GatewayEnvironment extends Environment {
-        private GatewayEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private GatewayEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
 
         private List<String> proof(ConsumerComponent consumer) throws Exception {

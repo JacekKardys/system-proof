@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.engine.ConnectionRoute;
@@ -55,10 +58,10 @@ class RoutedConnectionLifecycleTest {
                 .operations(endpoint.value())
                 .build();
         });
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api);
-        Environment environment = new RoutedEnvironment(
+        Environment environment = routedEnvironment(
             builder,
             ConnectionRouting.routed(
                 API,
@@ -164,8 +167,8 @@ class RoutedConnectionLifecycleTest {
         Client second = new Client("second", (component, context) -> {
             throw new AssertionError("Consumer should not start");
         });
-        Environment environment = new RoutedEnvironment(
-            Environment.environment()
+        Environment environment = routedEnvironment(
+            new EnvironmentBuilder()
                 .components(first, second, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api),
@@ -296,8 +299,8 @@ class RoutedConnectionLifecycleTest {
             consumerStarts.incrementAndGet();
             throw new AssertionError("Consumer should not start");
         });
-        Environment environment = new RoutedEnvironment(
-            Environment.environment()
+        Environment environment = routedEnvironment(
+            new EnvironmentBuilder()
                 .components(first, second, rejected, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api)
@@ -443,8 +446,8 @@ class RoutedConnectionLifecycleTest {
                 .operations(context.resolve(((Client) component).api).value())
                 .build()
         );
-        Environment environment = new RoutedEnvironment(
-            Environment.environment()
+        Environment environment = routedEnvironment(
+            new EnvironmentBuilder()
                 .components(client, server)
                 .connect(client.api, server.api),
             ConnectionRouting.routed(
@@ -589,9 +592,15 @@ class RoutedConnectionLifecycleTest {
         }
     }
 
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder, ConnectionRouting routing) {
+        return builder.build((topology, logging) ->
+            new RoutedEnvironment(topology, logging, routing)
+        );
+    }
+
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
     }
 }

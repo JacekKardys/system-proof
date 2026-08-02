@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.model;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.model.AbstractComponent.component;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -10,6 +9,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 
 class PortDeclarationsTest {
@@ -17,6 +17,11 @@ class PortDeclarationsTest {
     private static final ComponentDriver<EmptyConfig, Void> UNUSED = (component, context) -> {
         throw new AssertionError("Driver should not run");
     };
+
+    private static <T extends AbstractComponent<EmptyConfig, Void>> T component(Class<T> type,
+        ComponentType componentType, String qualifier, EmptyConfig configuration, ComponentDriver<EmptyConfig, Void> driver) {
+        return new EnvironmentBuilder().component(type, componentType, qualifier, configuration, driver);
+    }
 
     @Test
     void shouldConnectDifferentLocalNamesWithTheSameExplicitContract() {

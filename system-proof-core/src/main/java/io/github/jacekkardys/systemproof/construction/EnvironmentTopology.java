@@ -1,22 +1,24 @@
-package io.github.jacekkardys.systemproof.model;
+package io.github.jacekkardys.systemproof.construction;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import io.github.jacekkardys.systemproof.model.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.Component;
+import io.github.jacekkardys.systemproof.model.ConnectionId;
+import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.RequiredPort;
 
-/** Validated immutable declaration of components and their communication. */
+/** Validated immutable result of environment construction. */
 public final class EnvironmentTopology {
     private final List<AbstractComponent<?, ?>> components;
     private final List<ConnectionRef> connections;
     private final Map<RequiredPort<?>, ConnectionRef> connectionsByRequired;
     private final Map<ConnectionId, ConnectionRef> connectionsById;
 
-    EnvironmentTopology(
-        List<AbstractComponent<?, ?>> components,
-        List<ConnectionRef> connections
-    ) {
+    EnvironmentTopology(List<AbstractComponent<?, ?>> components, List<ConnectionRef> connections) {
         this.components = List.copyOf(components);
         this.connections = List.copyOf(connections);
         connectionsByRequired = TopologyValidator.validate(this.components, this.connections);
@@ -40,9 +42,7 @@ public final class EnvironmentTopology {
     public ConnectionRef connectionFrom(RequiredPort<?> port) {
         ConnectionRef connection = connectionsByRequired.get(port);
         if (connection == null) {
-            throw new IllegalArgumentException(
-                Connection.describePort("required", port) + " is not connected"
-            );
+            throw new IllegalArgumentException(TopologyValidator.describePort("required", port) + " is not connected");
         }
         return connection;
     }
@@ -51,9 +51,7 @@ public final class EnvironmentTopology {
         Objects.requireNonNull(id, "id must not be null");
         ConnectionRef connection = connectionsById.get(id);
         if (connection == null) {
-            throw new IllegalArgumentException(
-                "Connection '" + id + "' is outside the environment"
-            );
+            throw new IllegalArgumentException("Connection '" + id + "' is outside the environment");
         }
         return connection;
     }

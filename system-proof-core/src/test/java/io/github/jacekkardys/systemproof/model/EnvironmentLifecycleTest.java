@@ -14,6 +14,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
@@ -51,7 +54,7 @@ class EnvironmentLifecycleTest {
                 .operations(context.resolve(((Client) component).api).value())
                 .build()
         );
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .build();
@@ -159,7 +162,7 @@ class EnvironmentLifecycleTest {
         Client client = new Client((component, context) -> {
             throw new IllegalStateException("client failed");
         });
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .build();
@@ -267,7 +270,7 @@ class EnvironmentLifecycleTest {
                 )
                 .build();
         });
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(server)
             .build()
             .start();
@@ -329,7 +332,7 @@ class EnvironmentLifecycleTest {
                 )
                 .build();
         });
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(server)
             .logging(io.github.jacekkardys.systemproof.api.EnvironmentLogging.logs()
                 .warnByDefault())
@@ -373,7 +376,7 @@ class EnvironmentLifecycleTest {
                     ))
                 .build()
         );
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(component, dependency)
             .connect(component.api, dependency.api)
             .build();
@@ -396,7 +399,7 @@ class EnvironmentLifecycleTest {
                 .operations("unused")
                 .build()
         );
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .build();
@@ -452,7 +455,7 @@ class EnvironmentLifecycleTest {
                 )
                 .build()
         );
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(intruder, victim, server)
             .connect(intruder.api, server.api)
             .connect(victim.api, server.api)
@@ -484,8 +487,8 @@ class EnvironmentLifecycleTest {
             .connectionLevel(unqualified.api, provider.api, LogLevel.DEBUG)
             .connectionLevel(qualified.api, provider.api, LogLevel.TRACE)
             .build();
-        Environment environment = new RoutedEnvironment(
-            Environment.environment()
+        Environment environment = routedEnvironment(
+            new EnvironmentBuilder()
                 .components(unqualified, qualified, provider)
                 .connect(unqualified.api, provider.api)
                 .connect(qualified.api, provider.api)
@@ -567,7 +570,7 @@ class EnvironmentLifecycleTest {
                 )
                 .build()
         );
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.api, server.api)
             .build();
@@ -702,9 +705,15 @@ class EnvironmentLifecycleTest {
 
     }
 
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder, ConnectionRouting routing) {
+        return builder.build((topology, environmentLogging) ->
+            new RoutedEnvironment(topology, environmentLogging, routing)
+        );
+    }
+
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
     }
 }

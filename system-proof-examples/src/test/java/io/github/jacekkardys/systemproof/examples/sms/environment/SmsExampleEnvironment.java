@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.examples.sms.environment;
 
 import lombok.Getter;
 import lombok.experimental.Accessors;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.SmsDatabaseOperations;
@@ -12,6 +13,8 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.UkarimSmscOperations;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 
 /** Complete SMS ingestion topology with operations on the exact component instances started by System Proof. */
 public final class SmsExampleEnvironment extends Environment {
@@ -26,14 +29,9 @@ public final class SmsExampleEnvironment extends Environment {
     private final SmsIngestionComponent ingestion;
     private final PostgresComponent database;
 
-    private SmsExampleEnvironment(
-        Environment.Builder topology,
-        SmscComponent smsc,
-        JasminComponent jasmin,
-        SmsIngestionComponent ingestion,
-        PostgresComponent database
-    ) {
-        super(topology);
+    private SmsExampleEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, SmscComponent smsc,
+        JasminComponent jasmin, SmsIngestionComponent ingestion, PostgresComponent database) {
+        super(topology, logging);
         this.smsc = smsc;
         this.jasmin = jasmin;
         this.ingestion = ingestion;
@@ -42,28 +40,23 @@ public final class SmsExampleEnvironment extends Environment {
 
     @EnvironmentDefinition
     public static SmsExampleEnvironment define() {
-        Environment.Builder environment = Environment.environment();
-        SmscComponent smsc = environment.component(SmscComponent.class);
-        JasminComponent jasmin = environment.component(JasminComponent.class);
-        SmsIngestionComponent ingestion = environment.component(SmsIngestionComponent.class);
-        PostgresComponent database = environment.component(PostgresComponent.class);
-        RabbitMqComponent broker = environment.component(RabbitMqComponent.class);
-        RedisComponent state = environment.component(RedisComponent.class);
+        EnvironmentBuilder builder = new EnvironmentBuilder();
+        SmscComponent smsc = builder.component(SmscComponent.class);
+        JasminComponent jasmin = builder.component(JasminComponent.class);
+        SmsIngestionComponent ingestion = builder.component(SmsIngestionComponent.class);
+        PostgresComponent database = builder.component(PostgresComponent.class);
+        RabbitMqComponent broker = builder.component(RabbitMqComponent.class);
+        RedisComponent state = builder.component(RedisComponent.class);
 
-        environment
+        builder
             .connect(jasmin.smpp(), smsc.smpp())
             .connect(jasmin.sms(), ingestion.sms())
             .connect(ingestion.jdbc(), database.jdbc())
             .connect(jasmin.amqp(), broker.amqp())
             .connect(jasmin.redis(), state.redis());
 
-        return new SmsExampleEnvironment(
-            environment,
-            smsc,
-            jasmin,
-            ingestion,
-            database
-        );
+        return builder.build((topology, logging) ->
+            new SmsExampleEnvironment(topology, logging, smsc, jasmin, ingestion, database));
     }
 
     public UkarimSmscOperations smsc() {

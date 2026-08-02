@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.RuntimeConfig;
@@ -12,7 +13,9 @@ import io.github.jacekkardys.systemproof.model.ComponentId;
 import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 
 class EnvironmentFactoryTest {
     private final EnvironmentFactory factory = new EnvironmentFactory();
@@ -84,42 +87,66 @@ class EnvironmentFactoryTest {
     private static final class ZeroArguments extends EnvironmentFixture {
         private static int invocations;
 
+        private ZeroArguments(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static ZeroArguments define() {
             invocations++;
-            return new ZeroArguments();
+            return fixture(ZeroArguments::new);
         }
     }
 
-    private static final class Missing extends EnvironmentFixture {}
+    private static final class Missing extends EnvironmentFixture {
+        private Missing(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+    }
 
     private static final class Multiple extends EnvironmentFixture {
+        private Multiple(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static Multiple first() {
-            return new Multiple();
+            return fixture(Multiple::new);
         }
 
         @EnvironmentDefinition
         private static Multiple second() {
-            return new Multiple();
+            return fixture(Multiple::new);
         }
     }
 
     private static final class InstanceMethod extends EnvironmentFixture {
+        private InstanceMethod(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private InstanceMethod define() {
-            return new InstanceMethod();
+            return fixture(InstanceMethod::new);
         }
     }
 
     private static final class Parameterized extends EnvironmentFixture {
+        private Parameterized(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static Parameterized define(EnvironmentConfiguration ignored) {
-            return new Parameterized();
+            return fixture(Parameterized::new);
         }
     }
 
     private static final class WrongReturn extends EnvironmentFixture {
+        private WrongReturn(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static String define() {
             return "wrong";
@@ -127,13 +154,21 @@ class EnvironmentFactoryTest {
     }
 
     private static final class BaseReturn extends EnvironmentFixture {
+        private BaseReturn(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static Environment define() {
-            return new BaseReturn();
+            return fixture(BaseReturn::new);
         }
     }
 
     private abstract static class AbstractDefinition extends EnvironmentFixture {
+        private AbstractDefinition(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static AbstractDefinition define() {
             return null;
@@ -141,6 +176,10 @@ class EnvironmentFactoryTest {
     }
 
     private static final class NullReturn extends EnvironmentFixture {
+        private NullReturn(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
         @EnvironmentDefinition
         private static NullReturn define() {
             return null;
@@ -148,9 +187,15 @@ class EnvironmentFactoryTest {
     }
 
     private abstract static class EnvironmentFixture extends Environment {
-        private EnvironmentFixture() {
-            super(Environment.environment().components(new DummyComponent()));
+        private EnvironmentFixture(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
+    }
+
+    private static <E extends EnvironmentFixture> E fixture(EnvironmentBuilder.EnvironmentCreator<E> creator) {
+        return new EnvironmentBuilder()
+            .components(new DummyComponent())
+            .build(creator);
     }
 
     private record EmptyConfig() implements RuntimeConfig {}

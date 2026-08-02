@@ -1,13 +1,24 @@
-package io.github.jacekkardys.systemproof.model;
+package io.github.jacekkardys.systemproof.construction;
 
+import static io.github.jacekkardys.systemproof.model.Contract.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
 
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
+import io.github.jacekkardys.systemproof.model.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.Connection;
+import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.Contract;
+import io.github.jacekkardys.systemproof.model.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.RuntimeConfig;
 
 class EnvironmentTopologyTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
@@ -22,9 +33,7 @@ class EnvironmentTopologyTest {
         Client client = new Client();
         Server server = new Server("server");
         List<AbstractComponent<?, ?>> components = new ArrayList<>(List.of(client, server));
-        List<ConnectionRef> connections = new ArrayList<>(List.of(
-            Connection.connect(client.api, server.api)
-        ));
+        List<ConnectionRef> connections = new ArrayList<>(List.of(Connection.connect(client.api, server.api)));
 
         EnvironmentTopology topology = new EnvironmentTopology(components, connections);
         components.clear();
@@ -41,10 +50,8 @@ class EnvironmentTopologyTest {
         Server declared = new Server("declared");
         Server outside = new Server("outside");
 
-        assertThatThrownBy(() -> TopologyValidator.validate(
-            List.of(client, declared),
-            List.of(Connection.connect(client.api, outside.api))
-        ))
+        assertThatThrownBy(() -> TopologyValidator.validate(List.of(client, declared),
+            List.of(Connection.connect(client.api, outside.api))))
             .hasMessageContaining(
                 "provided port [component='server-outside'",
                 "localName='api'",
@@ -90,7 +97,6 @@ class EnvironmentTopologyTest {
             super(ComponentId.component(CLIENT), new EmptyConfig(), Void.class, UNUSED);
             api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
-
     }
 
     private static final class Server extends AbstractComponent<EmptyConfig, Void> {
@@ -100,6 +106,5 @@ class EnvironmentTopologyTest {
             super(ComponentId.component(SERVER, qualifier), new EmptyConfig(), Void.class, UNUSED);
             api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
-
     }
 }

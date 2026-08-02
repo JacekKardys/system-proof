@@ -3,7 +3,9 @@ package io.github.jacekkardys.systemproof.junit.internal.execution;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
 import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
@@ -109,8 +111,8 @@ class EnvironmentParameterValidatorTest {
     }
 
     private static final class TestEnvironment extends Environment {
-        private TestEnvironment() {
-            super(Environment.environment());
+        private TestEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
     }
 }

@@ -5,6 +5,10 @@ This module contains the complete runtime-neutral environment model.
 Public contracts:
 
 - `Environment`: immutable topology, lifecycle, diagnostics, and reverse-order cleanup.
+- `construction.EnvironmentBuilder`: the mutable component, connection, configuration, and logging
+  boundary that creates a validated environment facade.
+- `construction.EnvironmentTopology`: the immutable, readable construction result; only the builder
+  can instantiate it.
 - `Component` and `AbstractComponent<C, O>`: one component identity, typed immutable configuration,
   owned ports, driver, lifecycle state, and optional typed operations.
 - `@SystemComponent` and `ComponentConfig<D>`: declarative component type, driver, flattened
@@ -49,16 +53,26 @@ no-argument constructor, and the unique driver constructor accepting `D`. Testco
 implement this explicit component-bound SPI; unrelated generic base-driver parameters have no
 component-target meaning.
 
-`Environment.environment()` binds from a snapshot of system properties and environment variables.
-`Environment.environment(EnvironmentConfiguration)` accepts an explicit snapshot. Both expose
+`new EnvironmentBuilder()` binds from a snapshot of system properties and environment variables.
+`new EnvironmentBuilder(EnvironmentConfiguration)` accepts an explicit snapshot. Both expose
 `component(ComponentClass.class)` and `component("qualifier", ComponentClass.class)`. Materialization
 binds `C` and `D`, constructs the driver and component, initializes annotated ports, and only then
-adds the exact returned component instance to the builder.
+adds the exact returned component instance to the builder. `Environment` contains no component
+factory, mutable declaration collections, or construction DSL. The builder validates and freezes
+the topology and logging configuration before creating the runtime facade.
 
-The lower-level `AbstractComponent.component(...)` overloads accept an already materialized
+Construction ends at `build(...)`: it returns immutable `EnvironmentTopology` and
+`EnvironmentLogging` results to the selected facade constructor. Runtime execution never retains
+the builder, mutable declaration lists, configuration binder, or component materializer. The
+topology constructor and its structural validator are package-private construction details.
+
+The lower-level `EnvironmentBuilder.component(...)` overloads accept an already materialized
 configuration and `ComponentDriver<C, O>`. The explicit-`ComponentType` overload supports isolated
 tests and programmatically built configurations without adding factory methods or constructor DSLs
 to concrete component classes.
+
+`ComponentFactory` and the reflection-backed `ComponentMetadata` are package-private construction
+implementation details. They are not retained by `Environment` or `EnvironmentRuntime`.
 
 `Connection<C>` is the immutable logical declaration. Its typed `ConnectionId` is derived
 deterministically from both component and local port identities. Each canonical endpoint uses
