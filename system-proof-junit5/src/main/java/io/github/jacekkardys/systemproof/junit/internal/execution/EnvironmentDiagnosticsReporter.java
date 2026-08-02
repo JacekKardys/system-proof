@@ -8,21 +8,23 @@ import java.util.Optional;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
-/** Captures and publishes best-effort diagnostics without replacing the primary failure. */
-public final class SystemProofDiagnostics {
+/** Coordinates best-effort environment diagnostic capture, persistence, and JUnit reporting. */
+public final class EnvironmentDiagnosticsReporter {
 
     private static final ExtensionContext.Namespace NAMESPACE =
-        ExtensionContext.Namespace.create(SystemProofDiagnostics.class);
+        ExtensionContext.Namespace.create(EnvironmentDiagnosticsReporter.class);
     private static final String PENDING_DIAGNOSTICS = "pending-diagnostics";
+    private final EnvironmentDiagnosticsArtifactWriter artifactWriter =
+        new EnvironmentDiagnosticsArtifactWriter();
 
-    public void onEnvironmentStartFailure(
+    public void onStartFailure(
         ExtensionContext context,
         EnvironmentStartException failure
     ) {
         report(context, failure.diagnostics(), failure);
     }
 
-    public void beforeEnvironmentClose(ExtensionContext context, Environment environment) {
+    public void beforeClose(ExtensionContext context, Environment environment) {
         context.getExecutionException().ifPresent(primaryFailure -> {
             val diagnostics = capture(context, environment, primaryFailure);
             if (diagnostics != null) {
@@ -31,7 +33,7 @@ public final class SystemProofDiagnostics {
         });
     }
 
-    public void afterEnvironmentClose(
+    public void afterClose(
         ExtensionContext context,
         Environment environment,
         Optional<Throwable> closeFailure
@@ -69,13 +71,13 @@ public final class SystemProofDiagnostics {
         }
     }
 
-    private static void report(
+    private void report(
         ExtensionContext context,
         EnvironmentDiagnostics diagnostics,
         Throwable primaryFailure
     ) {
         try {
-            val artifact = EnvironmentDiagnosticsWriter.write(
+            val artifact = artifactWriter.write(
                 context.getRequiredTestMethod(),
                 diagnostics
             );
@@ -90,7 +92,7 @@ public final class SystemProofDiagnostics {
         }
     }
 
-    private static void captureAndReport(
+    private void captureAndReport(
         ExtensionContext context,
         Environment environment,
         Throwable primaryFailure

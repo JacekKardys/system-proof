@@ -6,15 +6,13 @@ import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import lombok.experimental.UtilityClass;
 import lombok.val;
 
-/** Persists the rendered environment journal view under the current JUnit scenario. */
-@UtilityClass
-final class EnvironmentDiagnosticsWriter {
+/** Persists rendered environment diagnostics as a scenario artifact. */
+final class EnvironmentDiagnosticsArtifactWriter {
     static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";
 
-    static Path write(Method testMethod, EnvironmentDiagnostics diagnostics) throws IOException {
+    Path write(Method testMethod, EnvironmentDiagnostics diagnostics) throws IOException {
         val root = Path.of(System.getProperty(
             ARTIFACTS_DIRECTORY_PROPERTY,
             "target/system-proof-artifacts"
@@ -22,7 +20,7 @@ final class EnvironmentDiagnosticsWriter {
         return write(root, testMethod, diagnostics);
     }
 
-    static Path write(
+    Path write(
         Path root,
         Method testMethod,
         EnvironmentDiagnostics diagnostics

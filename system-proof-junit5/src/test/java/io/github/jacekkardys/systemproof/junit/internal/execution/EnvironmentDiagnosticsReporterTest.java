@@ -13,15 +13,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.io.TempDir;
 
-class SystemProofDiagnosticsTest {
+class EnvironmentDiagnosticsReporterTest {
 
-    private final SystemProofDiagnostics systemProofDiagnostics = new SystemProofDiagnostics();
+    private final EnvironmentDiagnosticsReporter diagnosticsReporter =
+        new EnvironmentDiagnosticsReporter();
 
     @Test
     void shouldRetainArtifactAndPublicationFailuresAsSuppressed(@TempDir Path directory)
         throws Exception {
         Path blockedRoot = Files.writeString(directory.resolve("blocked-root"), "not a directory");
-        String property = EnvironmentDiagnosticsWriter.ARTIFACTS_DIRECTORY_PROPERTY;
+        String property = EnvironmentDiagnosticsArtifactWriter.ARTIFACTS_DIRECTORY_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, blockedRoot.toString());
         EnvironmentStartException primaryFailure = new EnvironmentStartException(
@@ -31,7 +32,7 @@ class SystemProofDiagnosticsTest {
         IllegalStateException publicationFailure = new IllegalStateException("publication exploded");
 
         try {
-            assertThatCode(() -> systemProofDiagnostics.onEnvironmentStartFailure(
+            assertThatCode(() -> diagnosticsReporter.onStartFailure(
                 failingPublicationContext(publicationFailure),
                 primaryFailure
             )).doesNotThrowAnyException();
@@ -59,7 +60,7 @@ class SystemProofDiagnosticsTest {
             (proxy, method, arguments) -> switch (method.getName()) {
                 case "getRequiredTestMethod" -> testMethod;
                 case "publishReportEntry" -> throw publicationFailure;
-                case "toString" -> "SystemProofDiagnosticsTestContext";
+                case "toString" -> "EnvironmentDiagnosticsReporterTestContext";
                 default -> throw new UnsupportedOperationException(method.getName());
             }
         );

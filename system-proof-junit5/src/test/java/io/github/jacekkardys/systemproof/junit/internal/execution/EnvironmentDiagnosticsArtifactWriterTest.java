@@ -9,12 +9,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 
-class EnvironmentDiagnosticsWriterTest {
+class EnvironmentDiagnosticsArtifactWriterTest {
+    private final EnvironmentDiagnosticsArtifactWriter writer =
+        new EnvironmentDiagnosticsArtifactWriter();
+
     @Test
     void shouldWriteEnvironmentDiagnosticsToAStableScenarioArtifact(@TempDir Path directory) throws Exception {
         Method testMethod = Scenario.class.getDeclaredMethod("shouldRecordDiagnostics");
 
-        Path artifact = EnvironmentDiagnosticsWriter.write(
+        Path artifact = writer.write(
             directory,
             testMethod,
             EnvironmentDiagnostics.diagnostics("component diagnostics")

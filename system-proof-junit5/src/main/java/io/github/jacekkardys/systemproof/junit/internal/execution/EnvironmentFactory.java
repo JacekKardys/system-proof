@@ -10,12 +10,20 @@ import java.util.stream.Collectors;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
-/** The only reflection adapter: validates and invokes one environment facade definition. */
-public final class EnvironmentDefinitionLocator {
+/** Creates an environment facade through its validated {@link EnvironmentDefinition} method. */
+public final class EnvironmentFactory {
     private static final String EXPECTED =
         "@EnvironmentDefinition static <E extends Environment> define()";
 
-    public LocatedDefinition locate(Class<? extends Environment> environmentType) {
+    public <E extends Environment> E create(Class<E> environmentType) {
+        validateEnvironmentType(environmentType);
+        val definition = findDefinition(environmentType);
+        validateDefinition(environmentType, definition);
+        makeAccessible(environmentType, definition);
+        return invoke(environmentType, definition);
+    }
+
+    private static void validateEnvironmentType(Class<? extends Environment> environmentType) {
         if (environmentType == Environment.class
             || Modifier.isAbstract(environmentType.getModifiers())) {
             throw invalid(
@@ -25,14 +33,16 @@ public final class EnvironmentDefinitionLocator {
                 environmentType.getTypeName()
             );
         }
+    }
 
+    private static Method findDefinition(Class<? extends Environment> environmentType) {
         val methods = Arrays.stream(environmentType.getDeclaredMethods())
             .filter(method -> method.isAnnotationPresent(EnvironmentDefinition.class))
             .toList();
         if (methods.size() != 1) {
             val actual = methods.isEmpty()
                 ? "none"
-                : methods.stream().map(EnvironmentDefinitionLocator::signature)
+                : methods.stream().map(EnvironmentFactory::signature)
                     .sorted().collect(Collectors.joining(", "));
             throw invalid(
                 environmentType,
@@ -41,8 +51,13 @@ public final class EnvironmentDefinitionLocator {
                 actual
             );
         }
+        return methods.getFirst();
+    }
 
-        val method = methods.getFirst();
+    private static void validateDefinition(
+        Class<? extends Environment> environmentType,
+        Method method
+    ) {
         if (!Modifier.isStatic(method.getModifiers())) {
             throw invalid(
                 environmentType,
@@ -59,7 +74,20 @@ public final class EnvironmentDefinitionLocator {
                 signature(method)
             );
         }
-        validateReturnType(environmentType, method);
+        if (method.getReturnType() != environmentType) {
+            throw invalid(
+                environmentType,
+                method,
+                "return type must match the declared environment type " + environmentType.getName(),
+                signature(method)
+            );
+        }
+    }
+
+    private static void makeAccessible(
+        Class<? extends Environment> environmentType,
+        Method method
+    ) {
         if (!method.trySetAccessible()) {
             throw invalid(
                 environmentType,
@@ -68,19 +96,39 @@ public final class EnvironmentDefinitionLocator {
                 signature(method)
             );
         }
-        return new LocatedDefinition(method, environmentType);
     }
 
-    private static void validateReturnType(
-        Class<? extends Environment> environmentType,
+    private static <E extends Environment> E invoke(
+        Class<E> environmentType,
         Method method
     ) {
-        if (method.getReturnType() != environmentType) {
-            throw invalid(
-                environmentType,
-                method,
-                "return type must match the declared environment type " + environmentType.getName(),
-                signature(method)
+        try {
+            val result = method.invoke(null);
+            if (result == null) {
+                throw invalid(
+                    environmentType,
+                    method,
+                    "definition returned null",
+                    signature(method)
+                );
+            }
+            return environmentType.cast(result);
+        } catch (IllegalAccessException exception) {
+            throw new ExtensionConfigurationException(
+                "Cannot invoke @EnvironmentDefinition method '" + qualifiedName(method) + "'",
+                exception
+            );
+        } catch (InvocationTargetException exception) {
+            val cause = exception.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new ExtensionConfigurationException(
+                "@EnvironmentDefinition method '" + qualifiedName(method) + "' failed",
+                cause
             );
         }
     }
@@ -107,49 +155,7 @@ public final class EnvironmentDefinitionLocator {
                 .collect(Collectors.joining(", ")) + ")";
     }
 
-    public record LocatedDefinition(Method method, Class<? extends Environment> environmentType) {
-        public Environment invoke() {
-            try {
-                val result = method.invoke(null);
-                if (result == null) {
-                    throw invalid(
-                        method.getDeclaringClass(),
-                        method,
-                        "definition returned null",
-                        signature(method)
-                    );
-                }
-                if (!environmentType.isInstance(result)) {
-                    throw invalid(
-                        method.getDeclaringClass(),
-                        method,
-                        "definition returned " + result.getClass().getName(),
-                        signature(method)
-                    );
-                }
-                return environmentType.cast(result);
-            } catch (IllegalAccessException exception) {
-                throw new ExtensionConfigurationException(
-                    "Cannot invoke @EnvironmentDefinition method '" + qualifiedName() + "'",
-                    exception
-                );
-            } catch (InvocationTargetException exception) {
-                val cause = exception.getCause();
-                if (cause instanceof RuntimeException runtime) {
-                    throw runtime;
-                }
-                if (cause instanceof Error error) {
-                    throw error;
-                }
-                throw new ExtensionConfigurationException(
-                    "@EnvironmentDefinition method '" + qualifiedName() + "' failed",
-                    cause
-                );
-            }
-        }
-
-        private String qualifiedName() {
-            return method.getDeclaringClass().getName() + "#" + method.getName();
-        }
+    private static String qualifiedName(Method method) {
+        return method.getDeclaringClass().getName() + "#" + method.getName();
     }
 }
