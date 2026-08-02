@@ -3,8 +3,8 @@ package io.github.jacekkardys.systemproof.engine;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 
 /**
  * Engine-owned typed access to endpoints published by one component runtime.

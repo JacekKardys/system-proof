@@ -16,15 +16,18 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.reporting.ReportEntry;
 import org.junit.platform.testkit.engine.EngineTestKit;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
 class SystemProofExtensionTest {
     private static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";
@@ -261,8 +264,8 @@ class SystemProofExtensionTest {
     }
 
     private static final class RecordingEnvironment extends Environment {
-        private RecordingEnvironment() {
-            super(Environment.environment().components(new RecordingComponent()));
+        private RecordingEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
 
         @EnvironmentDefinition
@@ -272,24 +275,28 @@ class SystemProofExtensionTest {
     }
 
     private static final class CleanupFailingEnvironment extends Environment {
-        private CleanupFailingEnvironment() {
-            super(Environment.environment().components(new CleanupFailingComponent()));
+        private CleanupFailingEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
 
         @EnvironmentDefinition
         private static CleanupFailingEnvironment define() {
-            return new CleanupFailingEnvironment();
+            return new EnvironmentBuilder()
+                .components(new CleanupFailingComponent())
+                .build(CleanupFailingEnvironment::new);
         }
     }
 
     private static final class DiagnosticsFailingEnvironment extends Environment {
-        private DiagnosticsFailingEnvironment() {
-            super(Environment.environment().components(new DiagnosticsFailingComponent()));
+        private DiagnosticsFailingEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
 
         @EnvironmentDefinition
         private static DiagnosticsFailingEnvironment define() {
-            return new DiagnosticsFailingEnvironment();
+            return new EnvironmentBuilder()
+                .components(new DiagnosticsFailingComponent())
+                .build(DiagnosticsFailingEnvironment::new);
         }
     }
 
@@ -378,7 +385,9 @@ class SystemProofExtensionTest {
 
         private static RecordingEnvironment create() {
             definitions.incrementAndGet();
-            RecordingEnvironment environment = new RecordingEnvironment();
+            RecordingEnvironment environment = new EnvironmentBuilder()
+                .components(new RecordingComponent())
+                .build(RecordingEnvironment::new);
             current.set(environment);
             return environment;
         }

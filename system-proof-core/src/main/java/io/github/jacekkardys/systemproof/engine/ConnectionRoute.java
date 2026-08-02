@@ -1,8 +1,8 @@
 package io.github.jacekkardys.systemproof.engine;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
 
 /**
  * Typed effective target and optional connection-owned resource prepared for one consumer.

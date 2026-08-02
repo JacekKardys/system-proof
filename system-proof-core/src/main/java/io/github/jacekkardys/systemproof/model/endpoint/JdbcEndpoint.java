@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.model.endpoint;
 import static io.github.jacekkardys.systemproof.model.endpoint.EndpointValues.requireText;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.value.Secret;
 
 /** Built-in JDBC runtime connection value. */
 public record JdbcEndpoint(String url, String username, Secret<String> password) {

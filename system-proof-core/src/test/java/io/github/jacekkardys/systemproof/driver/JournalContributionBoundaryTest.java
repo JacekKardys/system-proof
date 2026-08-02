@@ -17,13 +17,14 @@ import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 class JournalContributionBoundaryTest {
     private static final ComponentType TYPE = ComponentType.of("observer");
@@ -45,7 +46,7 @@ class JournalContributionBoundaryTest {
             renderedByDriver.set(context.componentEvents(current));
             return ComponentRuntime.<Void>runtime().build();
         });
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(component)
             .build()
             .start();
@@ -114,7 +115,7 @@ class JournalContributionBoundaryTest {
             (component, context) -> ComponentRuntime.<Void>runtime().build()
         );
         other.set(victim);
-        Environment environment = Environment.environment()
+        Environment environment = new EnvironmentBuilder()
             .components(intruder, victim)
             .build();
 

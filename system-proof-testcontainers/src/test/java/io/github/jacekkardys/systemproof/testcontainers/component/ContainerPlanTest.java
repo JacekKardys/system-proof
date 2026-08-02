@@ -1,8 +1,10 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 
 import java.net.URI;
@@ -10,14 +12,14 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 
 class ContainerPlanTest {
     private static final ComponentType SERVER = ComponentType.of("server");
@@ -106,7 +108,7 @@ class ContainerPlanTest {
 
         private Server() {
             super(ComponentId.component(SERVER), new EmptyConfig(), URI.class, UNUSED);
-            api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = provides(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
     }

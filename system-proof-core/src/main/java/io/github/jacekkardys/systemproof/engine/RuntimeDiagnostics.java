@@ -8,12 +8,12 @@ import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.EnvironmentState;
-import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
+import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 
 /** Captures lifecycle events and component-owned diagnostic sources without running cleanup. */
 final class RuntimeDiagnostics {

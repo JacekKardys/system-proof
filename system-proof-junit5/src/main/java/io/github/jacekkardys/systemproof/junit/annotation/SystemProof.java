@@ -6,7 +6,7 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofInvocationContextProvider;
 import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofLifecycleExtension;
 import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofParameterResolver;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 import org.junit.jupiter.api.TestTemplate;

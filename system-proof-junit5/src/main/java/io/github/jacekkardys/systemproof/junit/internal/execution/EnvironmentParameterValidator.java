@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.junit.internal.execution;
 
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.reflect.Executable;
 import java.util.Arrays;
 import java.util.List;

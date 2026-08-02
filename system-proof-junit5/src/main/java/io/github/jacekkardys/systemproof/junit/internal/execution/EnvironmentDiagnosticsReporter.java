@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.io.IOException;
 import lombok.val;
 

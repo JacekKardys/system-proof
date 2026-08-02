@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import lombok.val;

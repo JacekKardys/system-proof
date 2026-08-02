@@ -1,17 +1,17 @@
 package io.github.jacekkardys.systemproof.engine;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.topology.Connection;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 
 /**
  * Authoritative runtime materialization of one validated logical connection.

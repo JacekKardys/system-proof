@@ -1,10 +1,13 @@
 package io.github.jacekkardys.systemproof.engine;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.requires;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.github.jacekkardys.systemproof.driver.ComponentRuntime.runtime;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
-import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -22,21 +25,21 @@ import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.SessionId;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.Connection;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 
 class RuntimeConnectionRegistryTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
@@ -51,8 +54,8 @@ class RuntimeConnectionRegistryTest {
         Client first = new Client("first");
         Client second = new Client("second");
         Server server = new Server();
-        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
-        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         RuntimeConnectionRegistry registry = registry(
             List.of(firstDeclaration, secondDeclaration),
@@ -141,8 +144,8 @@ class RuntimeConnectionRegistryTest {
         Client first = new Client("coordinator-first");
         Client second = new Client("coordinator-second");
         Server server = new Server();
-        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
-        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
         List<InteractionDecisionCoordinator> coordinators = new ArrayList<>();
         ConnectionRouting routing = ConnectionRouting.routed(
             API,
@@ -176,7 +179,7 @@ class RuntimeConnectionRegistryTest {
     void shouldRejectDuplicateMaterializationAndHideAllRuntimeMutators() {
         Client client = new Client("only");
         Server server = new Server();
-        ConnectionRef declaration = Connection.connect(client.api, server.api);
+        ConnectionRef declaration = connection(client.api, server.api);
 
         assertThatThrownBy(() -> registry(
             List.of(declaration, declaration),
@@ -208,7 +211,7 @@ class RuntimeConnectionRegistryTest {
         Client client = new Client("state");
         Server server = new Server();
         RuntimeConnection<String> connection =
-            runtimeConnection(Connection.connect(client.api, server.api));
+            runtimeConnection(connection(client.api, server.api));
 
         assertThatThrownBy(connection::beginStopping)
             .hasMessageContaining("cannot begin stopping from state DECLARED");
@@ -234,7 +237,7 @@ class RuntimeConnectionRegistryTest {
             .hasMessageContaining("cannot transition from STOPPED to STARTING");
 
         RuntimeConnection<String> failed = runtimeConnection(
-            Connection.connect(new Client("failed").api, server.api)
+            connection(new Client("failed").api, server.api)
         );
         failed.beginStartup();
         failed.fail();
@@ -249,8 +252,8 @@ class RuntimeConnectionRegistryTest {
         Client first = new Client("first");
         Client second = new Client("second");
         Server server = new Server();
-        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
-        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         AtomicReference<RuntimeConnectionRegistry> registryRef = new AtomicReference<>();
         List<String> receivedDirectTargets = new ArrayList<>();
@@ -347,9 +350,9 @@ class RuntimeConnectionRegistryTest {
         Client second = new Client("second");
         Client third = new Client("third");
         Server server = new Server();
-        Connection<String> firstDeclaration = Connection.connect(first.api, server.api);
-        Connection<String> secondDeclaration = Connection.connect(second.api, server.api);
-        Connection<String> thirdDeclaration = Connection.connect(third.api, server.api);
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
+        Connection<String> thirdDeclaration = connection(third.api, server.api);
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         IllegalStateException startupFailure =
             new IllegalStateException("route creation failed");
@@ -423,7 +426,7 @@ class RuntimeConnectionRegistryTest {
     void shouldFailOneConnectionAndCloseItsRouteExactlyOnce() {
         Client client = new Client("cleanup");
         Server server = new Server();
-        Connection<String> declaration = Connection.connect(client.api, server.api);
+        Connection<String> declaration = connection(client.api, server.api);
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         IllegalStateException cleanupFailure =
             new IllegalStateException("owned route cleanup failed");
@@ -474,11 +477,11 @@ class RuntimeConnectionRegistryTest {
         Client unqualified = new Client(unqualifiedId);
         Client qualified = new Client(qualifiedId);
         Server server = new Server();
-        Connection<String> unqualifiedDeclaration = Connection.connect(
+        Connection<String> unqualifiedDeclaration = connection(
             unqualified.api,
             server.api
         );
-        Connection<String> qualifiedDeclaration = Connection.connect(
+        Connection<String> qualifiedDeclaration = connection(
             qualified.api,
             server.api
         );
@@ -512,6 +515,10 @@ class RuntimeConnectionRegistryTest {
                 unqualifiedDeclaration.id(),
                 qualifiedDeclaration.id()
             );
+    }
+
+    private static <C> Connection<C> connection(RequiredPort<C> from, ProvidedPort<C> to) {
+        return new Connection<>(from, to, ConnectionId.between(from, to));
     }
 
     private static RuntimeConnectionRegistry registry(
@@ -596,7 +603,7 @@ class RuntimeConnectionRegistryTest {
                 UNUSED
             );
             type = id.type();
-            api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = requires(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
     }
@@ -606,7 +613,7 @@ class RuntimeConnectionRegistryTest {
 
         private Server() {
             super(ComponentId.component(SERVER), new EmptyConfig(), Void.class, UNUSED);
-            api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = provides(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
     }

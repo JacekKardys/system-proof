@@ -3,11 +3,11 @@ package io.github.jacekkardys.systemproof.engine;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
+import io.github.jacekkardys.systemproof.model.topology.Connection;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
 
 /**
  * Immutable runtime routing policy without changing logical topology declarations.

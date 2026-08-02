@@ -1,9 +1,12 @@
 package io.github.jacekkardys.systemproof.engine;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
-import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -23,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
@@ -35,18 +39,20 @@ import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.journal.SessionId;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 class ConnectionObservationBoundaryTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
@@ -63,7 +69,7 @@ class ConnectionObservationBoundaryTest {
         );
         AtomicReference<InteractionRef> observed = new AtomicReference<>();
         RoutedEnvironment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(client, server)
                 .connect(client.api, server.api),
             context -> {
@@ -144,7 +150,7 @@ class ConnectionObservationBoundaryTest {
         List<InteractionRef> assigned = new CopyOnWriteArrayList<>();
 
         Environment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(first, second, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api),
@@ -277,7 +283,7 @@ class ConnectionObservationBoundaryTest {
         Map<ConnectionId, ConnectionObservations> capabilities =
             new ConcurrentHashMap<>();
         Environment environment = routedEnvironment(
-            Environment.environment()
+            new EnvironmentBuilder()
                 .components(first, second, server)
                 .connect(first.api, server.api)
                 .connect(second.api, server.api),
@@ -591,13 +597,11 @@ class ConnectionObservationBoundaryTest {
         );
     }
 
-    private static RoutedEnvironment routedEnvironment(
-        Environment.Builder builder,
-        ConnectionRouteProvider<ApiEndpoint> provider
-    ) {
-        return new RoutedEnvironment(
-            builder,
-            ConnectionRouting.routed(API, provider)
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder,
+        ConnectionRouteProvider<ApiEndpoint> provider) {
+        ConnectionRouting routing = ConnectionRouting.routed(API, provider);
+        return builder.build((topology, logging) ->
+            new RoutedEnvironment(topology, logging, routing)
         );
     }
 
@@ -695,7 +699,7 @@ class ConnectionObservationBoundaryTest {
                 Void.class,
                 driver
             );
-            api = requiresAtStartup("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = requiresAtStartup(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
 
@@ -714,13 +718,13 @@ class ConnectionObservationBoundaryTest {
                     )
                     .build()
             );
-            api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = provides(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
 
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
     }
 }

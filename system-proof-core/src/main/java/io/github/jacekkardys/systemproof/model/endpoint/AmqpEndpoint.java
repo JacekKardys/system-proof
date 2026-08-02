@@ -4,7 +4,7 @@ import static io.github.jacekkardys.systemproof.model.endpoint.EndpointValues.re
 import static io.github.jacekkardys.systemproof.model.endpoint.EndpointValues.requireText;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.value.Secret;
 
 /** Built-in AMQP runtime connection value. */
 public record AmqpEndpoint(

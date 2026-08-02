@@ -26,15 +26,15 @@ import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.SessionId;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.EnvironmentState;
-import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
 
 class EnvironmentEventLogTest {
     @Test

@@ -1,8 +1,11 @@
 package io.github.jacekkardys.systemproof.examples.gateway;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 import static io.github.jacekkardys.systemproof.testcontainers.gateway.TcpEndpointAdapter.endpoint;
 
@@ -21,24 +24,27 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.EndpointAddress;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointAddress;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.value.Secret;
 import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.StartedContainer;
@@ -189,7 +195,7 @@ class InteractionGatewayIT {
                 );
             }
         );
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(consumer, provider)
             .connect(consumer.http, provider.http)
             .connect(consumer.smpp, provider.smpp);
@@ -200,7 +206,9 @@ class InteractionGatewayIT {
             SMPP,
             gateway.tcp(smpp)
         );
-        return new GatewayEnvironment(builder, routing);
+        return builder.build((topology, logging) ->
+            new GatewayEnvironment(topology, logging, routing)
+        );
     }
 
     private static void recordTestHostPort(
@@ -306,8 +314,8 @@ class InteractionGatewayIT {
 
         private ProviderComponent(ComponentDriver<EmptyConfig, Void> driver) {
             super(ComponentId.component(PROVIDER), new EmptyConfig(), Void.class, driver);
-            http = provides("http", HTTP, Invocation.INSTANCE, Http.INSTANCE);
-            smpp = provides("smpp", SMPP, Session.INSTANCE, Smpp.INSTANCE);
+            http = provides(this, "http", HTTP, Invocation.INSTANCE, Http.INSTANCE);
+            smpp = provides(this, "smpp", SMPP, Session.INSTANCE, Smpp.INSTANCE);
         }
     }
 
@@ -327,19 +335,19 @@ class InteractionGatewayIT {
                 GatewayProofClient.class,
                 driver
             );
-            http = requiresAtStartup(
+            http = requiresAtStartup(this,
                 "http",
                 HTTP,
                 Invocation.INSTANCE,
                 Http.INSTANCE
             );
-            smpp = requiresAtStartup(
+            smpp = requiresAtStartup(this,
                 "smpp",
                 SMPP,
                 Session.INSTANCE,
                 Smpp.INSTANCE
             );
-            control = provides(
+            control = provides(this,
                 "control",
                 CONTROL,
                 Invocation.INSTANCE,
@@ -458,8 +466,8 @@ class InteractionGatewayIT {
     }
 
     private static final class GatewayEnvironment extends Environment {
-        private GatewayEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private GatewayEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
 
         private List<String> proof(ConsumerComponent consumer) throws Exception {

@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.engine.RuntimeEndpointBindings;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 
 /** Driver result owned by the environment runtime for one running component. */
 public final class ComponentRuntime<O> implements AutoCloseable {

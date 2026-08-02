@@ -26,12 +26,12 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.engine.CorrelationKey;
 import io.github.jacekkardys.systemproof.engine.ProofSubjectRef;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.EnvironmentState;
-import io.github.jacekkardys.systemproof.model.LogLevel;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
 
 class ScenarioJournalTest {
     private static final ComponentId COMPONENT =

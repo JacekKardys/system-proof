@@ -1,8 +1,8 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentState;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
 
 /** A structured lifecycle transition for one stable component identity. */
 public record ComponentLifecycleEvent(

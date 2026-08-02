@@ -1,11 +1,14 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.groups.Tuple.tuple;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
-import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
 import static io.github.jacekkardys.systemproof.testcontainers.gateway.TcpEndpointAdapter.endpoint;
 
 import java.io.BufferedReader;
@@ -32,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.engine.ConnectionRouting;
@@ -43,21 +47,23 @@ import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.value.Secret;
 
 class InteractionGatewayTest {
     private static final ComponentType CLIENT = ComponentType.of("gateway-client");
@@ -82,7 +88,7 @@ class InteractionGatewayTest {
                 .build();
         });
         InteractionGateway gateway = new InteractionGateway(port -> {});
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -107,7 +113,7 @@ class InteractionGatewayTest {
                 new ArrayList<>()
             ))
         );
-        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
 
         try {
             environment.start();
@@ -165,7 +171,7 @@ class InteractionGatewayTest {
                 .build();
         });
         InteractionGateway gateway = new InteractionGateway(port -> {});
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -189,7 +195,7 @@ class InteractionGatewayTest {
                 new ArrayList<>()
             ))
         );
-        RoutedEnvironment environment = new RoutedEnvironment(builder, routing);
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
         String payload = "production-registry-correlation";
         CorrelationKey key = LengthPrefixedProtocolAdapter.correlationKey(payload);
         ProofSubjectRef subject = environment.proofSubjects().create();
@@ -534,7 +540,7 @@ class InteractionGatewayTest {
         TcpEndpointAdapter<CommandEndpoint> commands,
         TcpEndpointAdapter<SessionEndpoint> sessions
     ) {
-        Environment.Builder builder = Environment.environment()
+        EnvironmentBuilder builder = new EnvironmentBuilder()
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
@@ -545,7 +551,7 @@ class InteractionGatewayTest {
             SESSION,
             gateway.tcp(sessions)
         );
-        return new RoutedEnvironment(builder, routing);
+        return routedEnvironment(builder, routing);
     }
 
     private static Server server(
@@ -816,13 +822,13 @@ class InteractionGatewayTest {
                 ResolvedRoutes.class,
                 driver
             );
-            command = requiresAtStartup(
+            command = requiresAtStartup(this,
                 "command",
                 COMMAND,
                 Invocation.INSTANCE,
                 Http.INSTANCE
             );
-            session = requiresAtStartup(
+            session = requiresAtStartup(this,
                 "session",
                 SESSION,
                 Session.INSTANCE,
@@ -837,14 +843,20 @@ class InteractionGatewayTest {
 
         private Server(ComponentDriver<EmptyConfig, Void> driver) {
             super(ComponentId.component(SERVER), new EmptyConfig(), Void.class, driver);
-            command = provides("command", COMMAND, Invocation.INSTANCE, Http.INSTANCE);
-            session = provides("session", SESSION, Session.INSTANCE, Smpp.INSTANCE);
+            command = provides(this, "command", COMMAND, Invocation.INSTANCE, Http.INSTANCE);
+            session = provides(this, "session", SESSION, Session.INSTANCE, Smpp.INSTANCE);
         }
     }
 
+    private static RoutedEnvironment routedEnvironment(EnvironmentBuilder builder, ConnectionRouting routing) {
+        return builder.build((topology, logging) ->
+            new RoutedEnvironment(topology, logging, routing)
+        );
+    }
+
     private static final class RoutedEnvironment extends Environment {
-        private RoutedEnvironment(Builder builder, ConnectionRouting routing) {
-            super(builder, routing);
+        private RoutedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+            super(topology, logging, routing);
         }
 
         private ResolvedRoutes routes(Client client) {

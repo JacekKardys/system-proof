@@ -7,7 +7,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
+import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 
 class ConfigurationBinderVisibilityTest {
     @Test

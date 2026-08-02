@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.junit.internal.spi;
 
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.reflect.Method;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionContext;
