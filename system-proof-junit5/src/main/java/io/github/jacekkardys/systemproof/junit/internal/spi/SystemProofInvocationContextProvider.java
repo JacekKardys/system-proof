@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.junit.internal.spi;
 
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
+import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
 import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -18,7 +19,7 @@ public final class SystemProofInvocationContextProvider implements TestTemplateI
 
     @Override
     public boolean supportsTestTemplate(ExtensionContext context) {
-        return context.getTestMethod()
+        return SystemProofSharedContext.of(context).testMethod()
             .flatMap(SystemProofInvocationContextProvider::findSystemProof)
             .isPresent();
     }
@@ -27,7 +28,7 @@ public final class SystemProofInvocationContextProvider implements TestTemplateI
     public Stream<TestTemplateInvocationContext> provideTestTemplateInvocationContexts(
         ExtensionContext context
     ) {
-        val testMethod = context.getRequiredTestMethod();
+        val testMethod = SystemProofSharedContext.of(context).requiredTestMethod();
         val declaration = findSystemProof(testMethod).orElseThrow(() ->
             new ExtensionConfigurationException(
                 "SystemProofInvocationContextProvider requires @SystemProof on method '"

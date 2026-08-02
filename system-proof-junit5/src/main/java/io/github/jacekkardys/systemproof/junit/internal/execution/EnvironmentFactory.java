@@ -6,6 +6,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
@@ -14,6 +15,33 @@ import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 public final class EnvironmentFactory {
     private static final String EXPECTED =
         "@EnvironmentDefinition static <E extends Environment> define()";
+    private static final ValidationRule<Class<? extends Environment>> CONCRETE_ENVIRONMENT =
+        new ValidationRule<>(
+            "environment type must be concrete",
+            environmentType -> environmentType != Environment.class
+                && !Modifier.isAbstract(environmentType.getModifiers())
+        );
+    private static final ValidationRule<List<Method>> SINGLE_DEFINITION =
+        new ValidationRule<>(
+            "expected exactly one definition",
+            methods -> methods.size() == 1
+        );
+    private static final List<ValidationRule<DefinitionMethod>> DEFINITION_RULES = List.of(
+        new ValidationRule<>(
+            "definition must be a static method",
+            definition -> Modifier.isStatic(definition.method().getModifiers())
+        ),
+        new ValidationRule<>(
+            "definition must not declare parameters",
+            definition -> definition.method().getParameterCount() == 0
+        ),
+        new ValidationRule<>(
+            "return type must match the declared environment type",
+            definition -> definition.method().getReturnType() == definition.environmentType()
+        )
+    );
+    private static final ValidationRule<Object> NON_NULL_DEFINITION_RESULT =
+        new ValidationRule<>("definition returned null", result -> result != null);
 
     public <E extends Environment> E create(Class<E> environmentType) {
         validateEnvironmentType(environmentType);
@@ -24,12 +52,11 @@ public final class EnvironmentFactory {
     }
 
     private static void validateEnvironmentType(Class<? extends Environment> environmentType) {
-        if (environmentType == Environment.class
-            || Modifier.isAbstract(environmentType.getModifiers())) {
+        if (CONCRETE_ENVIRONMENT.isViolatedBy(environmentType)) {
             throw invalid(
                 environmentType,
                 null,
-                "environment type must be concrete",
+                CONCRETE_ENVIRONMENT.description(),
                 environmentType.getTypeName()
             );
         }
@@ -39,7 +66,7 @@ public final class EnvironmentFactory {
         val methods = Arrays.stream(environmentType.getDeclaredMethods())
             .filter(method -> method.isAnnotationPresent(EnvironmentDefinition.class))
             .toList();
-        if (methods.size() != 1) {
+        if (SINGLE_DEFINITION.isViolatedBy(methods)) {
             val actual = methods.isEmpty()
                 ? "none"
                 : methods.stream().map(EnvironmentFactory::signature)
@@ -47,7 +74,7 @@ public final class EnvironmentFactory {
             throw invalid(
                 environmentType,
                 null,
-                "expected exactly one definition but found " + methods.size(),
+                SINGLE_DEFINITION.description() + " but found " + methods.size(),
                 actual
             );
         }
@@ -58,27 +85,13 @@ public final class EnvironmentFactory {
         Class<? extends Environment> environmentType,
         Method method
     ) {
-        if (!Modifier.isStatic(method.getModifiers())) {
+        val definition = new DefinitionMethod(environmentType, method);
+        val violation = ValidationRule.firstViolation(definition, DEFINITION_RULES).orElse(null);
+        if (violation != null) {
             throw invalid(
                 environmentType,
                 method,
-                "definition must be a static method",
-                signature(method)
-            );
-        }
-        if (method.getParameterCount() != 0) {
-            throw invalid(
-                environmentType,
-                method,
-                "definition must not declare parameters",
-                signature(method)
-            );
-        }
-        if (method.getReturnType() != environmentType) {
-            throw invalid(
-                environmentType,
-                method,
-                "return type must match the declared environment type " + environmentType.getName(),
+                violation.description(),
                 signature(method)
             );
         }
@@ -104,11 +117,11 @@ public final class EnvironmentFactory {
     ) {
         try {
             val result = method.invoke(null);
-            if (result == null) {
+            if (NON_NULL_DEFINITION_RESULT.isViolatedBy(result)) {
                 throw invalid(
                     environmentType,
                     method,
-                    "definition returned null",
+                    NON_NULL_DEFINITION_RESULT.description(),
                     signature(method)
                 );
             }
@@ -158,4 +171,9 @@ public final class EnvironmentFactory {
     private static String qualifiedName(Method method) {
         return method.getDeclaringClass().getName() + "#" + method.getName();
     }
+
+    private record DefinitionMethod(
+        Class<? extends Environment> environmentType,
+        Method method
+    ) {}
 }

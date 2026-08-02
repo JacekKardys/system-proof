@@ -33,7 +33,7 @@ class EnvironmentDiagnosticsReporterTest {
 
         try {
             assertThatCode(() -> diagnosticsReporter.onStartFailure(
-                failingPublicationContext(publicationFailure),
+                SystemProofSharedContext.of(failingPublicationContext(publicationFailure)),
                 primaryFailure
             )).doesNotThrowAnyException();
 

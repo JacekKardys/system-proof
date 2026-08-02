@@ -4,45 +4,37 @@ import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.io.IOException;
-import java.util.Optional;
 import lombok.val;
-import org.junit.jupiter.api.extension.ExtensionContext;
 
 /** Coordinates best-effort environment diagnostic capture, persistence, and JUnit reporting. */
 public final class EnvironmentDiagnosticsReporter {
 
-    private static final ExtensionContext.Namespace NAMESPACE =
-        ExtensionContext.Namespace.create(EnvironmentDiagnosticsReporter.class);
-    private static final String PENDING_DIAGNOSTICS = "pending-diagnostics";
     private final EnvironmentDiagnosticsArtifactWriter artifactWriter =
         new EnvironmentDiagnosticsArtifactWriter();
 
     public void onStartFailure(
-        ExtensionContext context,
+        SystemProofSharedContext context,
         EnvironmentStartException failure
     ) {
         report(context, failure.diagnostics(), failure);
     }
 
-    public void beforeClose(ExtensionContext context, Environment environment) {
-        context.getExecutionException().ifPresent(primaryFailure -> {
+    public void beforeClose(SystemProofSharedContext context, Environment environment) {
+        context.executionException().ifPresent(primaryFailure -> {
             val diagnostics = capture(context, environment, primaryFailure);
             if (diagnostics != null) {
-                store(context).put(PENDING_DIAGNOSTICS, diagnostics);
+                context.putPendingDiagnostics(diagnostics);
             }
         });
     }
 
     public void afterClose(
-        ExtensionContext context,
-        Environment environment,
-        Optional<Throwable> closeFailure
+        SystemProofSharedContext context,
+        Environment environment
     ) {
-        val pending = store(context).remove(
-            PENDING_DIAGNOSTICS,
-            EnvironmentDiagnostics.class
-        );
-        val testFailure = context.getExecutionException();
+        val pending = context.removePendingDiagnostics();
+        val closeFailure = context.removeLifecycleFailure();
+        val testFailure = context.executionException();
         if (testFailure.isPresent()) {
             if (pending != null) {
                 report(context, pending, testFailure.orElseThrow());
@@ -50,11 +42,13 @@ public final class EnvironmentDiagnosticsReporter {
             return;
         }
 
-        closeFailure.ifPresent(failure -> captureAndReport(context, environment, failure));
+        if (closeFailure != null) {
+            captureAndReport(context, environment, closeFailure);
+        }
     }
 
     private static EnvironmentDiagnostics capture(
-        ExtensionContext context,
+        SystemProofSharedContext context,
         Environment environment,
         Throwable primaryFailure
     ) {
@@ -72,13 +66,13 @@ public final class EnvironmentDiagnosticsReporter {
     }
 
     private void report(
-        ExtensionContext context,
+        SystemProofSharedContext context,
         EnvironmentDiagnostics diagnostics,
         Throwable primaryFailure
     ) {
         try {
             val artifact = artifactWriter.write(
-                context.getRequiredTestMethod(),
+                context.requiredTestMethod(),
                 diagnostics
             );
             context.publishReportEntry("environment.diagnostics", artifact.toString());
@@ -93,7 +87,7 @@ public final class EnvironmentDiagnosticsReporter {
     }
 
     private void captureAndReport(
-        ExtensionContext context,
+        SystemProofSharedContext context,
         Environment environment,
         Throwable primaryFailure
     ) {
@@ -104,7 +98,7 @@ public final class EnvironmentDiagnosticsReporter {
     }
 
     private static void publishError(
-        ExtensionContext context,
+        SystemProofSharedContext context,
         String message,
         Throwable primaryFailure
     ) {
@@ -113,9 +107,5 @@ public final class EnvironmentDiagnosticsReporter {
         } catch (RuntimeException | Error publicationFailure) {
             SystemProofLifecycleFailureAdapter.suppress(primaryFailure, publicationFailure);
         }
-    }
-
-    private static ExtensionContext.Store store(ExtensionContext context) {
-        return context.getStore(NAMESPACE);
     }
 }

@@ -12,6 +12,18 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 /** Validates environment parameters on System Proof test and lifecycle methods. */
 public final class SystemProofParameterValidator {
 
+    private static final List<ValidationRule<ParameterDeclaration>> PARAMETER_RULES = List.of(
+        new ValidationRule<>(
+            "at most one environment parameter may be declared",
+            declaration -> declaration.environmentParameters().size() <= 1
+        ),
+        new ValidationRule<>(
+            "the environment parameter must have the exact configured type",
+            declaration -> declaration.environmentParameters().isEmpty()
+                || declaration.environmentParameters().getFirst() == declaration.environmentType()
+        )
+    );
+
     public void validateConfiguration(
         Executable executable,
         Class<? extends Environment> environmentType
@@ -39,17 +51,33 @@ public final class SystemProofParameterValidator {
         Objects.requireNonNull(executable, "executable must not be null");
         Objects.requireNonNull(environmentType, "environmentType must not be null");
 
-        val environmentParameters = Arrays.stream(executable.getParameterTypes())
-            .filter(Environment.class::isAssignableFrom)
-            .toList();
-        if (environmentParameters.isEmpty()
-            || environmentParameters.equals(List.of(environmentType))) {
+        val declaration = ParameterDeclaration.of(executable, environmentType);
+        val violation = ValidationRule.firstViolation(declaration, PARAMETER_RULES).orElse(null);
+        if (violation == null) {
             return null;
         }
 
-        return "Method '" + executable.getDeclaringClass().getName() + "#" + executable.getName()
+        return "Method '" + declaration.executable().getDeclaringClass().getName() + "#"
+            + declaration.executable().getName()
             + "' may declare at most one environment parameter and it must have the exact type "
-            + environmentType.getName() + "; actual environment parameters="
-            + environmentParameters.stream().map(Class::getName).toList();
+            + declaration.environmentType().getName() + "; violated rule="
+            + violation.description() + "; actual environment parameters="
+            + declaration.environmentParameters().stream().map(Class::getName).toList();
+    }
+
+    private record ParameterDeclaration(
+        Executable executable,
+        Class<? extends Environment> environmentType,
+        List<Class<?>> environmentParameters
+    ) {
+        private static ParameterDeclaration of(
+            Executable executable,
+            Class<? extends Environment> environmentType
+        ) {
+            val environmentParameters = Arrays.stream(executable.getParameterTypes())
+                .filter(Environment.class::isAssignableFrom)
+                .toList();
+            return new ParameterDeclaration(executable, environmentType, environmentParameters);
+        }
     }
 }

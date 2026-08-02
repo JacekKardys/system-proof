@@ -29,38 +29,40 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
 
     @Override
     public void beforeEach(ExtensionContext context) {
-        val declaration = findSystemProof(context);
-        metadataReporter.report(context, declaration);
+        val sharedContext = SystemProofSharedContext.of(context);
+        val declaration = findSystemProof(sharedContext);
+        metadataReporter.report(sharedContext, declaration);
         val environmentType = declaration.value();
         parameterValidator.validateConfiguration(
-            context.getRequiredTestMethod(),
+            sharedContext.requiredTestMethod(),
             environmentType
         );
 
         try {
             val environment = environmentFactory.create(environmentType).start();
-            SystemProofSharedContext.of(context).putEnvironment(environment);
+            sharedContext.putEnvironment(environment);
         } catch (EnvironmentStartException failure) {
-            diagnostics.onStartFailure(context, failure);
+            diagnostics.onStartFailure(sharedContext, failure);
             throw failure;
         }
     }
 
     @Override
     public void afterEach(ExtensionContext context) {
-        val environment = SystemProofSharedContext.of(context).removeEnvironment();
+        val sharedContext = SystemProofSharedContext.of(context);
+        val environment = sharedContext.removeEnvironment();
         if (environment == null) {
             return;
         }
 
-        diagnostics.beforeClose(context, environment);
-        val close = failures.execute(context, environment::close);
-        diagnostics.afterClose(context, environment, close.failure());
+        diagnostics.beforeClose(sharedContext, environment);
+        val close = failures.execute(sharedContext, environment::close);
+        diagnostics.afterClose(sharedContext, environment);
         close.propagateIfPrimary();
     }
 
-    private static SystemProof findSystemProof(ExtensionContext context) {
-        val testMethod = context.getRequiredTestMethod();
+    private static SystemProof findSystemProof(SystemProofSharedContext context) {
+        val testMethod = context.requiredTestMethod();
         return AnnotationSupport
             .findAnnotation(testMethod, SystemProof.class)
             .orElseThrow(() -> new ExtensionConfigurationException(

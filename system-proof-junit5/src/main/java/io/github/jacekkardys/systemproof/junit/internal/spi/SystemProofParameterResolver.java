@@ -18,7 +18,8 @@ public final class SystemProofParameterResolver implements ParameterResolver {
 
     @Override
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext context) {
-        val environment = SystemProofSharedContext.of(context).getEnvironment();
+        val sharedContext = SystemProofSharedContext.of(context);
+        val environment = sharedContext.getEnvironment();
         return environment != null
             && parameterContext.getDeclaringExecutable() instanceof Method
             && Environment.class.isAssignableFrom(parameterContext.getParameter().getType());
@@ -26,7 +27,8 @@ public final class SystemProofParameterResolver implements ParameterResolver {
 
     @Override
     public Object resolveParameter(ParameterContext parameterContext, ExtensionContext context) {
-        val environment = SystemProofSharedContext.of(context).getEnvironment();
+        val sharedContext = SystemProofSharedContext.of(context);
+        val environment = sharedContext.getEnvironment();
 
         if (environment == null) {
             throw new ParameterResolutionException("Environment has not been started");
