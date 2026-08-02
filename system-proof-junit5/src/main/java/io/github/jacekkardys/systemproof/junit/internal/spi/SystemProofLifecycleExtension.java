@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.junit.internal.spi;
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDiagnosticsReporter;
-import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentInstanceFactory;
+import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDefinitionResolver;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofLifecycleFailureAdapter;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofMetadataReporter;
@@ -18,8 +18,8 @@ import org.junit.platform.commons.support.AnnotationSupport;
 /** Internal callback owning one System Proof environment lifecycle per JUnit test invocation. */
 public final class SystemProofLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
 
-    private final EnvironmentInstanceFactory environmentInstanceFactory =
-        new EnvironmentInstanceFactory();
+    private final EnvironmentDefinitionResolver environmentDefinitionResolver =
+        new EnvironmentDefinitionResolver();
     private final EnvironmentParameterValidator parameterValidator = new EnvironmentParameterValidator();
     private final SystemProofMetadataReporter metadataReporter = new SystemProofMetadataReporter();
     private final EnvironmentDiagnosticsReporter diagnostics = new EnvironmentDiagnosticsReporter();
@@ -38,7 +38,7 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
         );
 
         try {
-            val environment = environmentInstanceFactory.create(environmentType);
+            val environment = environmentDefinitionResolver.resolve(environmentType);
             environment.start();
             sharedContext.putRunningEnvironment(environmentType, environment);
         } catch (EnvironmentStartException failure) {

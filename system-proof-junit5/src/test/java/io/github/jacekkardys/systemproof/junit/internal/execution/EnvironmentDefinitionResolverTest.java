@@ -19,56 +19,56 @@ import io.github.jacekkardys.systemproof.construction.EnvironmentCreator;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
-class EnvironmentInstanceFactoryTest {
-    private final EnvironmentInstanceFactory factory = new EnvironmentInstanceFactory();
+class EnvironmentDefinitionResolverTest {
+    private final EnvironmentDefinitionResolver resolver = new EnvironmentDefinitionResolver();
 
     @Test
     void shouldInvokeStaticZeroArgumentDefinitionOnTheEnvironmentFacade() {
         ZeroArguments.invocations = 0;
 
-        assertThat(factory.create(ZeroArguments.class))
+        assertThat(resolver.resolve(ZeroArguments.class))
             .isInstanceOf(ZeroArguments.class);
         assertThat(ZeroArguments.invocations).isEqualTo(1);
     }
 
     @Test
     void shouldRejectMissingAndMultipleDefinitionsWithExpectedAndActualSignatures() {
-        assertThatThrownBy(() -> factory.create(Missing.class))
+        assertThatThrownBy(() -> resolver.resolve(Missing.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Missing.class.getName(), "exactly one", "expected=", "actual=none");
 
-        assertThatThrownBy(() -> factory.create(Multiple.class))
+        assertThatThrownBy(() -> resolver.resolve(Multiple.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Multiple.class.getName(), "first()", "second()", "expected=", "actual=");
     }
 
     @Test
     void shouldRejectInvalidDefinitionSignaturesAndEnvironmentTypes() {
-        assertThatThrownBy(() -> factory.create(InstanceMethod.class))
+        assertThatThrownBy(() -> resolver.resolve(InstanceMethod.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 InstanceMethod.class.getName() + "#define",
                 "static method"
             );
-        assertThatThrownBy(() -> factory.create(Parameterized.class))
+        assertThatThrownBy(() -> resolver.resolve(Parameterized.class))
             .hasMessageContaining(
                 Parameterized.class.getName() + "#define",
                 "must not declare parameters",
                 EnvironmentConfiguration.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(WrongReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(WrongReturn.class))
             .hasMessageContaining(
                 WrongReturn.class.getName() + "#define",
                 "return type must match",
                 WrongReturn.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(BaseReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(BaseReturn.class))
             .hasMessageContaining(
                 BaseReturn.class.getName() + "#define",
                 "return type must match",
                 BaseReturn.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(AbstractDefinition.class))
+        assertThatThrownBy(() -> resolver.resolve(AbstractDefinition.class))
             .hasMessageContaining(
                 AbstractDefinition.class.getName(),
                 "environment type must be concrete"
@@ -77,7 +77,7 @@ class EnvironmentInstanceFactoryTest {
 
     @Test
     void shouldRejectNullBeforeAnyEnvironmentCanStart() {
-        assertThatThrownBy(() -> factory.create(NullReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(NullReturn.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 NullReturn.class.getName() + "#define",
@@ -103,7 +103,7 @@ class EnvironmentInstanceFactoryTest {
     void shouldDescribeTheReflectiveAccessBoundary() throws NoSuchMethodException {
         val inaccessibleMethod = Object.class.getDeclaredMethod("clone");
 
-        assertThatThrownBy(() -> EnvironmentInstanceFactory.makeAccessible(inaccessibleMethod))
+        assertThatThrownBy(() -> EnvironmentDefinitionResolver.makeAccessible(inaccessibleMethod))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 "could not obtain reflective access",
