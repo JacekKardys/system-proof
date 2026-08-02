@@ -9,12 +9,23 @@ import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
 /** Creates an environment facade through its validated {@link EnvironmentDefinition} method. */
 public final class EnvironmentFactory {
-    private final EnvironmentDefinitionValidator validator =
-        new EnvironmentDefinitionValidator();
+    private final EnvironmentDefinitionLocator locator = new EnvironmentDefinitionLocator();
+    private final EnvironmentDefinitionValidator validator = new EnvironmentDefinitionValidator();
 
     public <E extends Environment> E create(Class<E> environmentType) {
-        val definition = validator.requireValidDefinition(environmentType);
+        val definitions = locator.findAll(environmentType);
+        validator.validate(environmentType, definitions);
+        val definition = definitions.getFirst();
+        makeAccessible(definition);
         return invoke(environmentType, definition);
+    }
+
+    private static void makeAccessible(Method method) {
+        if (!method.trySetAccessible()) {
+            throw new ExtensionConfigurationException(
+                "Cannot access @EnvironmentDefinition method '%s'".formatted(qualifiedName(method))
+            );
+        }
     }
 
     private <E extends Environment> E invoke(
@@ -27,7 +38,7 @@ public final class EnvironmentFactory {
             return environmentType.cast(result);
         } catch (IllegalAccessException exception) {
             throw new ExtensionConfigurationException(
-                "Cannot invoke @EnvironmentDefinition method '" + qualifiedName(method) + "'",
+                "Cannot invoke @EnvironmentDefinition method '%s'".formatted(qualifiedName(method)),
                 exception
             );
         } catch (InvocationTargetException exception) {
