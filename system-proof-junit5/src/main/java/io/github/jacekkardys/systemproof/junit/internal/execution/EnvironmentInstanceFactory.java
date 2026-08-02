@@ -7,8 +7,8 @@ import java.lang.reflect.Method;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
-/** Creates an environment facade through its validated {@link EnvironmentDefinition} method. */
-public final class EnvironmentFactory {
+/** Creates a fresh environment instance through its validated {@link EnvironmentDefinition} method. */
+public final class EnvironmentInstanceFactory {
     private final EnvironmentDefinitionLocator locator = new EnvironmentDefinitionLocator();
     private final EnvironmentDefinitionValidator validator = new EnvironmentDefinitionValidator();
 
@@ -69,7 +69,7 @@ public final class EnvironmentFactory {
     ) {
         val declaringClass = method.getDeclaringClass();
         val declaringModule = moduleName(declaringClass.getModule());
-        val frameworkModule = moduleName(EnvironmentFactory.class.getModule());
+        val frameworkModule = moduleName(EnvironmentInstanceFactory.class.getModule());
         val message = "System Proof could not obtain reflective access to "
             + "@EnvironmentDefinition method '" + method.toGenericString() + "' declared by '"
             + declaringClass.getName() + "'. Package '" + declaringClass.getPackageName()

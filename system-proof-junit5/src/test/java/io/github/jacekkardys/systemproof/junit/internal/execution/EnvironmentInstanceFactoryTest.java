@@ -19,8 +19,8 @@ import io.github.jacekkardys.systemproof.construction.EnvironmentCreator;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
-class EnvironmentFactoryTest {
-    private final EnvironmentFactory factory = new EnvironmentFactory();
+class EnvironmentInstanceFactoryTest {
+    private final EnvironmentInstanceFactory factory = new EnvironmentInstanceFactory();
 
     @Test
     void shouldInvokeStaticZeroArgumentDefinitionOnTheEnvironmentFacade() {
@@ -103,7 +103,7 @@ class EnvironmentFactoryTest {
     void shouldDescribeTheReflectiveAccessBoundary() throws NoSuchMethodException {
         val inaccessibleMethod = Object.class.getDeclaredMethod("clone");
 
-        assertThatThrownBy(() -> EnvironmentFactory.makeAccessible(inaccessibleMethod))
+        assertThatThrownBy(() -> EnvironmentInstanceFactory.makeAccessible(inaccessibleMethod))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 "could not obtain reflective access",
