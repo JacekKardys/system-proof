@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
 /** Orders only explicitly declared startup dependencies, not all communication connections. */
 public final class ComponentStartPlan {

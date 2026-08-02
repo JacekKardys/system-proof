@@ -1,6 +1,9 @@
 package io.github.jacekkardys.systemproof.construction;
 
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.requires;
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.provides;
+
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -8,17 +11,18 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.Connection;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 class EnvironmentTopologyTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
@@ -33,15 +37,15 @@ class EnvironmentTopologyTest {
         Client client = new Client();
         Server server = new Server("server");
         List<AbstractComponent<?, ?>> components = new ArrayList<>(List.of(client, server));
-        List<ConnectionRef> connections = new ArrayList<>(List.of(Connection.connect(client.api, server.api)));
+        List<ConnectionRef> connections = new ArrayList<>(List.of(ConnectionFactory.create(client.api, server.api)));
 
+        TopologyValidator.validate(components, connections);
         EnvironmentTopology topology = new EnvironmentTopology(components, connections);
         components.clear();
         connections.clear();
 
         assertThat(topology.components()).containsExactly(client, server);
         assertThat(topology.connections()).singleElement().isSameAs(topology.connectionFrom(client.api));
-        assertThat(topology.componentDefinitions()).containsExactly(client, server);
     }
 
     @Test
@@ -51,7 +55,7 @@ class EnvironmentTopologyTest {
         Server outside = new Server("outside");
 
         assertThatThrownBy(() -> TopologyValidator.validate(List.of(client, declared),
-            List.of(Connection.connect(client.api, outside.api))))
+            List.of(ConnectionFactory.create(client.api, outside.api))))
             .hasMessageContaining(
                 "provided port [component='server-outside'",
                 "localName='api'",
@@ -95,7 +99,7 @@ class EnvironmentTopologyTest {
 
         private Client() {
             super(ComponentId.component(CLIENT), new EmptyConfig(), Void.class, UNUSED);
-            api = requires("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = requires(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
 
@@ -104,7 +108,7 @@ class EnvironmentTopologyTest {
 
         private Server(String qualifier) {
             super(ComponentId.component(SERVER, qualifier), new EmptyConfig(), Void.class, UNUSED);
-            api = provides("api", API, Invocation.INSTANCE, Http.INSTANCE);
+            api = provides(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
 }

@@ -4,13 +4,16 @@ This module contains the complete runtime-neutral environment model.
 
 Public contracts:
 
-- `Environment`: immutable topology, lifecycle, diagnostics, and reverse-order cleanup.
-- `construction.EnvironmentBuilder`: the mutable component, connection, configuration, and logging
-  boundary that creates a validated environment facade.
-- `construction.EnvironmentTopology`: the immutable, readable construction result; only the builder
-  can instantiate it.
-- `Component` and `AbstractComponent<C, O>`: one component identity, typed immutable configuration,
-  owned ports, driver, lifecycle state, and optional typed operations.
+- `model.environment.Environment`: lifecycle, diagnostics, and reverse-order cleanup over an
+  immutable topology.
+- `construction.EnvironmentBuilder` and `construction.EnvironmentCreator<E>`: the mutable component,
+  connection, configuration, and logging boundary plus the typed facade creation callback.
+- `construction.ComponentPorts`: low-level helpers for programmatic port declarations; annotated
+  fields remain the normal declarative path.
+- `model.environment.EnvironmentTopology`: one concrete immutable model of components and logical
+  connections, consumed by environment facades and runtime code.
+- `model.component.Component` and `model.component.AbstractComponent<C, O>`: one component identity,
+  typed configuration, owned ports, driver, lifecycle state, and optional typed operations.
 - `@SystemComponent` and `ComponentConfig<D>`: declarative component type, driver, flattened
   component configuration, and separate driver-only configuration.
 - `RequiredPort<C>`, `ProvidedPort<C>`, `Contract<C>`, `ConnectionId`, and `Connection<C>`:
@@ -26,7 +29,8 @@ Public contracts:
   environment-scoped decision boundary.
 - `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
-- `EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted secrets.
+- `configuration.EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted
+  secrets.
 - `ScenarioJournal`, its sealed core-owned `ScenarioEvent` envelopes, `EvidenceCodec<T>`,
   `EvidenceSnapshot`, and immutable journal snapshots: the single authoritative structured
   scenario history and external typed-evidence copy boundary.
@@ -35,8 +39,17 @@ Public contracts:
 - `ProofSubjects`, `ProofSubjectRef`, `CorrelationKey`, `CorrelationContribution<T>`, and
   `CorrelationResult<T>`: environment-scoped opaque subject identity, secret-safe semantic keys,
   detached typed native references, and explicit cardinality.
-- `EnvironmentLogging`, `EnvironmentDiagnostics`, and `EnvironmentStartException`: rendered
-  journal views and failure reporting.
+- `EnvironmentLogging`, top-level `EnvironmentLoggingBuilder`, `EnvironmentDiagnostics`, and
+  `EnvironmentStartException`: logging configuration, rendered journal views, and failure reporting.
+
+The model is grouped by responsibility:
+
+- `model.component`: component identity, declaration, configuration markers, and lifecycle values;
+- `model.topology`: contracts, typed ports, and logical connections;
+- `model.environment`: immutable topology and the environment facade;
+- `model.runtime`: detached runtime state values;
+- `model.communication` and `model.endpoint`: communication semantics and endpoint values;
+- `model.logging` and `model.value`: logging and cross-cutting safe value types.
 
 Core validates component ID uniqueness, port ownership and direction, contract/interaction/protocol
 compatibility, exactly one provider per required port, logging references, dependency cycles, and
@@ -61,18 +74,24 @@ adds the exact returned component instance to the builder. `Environment` contain
 factory, mutable declaration collections, or construction DSL. The builder validates and freezes
 the topology and logging configuration before creating the runtime facade.
 
-Construction ends at `build(...)`: it returns immutable `EnvironmentTopology` and
+Construction ends at `build(...)`: it passes immutable `EnvironmentTopology` and
 `EnvironmentLogging` results to the selected facade constructor. Runtime execution never retains
-the builder, mutable declaration lists, configuration binder, or component materializer. The
-topology constructor and its structural validator are package-private construction details.
+the builder, mutable declaration lists, configuration binder, component materializer, or validator.
+`EnvironmentTopology` is one concrete model class, not an interface paired with a construction-only
+implementation. Its public constructor is a low-level snapshot constructor and assumes structurally
+valid inputs; `EnvironmentBuilder` is the normal entry point and validates before calling it.
+`EnvironmentCreator<E>` is a separate functional interface so facade creation remains an explicit,
+documented extension point rather than a nested builder implementation detail.
 
 The lower-level `EnvironmentBuilder.component(...)` overloads accept an already materialized
 configuration and `ComponentDriver<C, O>`. The explicit-`ComponentType` overload supports isolated
 tests and programmatically built configurations without adding factory methods or constructor DSLs
-to concrete component classes.
+to concrete component classes. Programmatically constructed component fixtures use `ComponentPorts`;
+the component model itself exposes no port factory methods.
 
-`ComponentFactory` and the reflection-backed `ComponentMetadata` are package-private construction
-implementation details. They are not retained by `Environment` or `EnvironmentRuntime`.
+`ComponentFactory`, `ConnectionFactory`, reflection-backed `ComponentMetadata`, `ComponentInitializer`,
+`PortDeclarations`, and `TopologyValidator` are package-private construction implementation details.
+They are not retained by `Environment`, `EnvironmentTopology`, or `EnvironmentRuntime`.
 
 `Connection<C>` is the immutable logical declaration. Its typed `ConnectionId` is derived
 deterministically from both component and local port identities. Each canonical endpoint uses

@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;

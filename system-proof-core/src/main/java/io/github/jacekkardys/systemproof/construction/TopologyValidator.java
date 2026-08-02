@@ -8,20 +8,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.PortDirection;
-import io.github.jacekkardys.systemproof.model.PortRef;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.topology.PortDirection;
+import io.github.jacekkardys.systemproof.model.topology.PortRef;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
 /** Structural validation performed while an environment topology is constructed. */
 final class TopologyValidator {
     private TopologyValidator() {}
 
-    static Map<RequiredPort<?>, ConnectionRef> validate(List<AbstractComponent<?, ?>> components,
-        List<ConnectionRef> connections) {
+    static void validate(List<AbstractComponent<?, ?>> components, List<ConnectionRef> connections) {
         if (components.isEmpty()) {
             throw new IllegalArgumentException("Environment must contain at least one component");
         }
@@ -68,7 +67,6 @@ final class TopologyValidator {
             .ifPresent(required -> {
                 throw new IllegalArgumentException(describePort("required", required) + " is not connected");
             });
-        return Collections.unmodifiableMap(connected);
     }
 
     static String describePort(String role, PortRef port) {

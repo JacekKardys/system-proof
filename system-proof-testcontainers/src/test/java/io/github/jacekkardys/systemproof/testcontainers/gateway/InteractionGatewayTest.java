@@ -1,11 +1,14 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.provides;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.groups.Tuple.tuple;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
-import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
 import static io.github.jacekkardys.systemproof.testcontainers.gateway.TcpEndpointAdapter.endpoint;
 
 import java.io.BufferedReader;
@@ -44,23 +47,23 @@ import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.ConnectionState;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.Secret;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.value.Secret;
 
 class InteractionGatewayTest {
     private static final ComponentType CLIENT = ComponentType.of("gateway-client");
@@ -819,13 +822,13 @@ class InteractionGatewayTest {
                 ResolvedRoutes.class,
                 driver
             );
-            command = requiresAtStartup(
+            command = requiresAtStartup(this,
                 "command",
                 COMMAND,
                 Invocation.INSTANCE,
                 Http.INSTANCE
             );
-            session = requiresAtStartup(
+            session = requiresAtStartup(this,
                 "session",
                 SESSION,
                 Session.INSTANCE,
@@ -840,8 +843,8 @@ class InteractionGatewayTest {
 
         private Server(ComponentDriver<EmptyConfig, Void> driver) {
             super(ComponentId.component(SERVER), new EmptyConfig(), Void.class, driver);
-            command = provides("command", COMMAND, Invocation.INSTANCE, Http.INSTANCE);
-            session = provides("session", SESSION, Session.INSTANCE, Smpp.INSTANCE);
+            command = provides(this, "command", COMMAND, Invocation.INSTANCE, Http.INSTANCE);
+            session = provides(this, "session", SESSION, Session.INSTANCE, Smpp.INSTANCE);
         }
     }
 

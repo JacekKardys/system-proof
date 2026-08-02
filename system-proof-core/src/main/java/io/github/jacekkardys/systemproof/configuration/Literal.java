@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.configuration;
 
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationSource.UNSET;
 
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
 
 /** Resolves a literal value declared directly on a configuration method. */
 public final class Literal implements ConfigurationProvider {

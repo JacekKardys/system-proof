@@ -6,11 +6,11 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
 
 class ConfigurationValidatorTest {
     private static final ComponentDriver<TestConfiguration, Void> UNUSED =
@@ -36,10 +36,16 @@ class ConfigurationValidatorTest {
     }
 
     @Test
-    void shouldValidateConfigurationWhenComponentIsDeclared() {
+    void shouldValidateConfigurationWhenComponentIsMaterialized() {
         ConstraintViolationException failure = catchThrowableOfType(
             ConstraintViolationException.class,
-            () -> new TestComponent(new TestConfiguration(" "))
+            () -> new EnvironmentBuilder().component(
+                TestComponent.class,
+                ComponentType.of("test"),
+                null,
+                new TestConfiguration(" "),
+                UNUSED
+            )
         );
 
         assertInvalidValueViolation(failure);
@@ -57,14 +63,6 @@ class ConfigurationValidatorTest {
     ) implements RuntimeConfig {}
 
     private static final class TestComponent extends AbstractComponent<TestConfiguration, Void> {
-        private TestComponent(TestConfiguration configuration) {
-            super(
-                ComponentId.component(ComponentType.of("test")),
-                configuration,
-                Void.class,
-                UNUSED
-            );
-        }
-
+        private TestComponent() {}
     }
 }

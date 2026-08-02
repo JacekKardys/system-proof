@@ -115,8 +115,9 @@ public interface SmscConfig extends ComponentConfig<SmscConfig.Driver> {
 }
 ```
 
-Environment assembly is exposed from `io.github.jacekkardys.systemproof.construction`; runtime
-facades and immutable topology types remain in `model`.
+Environment assembly, its immutable topology result, and typed facade creation are exposed from
+`io.github.jacekkardys.systemproof.construction`; the runtime facade and topology live in
+`model.environment`, while external configuration snapshots live in `configuration`.
 
 Every configuration method retains its `@ConfigurationSource` and validation annotations. The
 environment builder binds both interfaces from one immutable `EnvironmentConfiguration`, constructs
@@ -150,8 +151,13 @@ return builder.build((topology, logging) ->
 );
 ```
 
-The facade constructor accepts only immutable `EnvironmentTopology` and `EnvironmentLogging`.
+The facade constructor accepts only the concrete immutable model `EnvironmentTopology` and
+`EnvironmentLogging`. The topology constructor snapshots already validated model values; normal
+application code should let `EnvironmentBuilder` perform validation and create it.
 `Environment` and its runtime collaborators do not depend on the mutable construction DSL.
+`EnvironmentCreator<E>` is the callback passed to `build(...)` when the caller needs a typed
+`Environment` subclass. It runs once after topology and logging validation and should only invoke
+that facade's constructor.
 
 ## Runtime model
 

@@ -3,7 +3,6 @@ package io.github.jacekkardys.systemproof.configuration;
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationSource.UNSET;
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationValues.requireText;
 
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
 
 /** Resolves a value from the external environment configuration view. */
 public final class EnvironmentVariable implements ConfigurationProvider {

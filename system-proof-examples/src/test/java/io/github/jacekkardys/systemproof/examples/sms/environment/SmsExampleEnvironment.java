@@ -12,9 +12,9 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.component.redi
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.UkarimSmscOperations;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
 /** Complete SMS ingestion topology with operations on the exact component instances started by System Proof. */
 public final class SmsExampleEnvironment extends Environment {

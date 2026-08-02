@@ -9,7 +9,7 @@ import io.github.jacekkardys.systemproof.journal.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.SessionId;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 
 /** Environment-owned implementation of one connection-scoped observation capability. */
 final class ConnectionObservationPublisher implements ConnectionObservations {

@@ -1,10 +1,10 @@
 package io.github.jacekkardys.systemproof.driver;
 
 import java.util.function.Supplier;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
 /**
  * Topology, journal-backed diagnostics, and shared-resource services available only to drivers.

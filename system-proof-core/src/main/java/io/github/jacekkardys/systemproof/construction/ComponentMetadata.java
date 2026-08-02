@@ -11,18 +11,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
+import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.DriverConfig;
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.SystemComponent;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.component.DriverConfig;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.SystemComponent;
 
 /** Central validated reflection boundary for declarative component materialization. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class ComponentMetadata<C extends RuntimeConfig, D extends DriverConfig, O,
     T extends AbstractComponent<C, O>> {
     private final Class<T> componentClass;
@@ -33,20 +36,6 @@ final class ComponentMetadata<C extends RuntimeConfig, D extends DriverConfig, O
     private final Class<? extends ComponentDriver<C, O>> driverClass;
     private final Constructor<T> componentConstructor;
     private final Constructor<? extends ComponentDriver<C, O>> driverConstructor;
-
-    private ComponentMetadata(Class<T> componentClass, ComponentType componentType, Class<C> configurationType,
-        Class<D> driverConfigurationType, Class<O> operationsType,
-        Class<? extends ComponentDriver<C, O>> driverClass, Constructor<T> componentConstructor,
-        Constructor<? extends ComponentDriver<C, O>> driverConstructor) {
-        this.componentClass = componentClass;
-        this.componentType = componentType;
-        this.configurationType = configurationType;
-        this.driverConfigurationType = driverConfigurationType;
-        this.operationsType = operationsType;
-        this.driverClass = driverClass;
-        this.componentConstructor = componentConstructor;
-        this.driverConstructor = driverConstructor;
-    }
 
     static <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> ComponentMetadata<C, ?, O, T> analyze(
         Class<T> componentClass) {
@@ -207,8 +196,9 @@ final class ComponentMetadata<C extends RuntimeConfig, D extends DriverConfig, O
 
     T materialize(String qualifier, C configuration, ComponentDriver<C, O> driver) {
         T component = instantiateComponent();
-        return ComponentInitializer.initialize(component, ComponentId.component(componentType, qualifier),
-            configuration, operationsType, driver);
+        ComponentInitializer.initialize(component, ComponentId.component(componentType, qualifier), configuration,
+            operationsType, driver);
+        return component;
     }
 
     private ComponentDriver<C, O> instantiateDriver(D configuration) {

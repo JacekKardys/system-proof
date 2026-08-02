@@ -32,9 +32,9 @@ import io.github.jacekkardys.systemproof.engine.ConnectionObservations;
 import io.github.jacekkardys.systemproof.journal.EvidenceCodec;
 import io.github.jacekkardys.systemproof.journal.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
 
 /** One connection-owned listener, its active socket pairs, and bounded directional pipelines. */
 final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider {

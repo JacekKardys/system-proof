@@ -5,11 +5,11 @@ import java.util.List;
 import java.util.Objects;
 import org.testcontainers.containers.GenericContainer;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.EndpointAddress;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.PortDirection;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointAddress;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.topology.PortDirection;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 
 /** A prepared container and typed publishers for its logical provided ports. */
 public final class ContainerPlan {

@@ -12,16 +12,16 @@ import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ComponentLifecycleException;
-import io.github.jacekkardys.systemproof.model.ComponentState;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.EnvironmentState;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
-import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.RuntimeConnectionSnapshot;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.component.ComponentLifecycleException;
+import io.github.jacekkardys.systemproof.model.component.ComponentState;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 
 /** Owns one environment execution: start, readiness, operations, diagnostics, stop, and cleanup. */
 public final class EnvironmentRuntime {
@@ -51,7 +51,9 @@ public final class EnvironmentRuntime {
         ConnectionRouting routing
     ) {
         topology = Objects.requireNonNull(topology, "topology must not be null");
-        components = topology.componentDefinitions();
+        components = topology.components().stream()
+            .map(EnvironmentRuntime::componentDefinition)
+            .toList();
         startOrder = ComponentStartPlan.order(components, topology::connectionFrom);
         logging = Objects.requireNonNull(logging, "logging must not be null");
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
@@ -66,6 +68,10 @@ public final class EnvironmentRuntime {
         );
         bindings = new RuntimeBindings(connections);
         diagnostics = new RuntimeDiagnostics(journal, eventLog);
+    }
+
+    private static AbstractComponent<?, ?> componentDefinition(Component component) {
+        return (AbstractComponent<?, ?>) component;
     }
 
     public synchronized void start() {

@@ -4,82 +4,109 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.api.EnvironmentLoggingBuilder;
+import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.model.Environment;
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
-/** Public construction API for validated environment runtime facades. */
+/**
+ * Mutable construction boundary for components, connections, logging, and validated environment facades.
+ * Builder state is never retained by the resulting environment.
+ */
 public final class EnvironmentBuilder {
     private final List<AbstractComponent<?, ?>> components = new ArrayList<>();
     private final List<ConnectionRef> connections = new ArrayList<>();
     private final ComponentFactory componentFactory;
     private EnvironmentLogging logging = EnvironmentLogging.defaults();
 
+    /** Creates a builder using a snapshot of system properties and environment variables. */
     public EnvironmentBuilder() {
         this(EnvironmentConfiguration.system());
     }
 
+    /**
+     * Creates a builder using an explicit immutable configuration snapshot.
+     *
+     * @param configuration values used to materialize declarative components and drivers
+     */
     public EnvironmentBuilder(EnvironmentConfiguration configuration) {
         componentFactory = ComponentFactory.from(configuration);
     }
 
+    /** Materializes and registers an unqualified declarative component. */
     public <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T component(Class<T> type) {
         return register(componentFactory.create(type));
     }
 
+    /** Materializes and registers a qualified declarative component. */
     public <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T component(String qualifier, Class<T> type) {
         return register(componentFactory.create(type, qualifier));
     }
 
+    /** Registers a component materialized from an explicit configuration and driver. */
     public <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T component(Class<T> type, C configuration,
         ComponentDriver<C, O> driver) {
         return register(componentFactory.create(type, configuration, driver));
     }
 
+    /** Registers a qualified component materialized from an explicit configuration and driver. */
     public <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T component(String qualifier, Class<T> type,
         C configuration, ComponentDriver<C, O> driver) {
         return register(componentFactory.create(qualifier, type, configuration, driver));
     }
 
+    /** Registers a component with an explicit type, qualifier, configuration, and driver. */
     public <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T component(Class<T> type,
         ComponentType componentType, String qualifier, C configuration, ComponentDriver<C, O> driver) {
         return register(componentFactory.create(type, componentType, qualifier, configuration, driver));
     }
 
+    /** Registers already materialized component declarations. */
     public EnvironmentBuilder components(AbstractComponent<?, ?>... values) {
         components.addAll(List.of(Objects.requireNonNull(values, "components must not be null")));
         return this;
     }
 
+    /** Declares one typed required-to-provided connection. */
     public <C> EnvironmentBuilder connect(RequiredPort<C> from, ProvidedPort<C> to) {
-        connections.add(Connection.connect(from, to));
+        connections.add(ConnectionFactory.create(from, to));
         return this;
     }
 
-    public EnvironmentBuilder logging(EnvironmentLogging.Builder builder) {
+    /** Uses the logging configuration produced by the supplied logging builder. */
+    public EnvironmentBuilder logging(EnvironmentLoggingBuilder builder) {
         logging = Objects.requireNonNull(builder, "logging must not be null").build();
         return this;
     }
 
+    /** Uses an immutable logging configuration. */
     public EnvironmentBuilder logging(EnvironmentLogging configuration) {
         logging = Objects.requireNonNull(configuration, "logging must not be null");
         return this;
     }
 
+    /** Builds the default environment facade. */
     public Environment build() {
         return build(DefaultEnvironment::new);
     }
 
+    /**
+     * Validates and freezes construction state before creating a typed environment facade.
+     *
+     * @param creator facade creator invoked with immutable construction results
+     * @return the created environment facade
+     */
     public <E extends Environment> E build(EnvironmentCreator<E> creator) {
         Objects.requireNonNull(creator, "creator must not be null");
-        var topology = new EnvironmentTopology(components, connections);
+        TopologyValidator.validate(components, connections);
+        EnvironmentTopology topology = new EnvironmentTopology(components, connections);
         logging.validateAgainst(topology);
         return Objects.requireNonNull(creator.create(topology, logging), "creator must not return null");
     }
@@ -89,15 +116,4 @@ public final class EnvironmentBuilder {
         return component;
     }
 
-    /** Creates a concrete runtime facade from validated immutable construction results. */
-    @FunctionalInterface
-    public interface EnvironmentCreator<E extends Environment> {
-        E create(EnvironmentTopology topology, EnvironmentLogging logging);
-    }
-
-    private static final class DefaultEnvironment extends Environment {
-        private DefaultEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
-            super(topology, logging);
-        }
-    }
 }

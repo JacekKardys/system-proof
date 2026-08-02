@@ -7,15 +7,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.construction.EnvironmentCreator;
+import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
 class EnvironmentFactoryTest {
     private final EnvironmentFactory factory = new EnvironmentFactory();
@@ -192,7 +193,7 @@ class EnvironmentFactoryTest {
         }
     }
 
-    private static <E extends EnvironmentFixture> E fixture(EnvironmentBuilder.EnvironmentCreator<E> creator) {
+    private static <E extends EnvironmentFixture> E fixture(EnvironmentCreator<E> creator) {
         return new EnvironmentBuilder()
             .components(new DummyComponent())
             .build(creator);

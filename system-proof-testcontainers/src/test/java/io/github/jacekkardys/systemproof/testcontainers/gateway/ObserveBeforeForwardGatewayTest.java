@@ -39,9 +39,9 @@ import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.SessionId;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
 
 class ObserveBeforeForwardGatewayTest {
     private static final Duration TIMEOUT = Duration.ofSeconds(2);

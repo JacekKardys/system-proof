@@ -2,8 +2,8 @@ package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import java.util.Objects;
 import org.testcontainers.containers.GenericContainer;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 
 /** Restricted view of one started container available to its driver hooks. */
 public final class StartedContainer {

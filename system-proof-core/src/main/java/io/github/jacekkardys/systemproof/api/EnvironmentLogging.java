@@ -2,17 +2,13 @@ package io.github.jacekkardys.systemproof.api;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.ConnectionId;
-import io.github.jacekkardys.systemproof.model.ConnectionRef;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
-import io.github.jacekkardys.systemproof.model.LogLevel;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
 
 /** Emission thresholds for framework, component, and connection events. */
 public final class EnvironmentLogging {
@@ -22,20 +18,23 @@ public final class EnvironmentLogging {
     private final Map<Component, LogLevel> componentLevels;
     private final Map<ConnectionId, LogLevel> connectionLevels;
 
-    private EnvironmentLogging(Builder builder) {
-        frameworkLevel = builder.frameworkLevel;
-        defaultComponentLevel = builder.defaultComponentLevel;
-        defaultConnectionLevel = builder.defaultConnectionLevel;
+    EnvironmentLogging(LogLevel frameworkLevel, LogLevel defaultComponentLevel, LogLevel defaultConnectionLevel,
+        Map<Component, LogLevel> componentLevels, Map<ConnectionId, LogLevel> connectionLevels) {
+        this.frameworkLevel = frameworkLevel;
+        this.defaultComponentLevel = defaultComponentLevel;
+        this.defaultConnectionLevel = defaultConnectionLevel;
         IdentityHashMap<Component, LogLevel> components = new IdentityHashMap<>();
-        components.putAll(builder.componentLevels);
-        componentLevels = Collections.unmodifiableMap(components);
-        connectionLevels = Map.copyOf(builder.connectionLevels);
+        components.putAll(componentLevels);
+        this.componentLevels = Collections.unmodifiableMap(components);
+        this.connectionLevels = Map.copyOf(connectionLevels);
     }
 
-    public static Builder logs() {
-        return new Builder();
+    /** Starts a mutable logging configuration builder. */
+    public static EnvironmentLoggingBuilder logs() {
+        return new EnvironmentLoggingBuilder();
     }
 
+    /** Returns the default INFO-level logging configuration. */
     public static EnvironmentLogging defaults() {
         return logs().build();
     }
@@ -79,63 +78,4 @@ public final class EnvironmentLogging {
             });
     }
 
-    public static final class Builder {
-        private LogLevel frameworkLevel = LogLevel.INFO;
-        private LogLevel defaultComponentLevel = LogLevel.INFO;
-        private LogLevel defaultConnectionLevel = LogLevel.INFO;
-        private final IdentityHashMap<Component, LogLevel> componentLevels = new IdentityHashMap<>();
-        private final Map<ConnectionId, LogLevel> connectionLevels = new LinkedHashMap<>();
-
-        private Builder() {}
-
-        public Builder frameworkLevel(LogLevel level) {
-            frameworkLevel = Objects.requireNonNull(level, "level must not be null");
-            return this;
-        }
-
-        public Builder defaultComponentLevel(LogLevel level) {
-            defaultComponentLevel = Objects.requireNonNull(level, "level must not be null");
-            return this;
-        }
-
-        public Builder defaultConnectionLevel(LogLevel level) {
-            defaultConnectionLevel = Objects.requireNonNull(level, "level must not be null");
-            return this;
-        }
-
-        public Builder warnByDefault() {
-            return defaultComponentLevel(LogLevel.WARN);
-        }
-
-        public Builder componentLevel(Component component, LogLevel level) {
-            componentLevels.put(
-                Objects.requireNonNull(component, "component must not be null"),
-                Objects.requireNonNull(level, "level must not be null")
-            );
-            return this;
-        }
-
-        public Builder info(Component... components) {
-            for (Component component : components) {
-                componentLevel(component, LogLevel.INFO);
-            }
-            return this;
-        }
-
-        public <C> Builder connectionLevel(
-            RequiredPort<C> from,
-            ProvidedPort<C> to,
-            LogLevel level
-        ) {
-            connectionLevels.put(
-                Connection.connect(from, to).id(),
-                Objects.requireNonNull(level, "level must not be null")
-            );
-            return this;
-        }
-
-        public EnvironmentLogging build() {
-            return new EnvironmentLogging(this);
-        }
-    }
 }

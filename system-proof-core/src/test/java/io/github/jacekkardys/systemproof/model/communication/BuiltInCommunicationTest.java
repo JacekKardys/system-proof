@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.annotation.Annotation;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.model.Communication;
+import io.github.jacekkardys.systemproof.model.communication.Communication;
 
 class BuiltInCommunicationTest {
 

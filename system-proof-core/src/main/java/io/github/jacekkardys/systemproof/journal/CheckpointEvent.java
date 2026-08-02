@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
 
 /**
  * Core-owned immutable checkpoint or barrier record.

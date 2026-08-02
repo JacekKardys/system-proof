@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.driver;
 
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 /** Materializes one component instance in a selected runtime technology. */
 @FunctionalInterface

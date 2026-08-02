@@ -6,10 +6,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
 /** Running component handles and typed values published for provided endpoint contracts. */
 final class RuntimeBindings {
@@ -21,7 +21,7 @@ final class RuntimeBindings {
         this.connections = Objects.requireNonNull(connections, "connections must not be null");
     }
 
-    <C extends io.github.jacekkardys.systemproof.model.RuntimeConfig, O> void attach(
+    <C extends io.github.jacekkardys.systemproof.model.component.RuntimeConfig, O> void attach(
         AbstractComponent<C, O> component,
         ComponentRuntime<O> runtime
     ) {
@@ -61,7 +61,7 @@ final class RuntimeBindings {
         return connections.resolve(required);
     }
 
-    <C extends io.github.jacekkardys.systemproof.model.RuntimeConfig, O> O operations(
+    <C extends io.github.jacekkardys.systemproof.model.component.RuntimeConfig, O> O operations(
         AbstractComponent<C, O> component
     ) {
         Object operations = requireRuntime(component).operations();

@@ -1,22 +1,21 @@
 package io.github.jacekkardys.systemproof.construction;
 
 import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.EnvironmentConfiguration;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 /** Materializes component declarations for one immutable environment-configuration snapshot. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class ComponentFactory {
     private final EnvironmentConfiguration values;
 
-    private ComponentFactory(EnvironmentConfiguration values) {
-        this.values = Objects.requireNonNull(values, "values must not be null");
-    }
-
     static ComponentFactory from(EnvironmentConfiguration values) {
-        return new ComponentFactory(values);
+        return new ComponentFactory(Objects.requireNonNull(values, "values must not be null"));
     }
 
     <C extends RuntimeConfig, O, T extends AbstractComponent<C, O>> T create(Class<T> type) {

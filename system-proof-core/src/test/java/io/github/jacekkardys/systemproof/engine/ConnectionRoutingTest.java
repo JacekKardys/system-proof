@@ -1,27 +1,31 @@
 package io.github.jacekkardys.systemproof.engine;
 
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPorts.provides;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.model.Contract.contract;
-import static io.github.jacekkardys.systemproof.model.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.model.topology.Contract.contract;
+import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.ComponentId;
-import io.github.jacekkardys.systemproof.model.ComponentType;
-import io.github.jacekkardys.systemproof.model.Connection;
-import io.github.jacekkardys.systemproof.model.Contract;
-import io.github.jacekkardys.systemproof.model.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.InteractionSpec;
-import io.github.jacekkardys.systemproof.model.ObservationRequirement;
-import io.github.jacekkardys.systemproof.model.ProtocolSpec;
-import io.github.jacekkardys.systemproof.model.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.RequiredPort;
-import io.github.jacekkardys.systemproof.model.RoutingMode;
-import io.github.jacekkardys.systemproof.model.RuntimeConfig;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.model.topology.Connection;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
+import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
 
 class ConnectionRoutingTest {
     private static final Contract<String> COMMAND = contract("command", String.class);
@@ -37,11 +41,11 @@ class ConnectionRoutingTest {
         TestComponent server = new TestComponent("server");
         RequiredPort<String> commandRequired = client.required("command", COMMAND);
         RequiredPort<String> queryRequired = client.required("query", QUERY);
-        Connection<String> command = Connection.connect(
+        Connection<String> command = connection(
             commandRequired,
             server.provided("command", COMMAND)
         );
-        Connection<String> query = Connection.connect(
+        Connection<String> query = connection(
             queryRequired,
             server.provided("query", QUERY)
         );
@@ -81,11 +85,11 @@ class ConnectionRoutingTest {
         TestComponent server = new TestComponent("server");
         RequiredPort<String> commandRequired = client.required("command", COMMAND);
         RequiredPort<Integer> countRequired = client.required("count", COUNT);
-        Connection<String> command = Connection.connect(
+        Connection<String> command = connection(
             commandRequired,
             server.provided("command", COMMAND)
         );
-        Connection<Integer> count = Connection.connect(
+        Connection<Integer> count = connection(
             countRequired,
             server.provided("count", COUNT)
         );
@@ -128,8 +132,8 @@ class ConnectionRoutingTest {
         RequiredPort<String> firstRequired = firstClient.required("command", COMMAND);
         RequiredPort<String> secondRequired = secondClient.required("command", COMMAND);
         ProvidedPort<String> provided = server.provided("command", COMMAND);
-        Connection<String> first = Connection.connect(firstRequired, provided);
-        Connection<String> second = Connection.connect(secondRequired, provided);
+        Connection<String> first = connection(firstRequired, provided);
+        Connection<String> second = connection(secondRequired, provided);
         ConnectionRouting routing = ConnectionRouting.routed(
             first,
             context -> ConnectionRoute.routed(binding(
@@ -160,7 +164,7 @@ class ConnectionRoutingTest {
         TestComponent client = new TestComponent("observation");
         TestComponent server = new TestComponent("observation");
         RequiredPort<String> required = client.required("command", COMMAND);
-        Connection<String> declaration = Connection.connect(
+        Connection<String> declaration = connection(
             required,
             server.provided("command", COMMAND)
         );
@@ -248,7 +252,7 @@ class ConnectionRoutingTest {
     void shouldRejectRequiredObservationThatSilentlyUsesATransparentRoute() {
         TestComponent client = new TestComponent("required");
         TestComponent server = new TestComponent("required");
-        Connection<String> declaration = Connection.connect(
+        Connection<String> declaration = connection(
             client.required("command", COMMAND),
             server.provided("command", COMMAND)
         );
@@ -268,6 +272,10 @@ class ConnectionRoutingTest {
                 "requires active observation",
                 "DISABLED"
             );
+    }
+
+    private static <C> Connection<C> connection(RequiredPort<C> from, ProvidedPort<C> to) {
+        return new Connection<>(from, to, ConnectionId.between(from, to));
     }
 
     private static <C> ConnectionRoute<C> routeWithStatus(
@@ -333,11 +341,11 @@ class ConnectionRoutingTest {
         }
 
         private <C> RequiredPort<C> required(String name, Contract<C> contract) {
-            return requiresAtStartup(name, contract, Invocation.INSTANCE, Http.INSTANCE);
+            return requiresAtStartup(this, name, contract, Invocation.INSTANCE, Http.INSTANCE);
         }
 
         private <C> ProvidedPort<C> provided(String name, Contract<C> contract) {
-            return provides(name, contract, Invocation.INSTANCE, Http.INSTANCE);
+            return provides(this, name, contract, Invocation.INSTANCE, Http.INSTANCE);
         }
     }
 }

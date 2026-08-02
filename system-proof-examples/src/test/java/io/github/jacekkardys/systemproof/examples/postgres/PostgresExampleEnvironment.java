@@ -2,9 +2,9 @@ package io.github.jacekkardys.systemproof.examples.postgres;
 
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.Environment;
+import io.github.jacekkardys.systemproof.model.environment.Environment;
 import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.construction.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
 final class PostgresExampleEnvironment extends Environment {
     private final PostgresComponent database;

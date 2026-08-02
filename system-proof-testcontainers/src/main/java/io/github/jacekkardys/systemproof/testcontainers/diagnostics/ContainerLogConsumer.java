@@ -7,8 +7,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.testcontainers.containers.output.OutputFrame;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.model.Component;
-import io.github.jacekkardys.systemproof.model.LogLevel;
+import io.github.jacekkardys.systemproof.model.component.Component;
+import io.github.jacekkardys.systemproof.model.logging.LogLevel;
 
 /** Sends container output into the environment's structured diagnostic journal. */
 public final class ContainerLogConsumer implements Consumer<OutputFrame> {
