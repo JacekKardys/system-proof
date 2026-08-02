@@ -15,6 +15,7 @@ import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.b
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
@@ -54,6 +55,7 @@ import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 class EnvironmentLifecycleTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
     private static final ComponentType SERVER = ComponentType.of("server");
+    private static final ComponentType STANDALONE = ComponentType.of("standalone");
     private static final Contract<ApiEndpoint> API = contract("api", ApiEndpoint.class);
 
     @Test
@@ -115,6 +117,7 @@ class EnvironmentLifecycleTest {
             );
 
         environment.close();
+        environment.close();
 
         assertThat(cleanup).containsExactly("client", "server");
         assertThat(declared.state()).isEqualTo(ConnectionState.DECLARED);
@@ -158,6 +161,71 @@ class EnvironmentLifecycleTest {
                 ConnectionState.STOPPING,
                 ConnectionState.STOPPED
             );
+    }
+
+    @Test
+    void shouldRejectStartingAnAlreadyRunningEnvironment() {
+        Standalone component = new Standalone(
+            "component",
+            (declaration, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime()
+                    .build()
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(component)
+            .build()
+            .start();
+
+        assertThatThrownBy(environment::start)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Environment cannot start from state RUNNING");
+
+        environment.close();
+    }
+
+    @Test
+    void shouldRollbackOnlyStartedComponentsInReverseOrderAndAtMostOnce() {
+        List<String> cleanup = new ArrayList<>();
+        IllegalStateException startupFailure =
+            new IllegalStateException("third component failed");
+        Standalone first = new Standalone(
+            "first",
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime(() -> cleanup.add("first"))
+                    .build()
+        );
+        Standalone second = new Standalone(
+            "second",
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime(() -> cleanup.add("second"))
+                    .build()
+        );
+        Standalone third = new Standalone(
+            "third",
+            (component, context) -> {
+                throw startupFailure;
+            }
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(first, second, third)
+            .build();
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause()).isSameAs(startupFailure);
+        assertThat(cleanup).containsExactly("second", "first");
+        assertThat(environment.componentState(first)).isEqualTo(ComponentState.STOPPED);
+        assertThat(environment.componentState(second)).isEqualTo(ComponentState.STOPPED);
+        assertThat(environment.componentState(third)).isEqualTo(ComponentState.FAILED);
+        environment.close();
+        environment.close();
+        assertThat(cleanup).containsExactly("second", "first");
     }
 
     @Test
@@ -407,9 +475,10 @@ class EnvironmentLifecycleTest {
 
     @Test
     void shouldStructureAConnectionFailureWhenAProviderOmitsItsPort() {
+        AtomicInteger cleanupCalls = new AtomicInteger();
         Server server = new Server(
             (component, context) -> io.github.jacekkardys.systemproof.driver.ComponentRuntime
-                .<Void>runtime()
+                .<Void>runtime(cleanupCalls::incrementAndGet)
                 .build()
         );
         Client client = new Client(
@@ -445,6 +514,9 @@ class EnvironmentLifecycleTest {
                         "Driver for component 'server' did not materialize port 'server.api'"
                     );
             });
+        environment.close();
+        environment.close();
+        assertThat(cleanupCalls).hasValue(1);
     }
 
     @Test
@@ -666,6 +738,20 @@ class EnvironmentLifecycleTest {
             api = provides(this, "api", API, Invocation.INSTANCE, Http.INSTANCE);
         }
 
+    }
+
+    private static final class Standalone extends AbstractComponent<EmptyConfig, Void> {
+        private Standalone(
+            String qualifier,
+            ComponentDriver<EmptyConfig, Void> driver
+        ) {
+            super(
+                ComponentId.component(STANDALONE, qualifier),
+                new EmptyConfig(),
+                Void.class,
+                driver
+            );
+        }
     }
 
     private static final class CollisionClient

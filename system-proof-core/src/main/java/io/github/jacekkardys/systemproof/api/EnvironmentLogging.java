@@ -4,29 +4,53 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Objects;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.Value;
+import lombok.experimental.Accessors;
 import io.github.jacekkardys.systemproof.model.component.Component;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 
 /** Emission thresholds for framework, component, and connection events. */
+@Accessors(fluent = true)
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+@Value
 public final class EnvironmentLogging {
-    private final LogLevel frameworkLevel;
-    private final LogLevel defaultComponentLevel;
-    private final LogLevel defaultConnectionLevel;
-    private final Map<Component, LogLevel> componentLevels;
-    private final Map<ConnectionId, LogLevel> connectionLevels;
+    @Getter
+    LogLevel frameworkLevel;
+    LogLevel defaultComponentLevel;
+    LogLevel defaultConnectionLevel;
+    Map<Component, LogLevel> componentLevels;
+    Map<ConnectionId, LogLevel> connectionLevels;
 
-    EnvironmentLogging(LogLevel frameworkLevel, LogLevel defaultComponentLevel, LogLevel defaultConnectionLevel,
-        Map<Component, LogLevel> componentLevels, Map<ConnectionId, LogLevel> connectionLevels) {
-        this.frameworkLevel = frameworkLevel;
-        this.defaultComponentLevel = defaultComponentLevel;
-        this.defaultConnectionLevel = defaultConnectionLevel;
+    /** Creates an immutable, detached logging configuration. */
+    static EnvironmentLogging of(
+        LogLevel frameworkLevel,
+        LogLevel defaultComponentLevel,
+        LogLevel defaultConnectionLevel,
+        Map<Component, LogLevel> componentLevels,
+        Map<ConnectionId, LogLevel> connectionLevels
+    ) {
+        Objects.requireNonNull(frameworkLevel, "frameworkLevel must not be null");
+        Objects.requireNonNull(defaultComponentLevel, "defaultComponentLevel must not be null");
+        Objects.requireNonNull(defaultConnectionLevel, "defaultConnectionLevel must not be null");
+        Objects.requireNonNull(componentLevels, "componentLevels must not be null");
+        Objects.requireNonNull(connectionLevels, "connectionLevels must not be null");
+
         IdentityHashMap<Component, LogLevel> components = new IdentityHashMap<>();
         components.putAll(componentLevels);
-        this.componentLevels = Collections.unmodifiableMap(components);
-        this.connectionLevels = Map.copyOf(connectionLevels);
+
+        return new EnvironmentLogging(
+            frameworkLevel,
+            defaultComponentLevel,
+            defaultConnectionLevel,
+            Collections.unmodifiableMap(components),
+            Map.copyOf(connectionLevels)
+        );
     }
 
     /** Starts a mutable logging configuration builder. */
@@ -37,10 +61,6 @@ public final class EnvironmentLogging {
     /** Returns the default INFO-level logging configuration. */
     public static EnvironmentLogging defaults() {
         return logs().build();
-    }
-
-    public LogLevel frameworkLevel() {
-        return frameworkLevel;
     }
 
     public LogLevel componentLevel(Component component) {

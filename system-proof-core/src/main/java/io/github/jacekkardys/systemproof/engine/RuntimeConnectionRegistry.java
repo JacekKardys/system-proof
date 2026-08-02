@@ -491,7 +491,7 @@ final class RuntimeConnectionRegistry {
                     connection.declaration(),
                     cleanupFailure
                 );
-                firstFailure = EnvironmentRuntime.accumulate(
+                firstFailure = EnvironmentRuntimeFailures.accumulate(
                     firstFailure,
                     cleanupFailure
                 );

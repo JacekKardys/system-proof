@@ -106,7 +106,7 @@ public final class EnvironmentBuilder {
     public <E extends Environment> E build(EnvironmentCreator<E> creator) {
         Objects.requireNonNull(creator, "creator must not be null");
         TopologyValidator.validate(components, connections);
-        EnvironmentTopology topology = new EnvironmentTopology(components, connections);
+        EnvironmentTopology topology = EnvironmentTopology.of(components, connections);
         logging.validateAgainst(topology);
         return Objects.requireNonNull(creator.create(topology, logging), "creator must not return null");
     }

@@ -34,7 +34,7 @@ public class Environment implements AutoCloseable {
     protected Environment(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
         this.topology = Objects.requireNonNull(topology, "topology must not be null");
         this.logging = Objects.requireNonNull(logging, "logging must not be null");
-        runtime = new EnvironmentRuntime(this.topology, this.logging,
+        runtime = EnvironmentRuntime.of(this.topology, this.logging,
             Objects.requireNonNull(routing, "routing must not be null"));
     }
 

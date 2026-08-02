@@ -42,7 +42,7 @@ class EnvironmentTopologyTest {
         List<ConnectionRef> connections = new ArrayList<>(List.of(ConnectionFactory.create(client.api, server.api)));
 
         TopologyValidator.validate(components, connections);
-        EnvironmentTopology topology = new EnvironmentTopology(components, connections);
+        EnvironmentTopology topology = EnvironmentTopology.of(components, connections);
         components.clear();
         connections.clear();
 
@@ -55,7 +55,7 @@ class EnvironmentTopologyTest {
     void shouldRejectAnUnsupportedComponentAtTheTopologyConstructionBoundary() {
         Component unsupported = new UnsupportedComponent();
 
-        assertThatThrownBy(() -> new EnvironmentTopology((List) List.of(unsupported), List.of()))
+        assertThatThrownBy(() -> EnvironmentTopology.of((List) List.of(unsupported), List.of()))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining(
                 "EnvironmentTopology accepts only runtime components",

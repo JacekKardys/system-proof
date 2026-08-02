@@ -101,7 +101,7 @@ final class DriverServices {
                 resource.value().close();
             } catch (Exception | Error failure) {
                 eventLog.driverResourceCleanupFailure(resource.name(), failure);
-                firstFailure = EnvironmentRuntime.accumulate(firstFailure, failure);
+                firstFailure = EnvironmentRuntimeFailures.accumulate(firstFailure, failure);
             }
         }
         sharedResources.clear();
