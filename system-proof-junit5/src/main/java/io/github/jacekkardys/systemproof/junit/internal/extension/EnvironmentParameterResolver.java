@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal.spi;
+package io.github.jacekkardys.systemproof.junit.internal.extension;
 
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
@@ -11,7 +11,7 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 import org.junit.jupiter.api.extension.ParameterResolver;
 
 /** Internal callback injecting the environment owned by the current JUnit test invocation. */
-public final class SystemProofParameterResolver implements ParameterResolver {
+public final class EnvironmentParameterResolver implements ParameterResolver {
 
     private final EnvironmentParameterValidator parameterValidator =
         new EnvironmentParameterValidator();

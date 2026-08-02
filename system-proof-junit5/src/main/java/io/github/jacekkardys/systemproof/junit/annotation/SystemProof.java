@@ -3,9 +3,9 @@ package io.github.jacekkardys.systemproof.junit.annotation;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofInvocationContextProvider;
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofLifecycleExtension;
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofParameterResolver;
+import io.github.jacekkardys.systemproof.junit.internal.extension.EnvironmentLifecycleExtension;
+import io.github.jacekkardys.systemproof.junit.internal.extension.EnvironmentParameterResolver;
+import io.github.jacekkardys.systemproof.junit.internal.extension.SystemProofInvocationProvider;
 import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
@@ -25,9 +25,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @Target(METHOD)
 @TestTemplate
 @ExtendWith({
-    SystemProofInvocationContextProvider.class,
-    SystemProofLifecycleExtension.class,
-    SystemProofParameterResolver.class
+    SystemProofInvocationProvider.class,
+    EnvironmentLifecycleExtension.class,
+    EnvironmentParameterResolver.class
 })
 public @interface SystemProof {
     /**

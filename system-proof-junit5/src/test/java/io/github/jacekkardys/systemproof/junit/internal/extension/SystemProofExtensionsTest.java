@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal.spi;
+package io.github.jacekkardys.systemproof.junit.internal.extension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.platform.engine.discovery.DiscoverySelectors.selectClass;
@@ -29,7 +29,7 @@ import io.github.jacekkardys.systemproof.model.environment.Environment;
 import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
-class SystemProofExtensionTest {
+class SystemProofExtensionsTest {
     private static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";
 
     @Test

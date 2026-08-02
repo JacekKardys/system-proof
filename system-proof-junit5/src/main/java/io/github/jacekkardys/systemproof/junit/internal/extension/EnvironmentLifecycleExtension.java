@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal.spi;
+package io.github.jacekkardys.systemproof.junit.internal.extension;
 
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
@@ -16,7 +16,7 @@ import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.support.AnnotationSupport;
 
 /** Internal callback owning one System Proof environment lifecycle per JUnit test invocation. */
-public final class SystemProofLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
+public final class EnvironmentLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
 
     private final EnvironmentDefinitionResolver environmentDefinitionResolver =
         new EnvironmentDefinitionResolver();
@@ -67,7 +67,7 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
         return AnnotationSupport
             .findAnnotation(testMethod, SystemProof.class)
             .orElseThrow(() -> new ExtensionConfigurationException(
-                "SystemProofLifecycleExtension requires @SystemProof on method '"
+                "EnvironmentLifecycleExtension requires @SystemProof on method '"
                     + testMethod.toGenericString() + "'"
             ));
     }
