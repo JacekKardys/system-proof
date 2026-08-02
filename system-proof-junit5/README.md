@@ -4,8 +4,8 @@ This module adapts a concrete `Environment` to the standard JUnit 5 per-test lif
 
 Public API:
 
-- `io.github.jacekkardys.systemproof.junit.annotation.SystemProof`: class-level lifecycle
-  integration and facade selection through `@SystemProof(EnvironmentType.class)`.
+- `io.github.jacekkardys.systemproof.junit.annotation.SystemProof`: method-level test declaration,
+  lifecycle integration, and facade selection. It replaces a separate JUnit `@Test` annotation.
 - `io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition`: exactly one static
   zero-argument factory on that concrete facade.
 
@@ -16,7 +16,7 @@ The definition method must return the declared facade type. Missing or duplicate
 instance methods, parameters, mismatched return types, abstract facades, and `null` results fail
 before the first runtime is started.
 
-For each test method, the System Proof JUnit extensions:
+For each `@SystemProof` method, the System Proof JUnit extensions:
 
 1. locates and validates the facade definition;
 2. invokes its static factory;
@@ -30,4 +30,5 @@ Reflection is confined to this JUnit boundary. The module has no Testcontainers 
 
 `@SystemProof` also accepts optional `title` and `description` values. They are published as
 `system-proof.title` and `system-proof.description` JUnit report entries. A non-blank `title` is
-also used as the test class display name shown in JUnit-compatible IDE test trees.
+also used as the individual test invocation display name shown in JUnit-compatible IDE test trees;
+the Java method name is used when the title is omitted.

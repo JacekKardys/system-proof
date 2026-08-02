@@ -36,6 +36,9 @@ class SystemProofExtensionTest {
             .execute();
 
         execution.testEvents().assertStatistics(statistics -> statistics.started(2).succeeded(2));
+        assertThat(execution.testEvents().started().list())
+            .extracting(event -> event.getTestDescriptor().getDisplayName())
+            .containsExactlyInAnyOrder("first", "second");
         assertThat(Recording.definitions).hasValue(2);
         assertThat(Recording.starts).hasValue(2);
         assertThat(Recording.closes).hasValue(2);
@@ -144,7 +147,7 @@ class SystemProofExtensionTest {
             .execute();
 
         execution.testEvents().assertStatistics(statistics -> statistics.started(1).succeeded(1));
-        assertThat(execution.containerEvents().started().list())
+        assertThat(execution.testEvents().started().list())
             .extracting(event -> event.getTestDescriptor().getDisplayName())
             .contains("SMS ingestion");
         val reportEvents = execution.allEvents().reportingEntryPublished().list();
@@ -179,47 +182,42 @@ class SystemProofExtensionTest {
         assertThat(Recording.closes).hasValue(1);
     }
 
-    @SystemProof(RecordingEnvironment.class)
     static class SuccessfulScenario {
-        @Test
+        @SystemProof(RecordingEnvironment.class)
         void first(RecordingEnvironment environment) {
             assertThat(environment).isSameAs(Recording.current.get());
             assertThat(environment.isRunning()).isTrue();
         }
 
-        @Test
+        @SystemProof(RecordingEnvironment.class)
         void second(RecordingEnvironment environment) {
             assertThat(environment).isSameAs(Recording.current.get());
             assertThat(environment.isRunning()).isTrue();
         }
     }
 
-    @SystemProof(RecordingEnvironment.class)
     static class FailingScenario {
-        @Test
+        @SystemProof(RecordingEnvironment.class)
         void fails(RecordingEnvironment environment) {
             assertThat(environment).isNotSameAs(Recording.current.get());
         }
     }
 
-    @SystemProof(CleanupFailingEnvironment.class)
     static class CleanupFailingScenario {
-        @Test
+        @SystemProof(CleanupFailingEnvironment.class)
         void passes(CleanupFailingEnvironment environment) {
             assertThat(environment.isRunning()).isTrue();
         }
     }
 
-    @SystemProof(DiagnosticsFailingEnvironment.class)
     static class DiagnosticsFailingScenario {
-        @Test
+        @SystemProof(DiagnosticsFailingEnvironment.class)
         void fails(DiagnosticsFailingEnvironment environment) {
             assertThat(environment.isRunning()).isTrue();
             throw new IllegalStateException("test exploded");
         }
     }
 
-    @SystemProof(RecordingEnvironment.class)
     static class LifecycleInjectionScenario {
         @BeforeEach
         void setUp(RecordingEnvironment environment) {
@@ -227,7 +225,7 @@ class SystemProofExtensionTest {
             Recording.beforeEachEnvironment.set(environment);
         }
 
-        @Test
+        @SystemProof(RecordingEnvironment.class)
         void exercisesBehavior(RecordingEnvironment environment) {
             assertThat(environment).isSameAs(Recording.beforeEachEnvironment.get());
             Recording.testEnvironment.set(environment);
@@ -241,24 +239,22 @@ class SystemProofExtensionTest {
         }
     }
 
-    @SystemProof(
-        value = RecordingEnvironment.class,
-        title = " SMS ingestion ",
-        description = " Persists one inbound SMS "
-    )
     static class MetadataScenario {
-        @Test
+        @SystemProof(
+            value = RecordingEnvironment.class,
+            title = " SMS ingestion ",
+            description = " Persists one inbound SMS "
+        )
         void passes() {}
     }
 
-    @SystemProof(RecordingEnvironment.class)
     static class MismatchedLifecycleScenario {
         @BeforeEach
         void setUp(DiagnosticsFailingEnvironment environment) {
             Recording.mismatchedLifecycleInvocations.incrementAndGet();
         }
 
-        @Test
+        @SystemProof(RecordingEnvironment.class)
         void passes() {}
     }
 

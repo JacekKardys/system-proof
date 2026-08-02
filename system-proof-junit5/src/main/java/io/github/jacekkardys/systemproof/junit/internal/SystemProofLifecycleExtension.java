@@ -53,11 +53,12 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
     }
 
     private static SystemProof findSystemProof(ExtensionContext context) {
+        val testMethod = context.getRequiredTestMethod();
         return AnnotationSupport
-            .findAnnotation(context.getRequiredTestClass(), SystemProof.class)
+            .findAnnotation(testMethod, SystemProof.class)
             .orElseThrow(() -> new ExtensionConfigurationException(
-                "SystemProofLifecycleExtension requires @SystemProof on class '"
-                    + context.getRequiredTestClass().getName() + "'"
+                "SystemProofLifecycleExtension requires @SystemProof on method '"
+                    + testMethod.toGenericString() + "'"
             ));
     }
 }
