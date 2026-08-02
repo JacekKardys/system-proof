@@ -9,8 +9,8 @@ import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import org.junit.jupiter.api.extension.ParameterResolutionException;
 
-/** Validates environment parameters on System Proof test and lifecycle methods. */
-public final class SystemProofParameterValidator {
+/** Validates injected environment parameters on System Proof test and lifecycle methods. */
+public final class EnvironmentParameterValidator {
 
     private static final List<ValidationRule<ParameterDeclaration>> PARAMETER_RULES = List.of(
         new ValidationRule<>(

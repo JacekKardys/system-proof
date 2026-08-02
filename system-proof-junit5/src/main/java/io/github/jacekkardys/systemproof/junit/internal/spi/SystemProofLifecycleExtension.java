@@ -4,9 +4,9 @@ import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDiagnosticsReporter;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentFactory;
+import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofLifecycleFailureAdapter;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofMetadataReporter;
-import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
 import lombok.val;
 import org.junit.jupiter.api.extension.AfterEachCallback;
@@ -19,8 +19,8 @@ import org.junit.platform.commons.support.AnnotationSupport;
 public final class SystemProofLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
 
     private final EnvironmentFactory environmentFactory = new EnvironmentFactory();
-    private final SystemProofParameterValidator parameterValidator =
-        new SystemProofParameterValidator();
+    private final EnvironmentParameterValidator parameterValidator =
+        new EnvironmentParameterValidator();
     private final SystemProofMetadataReporter metadataReporter = new SystemProofMetadataReporter();
     private final EnvironmentDiagnosticsReporter diagnostics =
         new EnvironmentDiagnosticsReporter();

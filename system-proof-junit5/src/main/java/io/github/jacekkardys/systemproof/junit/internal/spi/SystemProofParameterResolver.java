@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.junit.internal.spi;
 
-import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofParameterValidator;
+import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.lang.reflect.Method;
@@ -13,8 +13,8 @@ import org.junit.jupiter.api.extension.ParameterResolver;
 /** Internal callback injecting the environment owned by the current JUnit test invocation. */
 public final class SystemProofParameterResolver implements ParameterResolver {
 
-    private final SystemProofParameterValidator parameterValidator =
-        new SystemProofParameterValidator();
+    private final EnvironmentParameterValidator parameterValidator =
+        new EnvironmentParameterValidator();
 
     @Override
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext context) {

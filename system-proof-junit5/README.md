@@ -14,6 +14,16 @@ not a supported extension API. The `internal.spi` package contains direct JUnit 
 points; `internal.execution` contains the collaborators modeling invocation, validation,
 diagnostics, metadata, and failure behavior.
 
+Validation is split by contract rather than by JUnit callback:
+
+- `EnvironmentDefinitionValidator` validates the concrete facade and its
+  `@EnvironmentDefinition` factory before it can be invoked;
+- `EnvironmentParameterValidator` validates that test and per-test lifecycle methods declare at
+  most one `Environment` parameter and that it has the exact configured facade type.
+
+Both validators use the same package-private named-rule model. `EnvironmentFactory` invokes only a
+validated definition and adapts reflection failures; JUnit SPI callbacks remain orchestration-only.
+
 The definition method must return the declared facade type. Missing or duplicate definitions,
 instance methods, parameters, mismatched return types, abstract facades, and `null` results fail
 before the first runtime is started.

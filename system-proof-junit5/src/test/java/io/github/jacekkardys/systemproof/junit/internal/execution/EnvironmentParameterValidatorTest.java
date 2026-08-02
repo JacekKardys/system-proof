@@ -9,10 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import org.junit.jupiter.api.extension.ParameterResolutionException;
 
-class SystemProofParameterValidatorTest {
+class EnvironmentParameterValidatorTest {
 
-    private final SystemProofParameterValidator validator =
-        new SystemProofParameterValidator();
+    private final EnvironmentParameterValidator validator =
+        new EnvironmentParameterValidator();
 
     @Test
     void shouldAcceptExactlyOneConcreteEnvironmentParameterAndUnrelatedParameters()
