@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.lang.reflect.Executable;
@@ -10,9 +10,9 @@ import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import org.junit.jupiter.api.extension.ParameterResolutionException;
 
 /** Validates environment parameters on System Proof test and lifecycle methods. */
-final class SystemProofParameterValidator {
+public final class SystemProofParameterValidator {
 
-    void validateConfiguration(
+    public void validateConfiguration(
         Executable executable,
         Class<? extends Environment> environmentType
     ) {
@@ -22,7 +22,7 @@ final class SystemProofParameterValidator {
         }
     }
 
-    void validateResolution(
+    public void validateResolution(
         Executable executable,
         Class<? extends Environment> environmentType
     ) {

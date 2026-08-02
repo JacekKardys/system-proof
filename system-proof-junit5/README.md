@@ -10,7 +10,9 @@ Public API:
   zero-argument factory on that concrete facade.
 
 Everything under `io.github.jacekkardys.systemproof.junit.internal` is implementation detail and is
-not a supported extension API.
+not a supported extension API. The `internal.spi` package contains direct JUnit extension entry
+points; `internal.execution` contains the collaborators modeling invocation, validation,
+diagnostics, metadata, and failure behavior.
 
 The definition method must return the declared facade type. Missing or duplicate definitions,
 instance methods, parameters, mismatched return types, abstract facades, and `null` results fail

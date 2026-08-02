@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import java.io.IOException;

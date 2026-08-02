@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -6,9 +6,9 @@ import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
 /** Adapts lifecycle callback failures to JUnit primary and suppressed failure semantics. */
-final class SystemProofLifecycleFailureAdapter {
+public final class SystemProofLifecycleFailureAdapter {
 
-    Outcome execute(ExtensionContext context, Runnable operation) {
+    public Outcome execute(ExtensionContext context, Runnable operation) {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(operation, "operation must not be null");
 
@@ -28,7 +28,7 @@ final class SystemProofLifecycleFailureAdapter {
         }
     }
 
-    static final class Outcome {
+    public static final class Outcome {
         private final Throwable failure;
         private final boolean primary;
 
@@ -45,11 +45,11 @@ final class SystemProofLifecycleFailureAdapter {
             return new Outcome(failure, primary);
         }
 
-        Optional<Throwable> failure() {
+        public Optional<Throwable> failure() {
             return Optional.ofNullable(failure);
         }
 
-        void propagateIfPrimary() {
+        public void propagateIfPrimary() {
             if (!primary) {
                 return;
             }

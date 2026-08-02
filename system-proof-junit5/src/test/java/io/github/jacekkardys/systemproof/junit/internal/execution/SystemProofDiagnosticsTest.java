@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import static io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics.diagnostics;
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,10 +1,11 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.util.Objects;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
-final class SystemProofSharedContext {
+/** Provides invocation-scoped access to the environment owned by the JUnit SPI adapters. */
+public final class SystemProofSharedContext {
 
     private static final ExtensionContext.Namespace NAMESPACE =
         ExtensionContext.Namespace.create(SystemProofSharedContext.class);
@@ -16,19 +17,19 @@ final class SystemProofSharedContext {
         this.context = Objects.requireNonNull(context, "context must not be null");
     }
 
-    static SystemProofSharedContext of(ExtensionContext context) {
+    public static SystemProofSharedContext of(ExtensionContext context) {
         return new SystemProofSharedContext(context);
     }
 
-    Environment getEnvironment() {
+    public Environment getEnvironment() {
         return store().get(ENVIRONMENT, Environment.class);
     }
 
-    void putEnvironment(Environment environment) {
+    public void putEnvironment(Environment environment) {
         store().put(ENVIRONMENT, environment);
     }
 
-    Environment removeEnvironment() {
+    public Environment removeEnvironment() {
         return store().remove(ENVIRONMENT, Environment.class);
     }
 

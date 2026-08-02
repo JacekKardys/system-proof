@@ -3,9 +3,9 @@ package io.github.jacekkardys.systemproof.junit.annotation;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
-import io.github.jacekkardys.systemproof.junit.internal.SystemProofInvocationContextProvider;
-import io.github.jacekkardys.systemproof.junit.internal.SystemProofLifecycleExtension;
-import io.github.jacekkardys.systemproof.junit.internal.SystemProofParameterResolver;
+import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofInvocationContextProvider;
+import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofLifecycleExtension;
+import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofParameterResolver;
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;

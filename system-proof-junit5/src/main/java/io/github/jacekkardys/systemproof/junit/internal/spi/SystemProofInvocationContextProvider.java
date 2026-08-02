@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.spi;
 
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import java.lang.reflect.Method;

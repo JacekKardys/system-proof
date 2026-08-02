@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import java.util.LinkedHashMap;
@@ -6,12 +6,12 @@ import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
 /** Publishes optional System Proof scenario metadata through the standard JUnit report channel. */
-final class SystemProofMetadataReporter {
+public final class SystemProofMetadataReporter {
 
     private static final String TITLE = "system-proof.title";
     private static final String DESCRIPTION = "system-proof.description";
 
-    void report(ExtensionContext context, SystemProof declaration) {
+    public void report(ExtensionContext context, SystemProof declaration) {
         val entries = new LinkedHashMap<String, String>();
         addIfPresent(entries, TITLE, declaration.title());
         addIfPresent(entries, DESCRIPTION, declaration.description());

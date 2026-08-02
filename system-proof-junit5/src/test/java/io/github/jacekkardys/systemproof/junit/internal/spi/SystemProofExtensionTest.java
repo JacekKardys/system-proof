@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.spi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.platform.engine.discovery.DiscoverySelectors.selectClass;
@@ -27,6 +27,8 @@ import io.github.jacekkardys.systemproof.model.ComponentType;
 import io.github.jacekkardys.systemproof.model.Environment;
 
 class SystemProofExtensionTest {
+    private static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";
+
     @Test
     void shouldCreateStartInjectAndCloseTheExactEnvironmentForEveryTest() {
         Recording.reset();
@@ -49,7 +51,7 @@ class SystemProofExtensionTest {
     void shouldCaptureFailureDiagnosticsBeforeClosingTheEnvironment(@TempDir Path artifacts)
         throws IOException {
         Recording.reset();
-        String property = EnvironmentDiagnosticsWriter.ARTIFACTS_DIRECTORY_PROPERTY;
+        String property = ARTIFACTS_DIRECTORY_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, artifacts.toString());
 
@@ -82,7 +84,7 @@ class SystemProofExtensionTest {
     @Test
     void shouldCaptureStructuredCleanupFailureDiagnosticsAfterClose(@TempDir Path artifacts)
         throws IOException {
-        String property = EnvironmentDiagnosticsWriter.ARTIFACTS_DIRECTORY_PROPERTY;
+        String property = ARTIFACTS_DIRECTORY_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, artifacts.toString());
 

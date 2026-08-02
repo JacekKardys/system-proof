@@ -1,5 +1,7 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.spi;
 
+import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofParameterValidator;
+import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
 import io.github.jacekkardys.systemproof.model.Environment;
 import java.lang.reflect.Method;
 import lombok.val;

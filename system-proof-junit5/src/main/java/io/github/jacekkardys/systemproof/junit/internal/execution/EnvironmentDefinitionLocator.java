@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal;
+package io.github.jacekkardys.systemproof.junit.internal.execution;
 
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.model.Environment;
@@ -11,11 +11,11 @@ import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
 /** The only reflection adapter: validates and invokes one environment facade definition. */
-final class EnvironmentDefinitionLocator {
+public final class EnvironmentDefinitionLocator {
     private static final String EXPECTED =
         "@EnvironmentDefinition static <E extends Environment> define()";
 
-    LocatedDefinition locate(Class<? extends Environment> environmentType) {
+    public LocatedDefinition locate(Class<? extends Environment> environmentType) {
         if (environmentType == Environment.class
             || Modifier.isAbstract(environmentType.getModifiers())) {
             throw invalid(
@@ -107,8 +107,8 @@ final class EnvironmentDefinitionLocator {
                 .collect(Collectors.joining(", ")) + ")";
     }
 
-    record LocatedDefinition(Method method, Class<? extends Environment> environmentType) {
-        Environment invoke() {
+    public record LocatedDefinition(Method method, Class<? extends Environment> environmentType) {
+        public Environment invoke() {
             try {
                 val result = method.invoke(null);
                 if (result == null) {
