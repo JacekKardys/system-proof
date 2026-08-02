@@ -69,7 +69,7 @@ public final class EnvironmentLoggingBuilder {
 
     /** Creates an immutable detached logging configuration. */
     public EnvironmentLogging build() {
-        return new EnvironmentLogging(frameworkLevel, defaultComponentLevel, defaultConnectionLevel,
+        return EnvironmentLogging.of(frameworkLevel, defaultComponentLevel, defaultConnectionLevel,
             componentLevels, connectionLevels);
     }
 }
