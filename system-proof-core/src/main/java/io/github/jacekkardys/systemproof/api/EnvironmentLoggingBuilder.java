@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.model.logging.LogLevel;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.topology.RequiredPort;

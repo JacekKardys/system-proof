@@ -3,6 +3,7 @@ package io.github.jacekkardys.systemproof.junit.internal.execution;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
@@ -82,6 +83,35 @@ class EnvironmentFactoryTest {
                 NullReturn.class.getName() + "#define",
                 "returned null",
                 "expected="
+            );
+    }
+
+    @Test
+    void shouldRejectAnInstanceOutsideTheDeclaredEnvironmentType() {
+        try (Environment instance = fixture(Missing::new)) {
+            assertThatThrownBy(() -> new RunningEnvironment(ZeroArguments.class, instance))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                    instance.getClass().getName(),
+                    ZeroArguments.class.getName(),
+                    "not assignable"
+                );
+        }
+    }
+
+    @Test
+    void shouldDescribeTheReflectiveAccessBoundary() throws NoSuchMethodException {
+        val inaccessibleMethod = Object.class.getDeclaredMethod("clone");
+
+        assertThatThrownBy(() -> EnvironmentFactory.makeAccessible(inaccessibleMethod))
+            .isInstanceOf(ExtensionConfigurationException.class)
+            .hasMessageContaining(
+                "could not obtain reflective access",
+                inaccessibleMethod.toGenericString(),
+                Object.class.getName(),
+                "java.lang",
+                "java.base",
+                "module"
             );
     }
 

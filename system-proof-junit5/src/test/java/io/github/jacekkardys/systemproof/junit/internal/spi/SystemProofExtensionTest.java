@@ -187,6 +187,31 @@ class SystemProofExtensionTest {
         assertThat(Recording.closes).hasValue(1);
     }
 
+    @Test
+    void shouldInjectARuntimeSubtypeThroughTheDeclaredEnvironmentContract() {
+        val execution = EngineTestKit.engine("junit-jupiter")
+            .selectors(selectClass(BaseEnvironmentScenario.class))
+            .execute();
+
+        execution.testEvents().assertStatistics(statistics -> statistics.started(1).succeeded(1));
+    }
+
+    @Test
+    void shouldNotExpandTheDeclaredContractToTheRuntimeSubtype() {
+        val execution = EngineTestKit.engine("junit-jupiter")
+            .selectors(selectClass(DerivedEnvironmentParameterScenario.class))
+            .execute();
+
+        execution.testEvents().assertStatistics(statistics -> statistics.started(1).failed(1));
+        val failure = execution.testEvents().failed().list().getFirst()
+            .getRequiredPayload(TestExecutionResult.class)
+            .getThrowable()
+            .orElseThrow();
+        assertThat(failure)
+            .hasMessageContaining("exact type " + BaseEnvironment.class.getName())
+            .hasMessageContaining(DerivedEnvironment.class.getName());
+    }
+
     static class SuccessfulScenario {
         @SystemProof(RecordingEnvironment.class)
         void first(RecordingEnvironment environment) {
@@ -263,6 +288,19 @@ class SystemProofExtensionTest {
         void passes() {}
     }
 
+    static class BaseEnvironmentScenario {
+        @SystemProof(BaseEnvironment.class)
+        void acceptsDeclaredType(BaseEnvironment environment) {
+            assertThat(environment).isInstanceOf(DerivedEnvironment.class);
+            assertThat(environment.isRunning()).isTrue();
+        }
+    }
+
+    static class DerivedEnvironmentParameterScenario {
+        @SystemProof(BaseEnvironment.class)
+        void rejectsRuntimeSubtype(DerivedEnvironment environment) {}
+    }
+
     private static final class RecordingEnvironment extends Environment {
         private RecordingEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
             super(topology, logging);
@@ -297,6 +335,25 @@ class SystemProofExtensionTest {
             return new EnvironmentBuilder()
                 .components(new DiagnosticsFailingComponent())
                 .build(DiagnosticsFailingEnvironment::new);
+        }
+    }
+
+    private static class BaseEnvironment extends Environment {
+        private BaseEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
+        }
+
+        @EnvironmentDefinition
+        private static BaseEnvironment define() {
+            return new EnvironmentBuilder()
+                .components(new RecordingComponent())
+                .build(DerivedEnvironment::new);
+        }
+    }
+
+    private static final class DerivedEnvironment extends BaseEnvironment {
+        private DerivedEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
+            super(topology, logging);
         }
     }
 

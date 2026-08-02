@@ -37,8 +37,9 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
         );
 
         try {
-            val environment = environmentFactory.create(environmentType).start();
-            sharedContext.putEnvironment(environment);
+            val environment = environmentFactory.create(environmentType);
+            environment.start();
+            sharedContext.putRunningEnvironment(environmentType, environment);
         } catch (EnvironmentStartException failure) {
             diagnostics.onStartFailure(sharedContext, failure);
             throw failure;
@@ -48,10 +49,11 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
     @Override
     public void afterEach(ExtensionContext context) {
         val sharedContext = SystemProofSharedContext.of(context);
-        val environment = sharedContext.removeEnvironment();
-        if (environment == null) {
+        val runningEnvironment = sharedContext.removeRunningEnvironment();
+        if (runningEnvironment == null) {
             return;
         }
+        val environment = runningEnvironment.instance();
 
         diagnostics.beforeClose(sharedContext, environment);
         val close = failures.execute(sharedContext, environment::close);

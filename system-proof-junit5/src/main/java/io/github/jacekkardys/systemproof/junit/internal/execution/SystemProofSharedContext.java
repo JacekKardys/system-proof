@@ -27,16 +27,19 @@ public final class SystemProofSharedContext {
         return new SystemProofSharedContext(context);
     }
 
-    public Environment getEnvironment() {
-        return store().get(ENVIRONMENT, Environment.class);
+    public RunningEnvironment getRunningEnvironment() {
+        return store().get(ENVIRONMENT, RunningEnvironment.class);
     }
 
-    public void putEnvironment(Environment environment) {
-        store().put(ENVIRONMENT, environment);
+    public void putRunningEnvironment(
+        Class<? extends Environment> declaredType,
+        Environment instance
+    ) {
+        store().put(ENVIRONMENT, new RunningEnvironment(declaredType, instance));
     }
 
-    public Environment removeEnvironment() {
-        return store().remove(ENVIRONMENT, Environment.class);
+    public RunningEnvironment removeRunningEnvironment() {
+        return store().remove(ENVIRONMENT, RunningEnvironment.class);
     }
 
     public Optional<Method> testMethod() {
