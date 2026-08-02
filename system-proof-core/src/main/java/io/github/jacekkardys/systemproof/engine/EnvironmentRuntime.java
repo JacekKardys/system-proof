@@ -34,11 +34,18 @@ public final class EnvironmentRuntime {
     private final EnvironmentLifecycle lifecycle;
     private DriverServices driverServices;
 
-    public static EnvironmentRuntime of(EnvironmentTopology topology, EnvironmentLogging logging) {
+    public static EnvironmentRuntime of(
+        EnvironmentTopology topology,
+        EnvironmentLogging logging
+    ) {
         return EnvironmentRuntimeFactory.create(topology, logging);
     }
 
-    public static EnvironmentRuntime of(EnvironmentTopology topology, EnvironmentLogging logging, ConnectionRouting routing) {
+    public static EnvironmentRuntime of(
+        EnvironmentTopology topology,
+        EnvironmentLogging logging,
+        ConnectionRouting routing
+    ) {
         return EnvironmentRuntimeFactory.create(topology, logging, routing);
     }
 
