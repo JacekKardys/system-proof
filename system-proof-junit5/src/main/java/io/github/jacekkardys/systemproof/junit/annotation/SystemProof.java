@@ -3,9 +3,9 @@ package io.github.jacekkardys.systemproof.junit.annotation;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofInvocationContextProvider;
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofLifecycleExtension;
-import io.github.jacekkardys.systemproof.junit.internal.spi.SystemProofParameterResolver;
+import io.github.jacekkardys.systemproof.junit.internal.extension.EnvironmentLifecycleExtension;
+import io.github.jacekkardys.systemproof.junit.internal.extension.EnvironmentParameterResolver;
+import io.github.jacekkardys.systemproof.junit.internal.extension.SystemProofInvocationProvider;
 import io.github.jacekkardys.systemproof.model.environment.Environment;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
@@ -13,26 +13,28 @@ import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * Declares a test that runs with a fresh System Proof environment and injects its concrete facade.
+ * Declares a test that runs with a fresh System Proof environment and injects it through its
+ * declared facade type.
  *
  * <p>The selected environment type must be concrete and declare exactly one static,
- * zero-argument {@link EnvironmentDefinition} method returning that exact type. The annotated test
- * and its per-test lifecycle methods may declare one parameter of the selected environment type.
+ * zero-argument {@link EnvironmentDefinition} method returning that exact type. The definition may
+ * create a subtype, but the selected type remains the injection contract. The annotated test and
+ * its per-test lifecycle methods may declare one parameter of the selected environment type.
  */
 @Retention(RUNTIME)
 @Target(METHOD)
 @TestTemplate
 @ExtendWith({
-    SystemProofInvocationContextProvider.class,
-    SystemProofLifecycleExtension.class,
-    SystemProofParameterResolver.class
+    SystemProofInvocationProvider.class,
+    EnvironmentLifecycleExtension.class,
+    EnvironmentParameterResolver.class
 })
 public @interface SystemProof {
     /**
-     * Returns the concrete environment facade created, started, injected, and closed for this test
+     * Returns the declared environment facade type used as the injection contract for this test
      * invocation.
      *
-     * @return concrete environment facade type
+     * @return declared environment facade type
      */
     Class<? extends Environment> value();
 

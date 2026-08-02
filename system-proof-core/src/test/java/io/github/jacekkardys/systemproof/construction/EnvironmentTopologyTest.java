@@ -12,6 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;
 import io.github.jacekkardys.systemproof.model.component.ComponentType;
 import io.github.jacekkardys.systemproof.model.topology.Connection;
@@ -19,6 +20,7 @@ import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.topology.Contract;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.model.topology.InteractionSpec;
+import io.github.jacekkardys.systemproof.model.topology.PortRef;
 import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
@@ -46,6 +48,21 @@ class EnvironmentTopologyTest {
 
         assertThat(topology.components()).containsExactly(client, server);
         assertThat(topology.connections()).singleElement().isSameAs(topology.connectionFrom(client.api));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void shouldRejectAnUnsupportedComponentAtTheTopologyConstructionBoundary() {
+        Component unsupported = new UnsupportedComponent();
+
+        assertThatThrownBy(() -> new EnvironmentTopology((List) List.of(unsupported), List.of()))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining(
+                "EnvironmentTopology accepts only runtime components",
+                AbstractComponent.class.getName(),
+                UnsupportedComponent.class.getName()
+            )
+            .isNotInstanceOf(ClassCastException.class);
     }
 
     @Test
@@ -93,6 +110,28 @@ class EnvironmentTopologyTest {
     private interface Api {}
 
     private record EmptyConfig() implements RuntimeConfig {}
+
+    private static final class UnsupportedComponent implements Component {
+        @Override
+        public ComponentId id() {
+            return ComponentId.component(ComponentType.of("unsupported"));
+        }
+
+        @Override
+        public ComponentType type() {
+            return id().type();
+        }
+
+        @Override
+        public RuntimeConfig configuration() {
+            return new EmptyConfig();
+        }
+
+        @Override
+        public List<PortRef> ports() {
+            return List.of();
+        }
+    }
 
     private static final class Client extends AbstractComponent<EmptyConfig, Void> {
         private final RequiredPort<Api> api;

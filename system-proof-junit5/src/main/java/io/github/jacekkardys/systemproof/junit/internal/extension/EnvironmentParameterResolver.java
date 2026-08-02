@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.junit.internal.spi;
+package io.github.jacekkardys.systemproof.junit.internal.extension;
 
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofSharedContext;
@@ -11,7 +11,7 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 import org.junit.jupiter.api.extension.ParameterResolver;
 
 /** Internal callback injecting the environment owned by the current JUnit test invocation. */
-public final class SystemProofParameterResolver implements ParameterResolver {
+public final class EnvironmentParameterResolver implements ParameterResolver {
 
     private final EnvironmentParameterValidator parameterValidator =
         new EnvironmentParameterValidator();
@@ -19,8 +19,8 @@ public final class SystemProofParameterResolver implements ParameterResolver {
     @Override
     public boolean supportsParameter(ParameterContext parameterContext, ExtensionContext context) {
         val sharedContext = SystemProofSharedContext.of(context);
-        val environment = sharedContext.getEnvironment();
-        return environment != null
+        val runningEnvironment = sharedContext.getRunningEnvironment();
+        return runningEnvironment != null
             && parameterContext.getDeclaringExecutable() instanceof Method
             && Environment.class.isAssignableFrom(parameterContext.getParameter().getType());
     }
@@ -28,17 +28,16 @@ public final class SystemProofParameterResolver implements ParameterResolver {
     @Override
     public Object resolveParameter(ParameterContext parameterContext, ExtensionContext context) {
         val sharedContext = SystemProofSharedContext.of(context);
-        val environment = sharedContext.getEnvironment();
+        val runningEnvironment = sharedContext.getRunningEnvironment();
 
-        if (environment == null) {
+        if (runningEnvironment == null) {
             throw new ParameterResolutionException("Environment has not been started");
         }
 
-        val environmentType = environment.getClass().asSubclass(Environment.class);
         parameterValidator.validateResolution(
             parameterContext.getDeclaringExecutable(),
-            environmentType
+            runningEnvironment.declaredType()
         );
-        return environment;
+        return runningEnvironment.instance();
     }
 }

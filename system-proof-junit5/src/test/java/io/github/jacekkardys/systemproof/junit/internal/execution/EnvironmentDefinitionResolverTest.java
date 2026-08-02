@@ -3,6 +3,7 @@ package io.github.jacekkardys.systemproof.junit.internal.execution;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import lombok.val;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
@@ -18,56 +19,56 @@ import io.github.jacekkardys.systemproof.construction.EnvironmentCreator;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
-class EnvironmentFactoryTest {
-    private final EnvironmentFactory factory = new EnvironmentFactory();
+class EnvironmentDefinitionResolverTest {
+    private final EnvironmentDefinitionResolver resolver = new EnvironmentDefinitionResolver();
 
     @Test
     void shouldInvokeStaticZeroArgumentDefinitionOnTheEnvironmentFacade() {
         ZeroArguments.invocations = 0;
 
-        assertThat(factory.create(ZeroArguments.class))
+        assertThat(resolver.resolve(ZeroArguments.class))
             .isInstanceOf(ZeroArguments.class);
         assertThat(ZeroArguments.invocations).isEqualTo(1);
     }
 
     @Test
     void shouldRejectMissingAndMultipleDefinitionsWithExpectedAndActualSignatures() {
-        assertThatThrownBy(() -> factory.create(Missing.class))
+        assertThatThrownBy(() -> resolver.resolve(Missing.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Missing.class.getName(), "exactly one", "expected=", "actual=none");
 
-        assertThatThrownBy(() -> factory.create(Multiple.class))
+        assertThatThrownBy(() -> resolver.resolve(Multiple.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(Multiple.class.getName(), "first()", "second()", "expected=", "actual=");
     }
 
     @Test
     void shouldRejectInvalidDefinitionSignaturesAndEnvironmentTypes() {
-        assertThatThrownBy(() -> factory.create(InstanceMethod.class))
+        assertThatThrownBy(() -> resolver.resolve(InstanceMethod.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 InstanceMethod.class.getName() + "#define",
                 "static method"
             );
-        assertThatThrownBy(() -> factory.create(Parameterized.class))
+        assertThatThrownBy(() -> resolver.resolve(Parameterized.class))
             .hasMessageContaining(
                 Parameterized.class.getName() + "#define",
                 "must not declare parameters",
                 EnvironmentConfiguration.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(WrongReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(WrongReturn.class))
             .hasMessageContaining(
                 WrongReturn.class.getName() + "#define",
                 "return type must match",
                 WrongReturn.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(BaseReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(BaseReturn.class))
             .hasMessageContaining(
                 BaseReturn.class.getName() + "#define",
                 "return type must match",
                 BaseReturn.class.getName()
             );
-        assertThatThrownBy(() -> factory.create(AbstractDefinition.class))
+        assertThatThrownBy(() -> resolver.resolve(AbstractDefinition.class))
             .hasMessageContaining(
                 AbstractDefinition.class.getName(),
                 "environment type must be concrete"
@@ -76,12 +77,41 @@ class EnvironmentFactoryTest {
 
     @Test
     void shouldRejectNullBeforeAnyEnvironmentCanStart() {
-        assertThatThrownBy(() -> factory.create(NullReturn.class))
+        assertThatThrownBy(() -> resolver.resolve(NullReturn.class))
             .isInstanceOf(ExtensionConfigurationException.class)
             .hasMessageContaining(
                 NullReturn.class.getName() + "#define",
                 "returned null",
                 "expected="
+            );
+    }
+
+    @Test
+    void shouldRejectAnInstanceOutsideTheDeclaredEnvironmentType() {
+        try (Environment instance = fixture(Missing::new)) {
+            assertThatThrownBy(() -> new RunningEnvironment(ZeroArguments.class, instance))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(
+                    instance.getClass().getName(),
+                    ZeroArguments.class.getName(),
+                    "not assignable"
+                );
+        }
+    }
+
+    @Test
+    void shouldDescribeTheReflectiveAccessBoundary() throws NoSuchMethodException {
+        val inaccessibleMethod = Object.class.getDeclaredMethod("clone");
+
+        assertThatThrownBy(() -> EnvironmentDefinitionResolver.makeAccessible(inaccessibleMethod))
+            .isInstanceOf(ExtensionConfigurationException.class)
+            .hasMessageContaining(
+                "could not obtain reflective access",
+                inaccessibleMethod.toGenericString(),
+                Object.class.getName(),
+                "java.lang",
+                "java.base",
+                "module"
             );
     }
 

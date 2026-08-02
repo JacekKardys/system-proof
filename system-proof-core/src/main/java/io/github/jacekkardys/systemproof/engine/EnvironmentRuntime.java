@@ -51,9 +51,7 @@ public final class EnvironmentRuntime {
         ConnectionRouting routing
     ) {
         topology = Objects.requireNonNull(topology, "topology must not be null");
-        components = topology.components().stream()
-            .map(EnvironmentRuntime::componentDefinition)
-            .toList();
+        components = topology.runtimeComponents();
         startOrder = ComponentStartPlan.order(components, topology::connectionFrom);
         logging = Objects.requireNonNull(logging, "logging must not be null");
         components.forEach(component -> componentStates.put(component, ComponentState.DECLARED));
@@ -68,10 +66,6 @@ public final class EnvironmentRuntime {
         );
         bindings = new RuntimeBindings(connections);
         diagnostics = new RuntimeDiagnostics(journal, eventLog);
-    }
-
-    private static AbstractComponent<?, ?> componentDefinition(Component component) {
-        return (AbstractComponent<?, ?>) component;
     }
 
     public synchronized void start() {

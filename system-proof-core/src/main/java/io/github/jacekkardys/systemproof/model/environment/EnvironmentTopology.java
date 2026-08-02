@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
@@ -16,6 +17,7 @@ import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
  * It contains read indexes only; structural validation and assembly belong to the construction layer.
  */
 public final class EnvironmentTopology {
+    private final List<AbstractComponent<?, ?>> runtimeComponents;
     private final List<Component> components;
     private final List<ConnectionRef> connections;
     private final Map<RequiredPort<?>, ConnectionRef> connectionsByRequired;
@@ -27,11 +29,18 @@ public final class EnvironmentTopology {
      * <p>The normal entry point is {@code EnvironmentBuilder}. This low-level constructor does not
      * repeat structural validation owned by the construction layer.</p>
      *
-     * @param components components in declaration order
+     * <p>Every component must extend {@link AbstractComponent} because only that typed model carries
+     * the driver contract required by environment execution.</p>
+     *
+     * @param components runtime-manageable components in declaration order
      * @param connections logical connections in declaration order
      */
-    public EnvironmentTopology(List<? extends Component> components, List<ConnectionRef> connections) {
-        this.components = List.copyOf(components);
+    public EnvironmentTopology(
+        List<? extends AbstractComponent<?, ?>> components,
+        List<ConnectionRef> connections
+    ) {
+        runtimeComponents = copyRuntimeComponents(components);
+        this.components = List.copyOf(runtimeComponents);
         this.connections = List.copyOf(connections);
 
         Map<RequiredPort<?>, ConnectionRef> byRequired = new IdentityHashMap<>();
@@ -47,6 +56,11 @@ public final class EnvironmentTopology {
     /** Returns the components in declaration order. */
     public List<Component> components() {
         return components;
+    }
+
+    /** Returns the typed component definitions consumed by environment execution. */
+    public List<AbstractComponent<?, ?>> runtimeComponents() {
+        return runtimeComponents;
     }
 
     /** Returns the logical connections in declaration order. */
@@ -76,5 +90,22 @@ public final class EnvironmentTopology {
             throw new IllegalArgumentException("Connection '" + id + "' is outside the environment");
         }
         return connection;
+    }
+
+    private static List<AbstractComponent<?, ?>> copyRuntimeComponents(
+        List<? extends AbstractComponent<?, ?>> components
+    ) {
+        Objects.requireNonNull(components, "components must not be null");
+        for (Object component : components) {
+            Objects.requireNonNull(component, "components must not contain null");
+            if (!AbstractComponent.class.isInstance(component)) {
+                throw new IllegalArgumentException(
+                    "EnvironmentTopology accepts only runtime components extending "
+                        + AbstractComponent.class.getName() + "; unsupported component type='"
+                        + component.getClass().getName() + "'"
+                );
+            }
+        }
+        return List.copyOf(components);
     }
 }

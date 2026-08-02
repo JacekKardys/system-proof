@@ -1,9 +1,9 @@
-package io.github.jacekkardys.systemproof.junit.internal.spi;
+package io.github.jacekkardys.systemproof.junit.internal.extension;
 
 import io.github.jacekkardys.systemproof.engine.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.junit.annotation.SystemProof;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDiagnosticsReporter;
-import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentFactory;
+import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentDefinitionResolver;
 import io.github.jacekkardys.systemproof.junit.internal.execution.EnvironmentParameterValidator;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofLifecycleFailureAdapter;
 import io.github.jacekkardys.systemproof.junit.internal.execution.SystemProofMetadataReporter;
@@ -16,9 +16,10 @@ import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.support.AnnotationSupport;
 
 /** Internal callback owning one System Proof environment lifecycle per JUnit test invocation. */
-public final class SystemProofLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
+public final class EnvironmentLifecycleExtension implements BeforeEachCallback, AfterEachCallback {
 
-    private final EnvironmentFactory environmentFactory = new EnvironmentFactory();
+    private final EnvironmentDefinitionResolver environmentDefinitionResolver =
+        new EnvironmentDefinitionResolver();
     private final EnvironmentParameterValidator parameterValidator = new EnvironmentParameterValidator();
     private final SystemProofMetadataReporter metadataReporter = new SystemProofMetadataReporter();
     private final EnvironmentDiagnosticsReporter diagnostics = new EnvironmentDiagnosticsReporter();
@@ -37,8 +38,9 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
         );
 
         try {
-            val environment = environmentFactory.create(environmentType).start();
-            sharedContext.putEnvironment(environment);
+            val environment = environmentDefinitionResolver.resolve(environmentType);
+            environment.start();
+            sharedContext.putRunningEnvironment(environmentType, environment);
         } catch (EnvironmentStartException failure) {
             diagnostics.onStartFailure(sharedContext, failure);
             throw failure;
@@ -48,10 +50,11 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
     @Override
     public void afterEach(ExtensionContext context) {
         val sharedContext = SystemProofSharedContext.of(context);
-        val environment = sharedContext.removeEnvironment();
-        if (environment == null) {
+        val runningEnvironment = sharedContext.removeRunningEnvironment();
+        if (runningEnvironment == null) {
             return;
         }
+        val environment = runningEnvironment.instance();
 
         diagnostics.beforeClose(sharedContext, environment);
         val close = failures.execute(sharedContext, environment::close);
@@ -64,7 +67,7 @@ public final class SystemProofLifecycleExtension implements BeforeEachCallback, 
         return AnnotationSupport
             .findAnnotation(testMethod, SystemProof.class)
             .orElseThrow(() -> new ExtensionConfigurationException(
-                "SystemProofLifecycleExtension requires @SystemProof on method '"
+                "EnvironmentLifecycleExtension requires @SystemProof on method '"
                     + testMethod.toGenericString() + "'"
             ));
     }
