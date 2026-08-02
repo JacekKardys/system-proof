@@ -6,14 +6,15 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.val;
 import org.junit.jupiter.api.extension.ExtensionConfigurationException;
 
 /** Validates the factory contract declared by {@link EnvironmentDefinition}. */
 final class EnvironmentDefinitionValidator {
-    private static final String EXPECTED =
-        "@EnvironmentDefinition static <E extends Environment> define()";
+
+    private static final String EXPECTED = "@EnvironmentDefinition static <E extends Environment> define()";
     private static final ValidationRule<Class<? extends Environment>> CONCRETE_ENVIRONMENT =
         new ValidationRule<>(
             "environment type must be concrete",
@@ -40,14 +41,15 @@ final class EnvironmentDefinitionValidator {
         )
     );
     private static final ValidationRule<Object> NON_NULL_DEFINITION_RESULT =
-        new ValidationRule<>("definition returned null", result -> result != null);
+        new ValidationRule<>("definition returned null", Objects::nonNull);
 
-    Method requireValidDefinition(Class<? extends Environment> environmentType) {
+    void validate(
+        Class<? extends Environment> environmentType,
+        List<Method> definitions
+    ) {
         validateEnvironmentType(environmentType);
-        val definition = findDefinition(environmentType);
-        validateDefinition(environmentType, definition);
-        requireAccessible(environmentType, definition);
-        return definition;
+        validateDefinitionCount(environmentType, definitions);
+        validateDefinition(environmentType, definitions.getFirst());
     }
 
     void validateResult(
@@ -76,23 +78,22 @@ final class EnvironmentDefinitionValidator {
         }
     }
 
-    private static Method findDefinition(Class<? extends Environment> environmentType) {
-        val methods = Arrays.stream(environmentType.getDeclaredMethods())
-            .filter(method -> method.isAnnotationPresent(EnvironmentDefinition.class))
-            .toList();
-        if (SINGLE_DEFINITION.isViolatedBy(methods)) {
-            val actual = methods.isEmpty()
+    private static void validateDefinitionCount(
+        Class<? extends Environment> environmentType,
+        List<Method> definitions
+    ) {
+        if (SINGLE_DEFINITION.isViolatedBy(definitions)) {
+            val actual = definitions.isEmpty()
                 ? "none"
-                : methods.stream().map(EnvironmentDefinitionValidator::signature)
+                : definitions.stream().map(EnvironmentDefinitionValidator::signature)
                     .sorted().collect(Collectors.joining(", "));
             throw invalid(
                 environmentType,
                 null,
-                SINGLE_DEFINITION.description() + " but found " + methods.size(),
+                SINGLE_DEFINITION.description() + " but found " + definitions.size(),
                 actual
             );
         }
-        return methods.getFirst();
     }
 
     private static void validateDefinition(
@@ -106,20 +107,6 @@ final class EnvironmentDefinitionValidator {
                 environmentType,
                 method,
                 violation.description(),
-                signature(method)
-            );
-        }
-    }
-
-    private static void requireAccessible(
-        Class<? extends Environment> environmentType,
-        Method method
-    ) {
-        if (!method.trySetAccessible()) {
-            throw invalid(
-                environmentType,
-                method,
-                "definition method is not accessible",
                 signature(method)
             );
         }

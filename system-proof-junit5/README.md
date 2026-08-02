@@ -16,13 +16,15 @@ diagnostics, metadata, and failure behavior.
 
 Validation is split by contract rather than by JUnit callback:
 
+- `EnvironmentDefinitionLocator` only discovers methods carrying `@EnvironmentDefinition`;
 - `EnvironmentDefinitionValidator` validates the concrete facade and its
-  `@EnvironmentDefinition` factory before it can be invoked;
+  discovered factory contract without selecting or invoking a method;
 - `EnvironmentParameterValidator` validates that test and per-test lifecycle methods declare at
   most one `Environment` parameter and that it has the exact configured facade type.
 
 Both validators use the same package-private named-rule model. `EnvironmentFactory` invokes only a
-validated definition and adapts reflection failures; JUnit SPI callbacks remain orchestration-only.
+validated definition, prepares reflective access, and adapts invocation failures; JUnit SPI
+callbacks remain orchestration-only.
 
 The definition method must return the declared facade type. Missing or duplicate definitions,
 instance methods, parameters, mismatched return types, abstract facades, and `null` results fail
