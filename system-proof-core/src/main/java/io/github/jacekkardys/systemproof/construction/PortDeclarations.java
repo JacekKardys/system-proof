@@ -11,6 +11,8 @@ import java.util.List;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.communication.Communication;
 import io.github.jacekkardys.systemproof.model.topology.Contract;
+import io.github.jacekkardys.systemproof.model.topology.DeclaredInteraction;
+import io.github.jacekkardys.systemproof.model.topology.DeclaredProtocol;
 import io.github.jacekkardys.systemproof.model.topology.Port;
 import io.github.jacekkardys.systemproof.model.topology.PortContract;
 import io.github.jacekkardys.systemproof.model.topology.PortRef;
@@ -51,10 +53,12 @@ final class PortDeclarations {
         String name = field.getName();
         Contract<?> contract = Contract.contract(contractId(field), contractType(field));
         Communication communication = communication(field);
-        var interaction = new DeclaredInteraction(communication.interaction());
+        var interaction = new DeclaredInteraction(requireText(field, communication.interaction(), "interaction id"));
+        String protocolId = requireText(field, communication.protocol(), "protocol id");
+        String scheme = communication.scheme().isBlank() ? protocolId : communication.scheme();
         var protocol = new DeclaredProtocol(
-            communication.protocol(),
-            communication.scheme().isBlank() ? communication.protocol() : communication.scheme()
+            protocolId,
+            requireText(field, scheme, "protocol scheme")
         );
 
         PortRef port;
@@ -130,6 +134,13 @@ final class PortDeclarations {
 
     private static IllegalArgumentException invalid(Field field, String reason) {
         return new IllegalArgumentException("Port field '" + qualifiedName(field) + "' " + reason);
+    }
+
+    private static String requireText(Field field, String value, String description) {
+        if (value == null || value.isBlank()) {
+            throw invalid(field, "must declare a non-blank " + description);
+        }
+        return value;
     }
 
     private static String qualifiedName(Field field) {

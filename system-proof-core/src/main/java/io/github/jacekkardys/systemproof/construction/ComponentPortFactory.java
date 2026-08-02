@@ -7,25 +7,28 @@ import io.github.jacekkardys.systemproof.model.topology.ProtocolSpec;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
-/** Low-level construction helpers for components that declare ports programmatically. */
-public final class ComponentPorts {
-    private ComponentPorts() {}
+/**
+ * Creates model ports and registers them in a component's mutable construction state.
+ * The factory is not retained by the component, topology, or runtime.
+ */
+public final class ComponentPortFactory {
+    private ComponentPortFactory() {}
 
-    /** Declares a required port without a startup dependency. */
+    /** Creates and registers a required port without a startup dependency. */
     public static <C> RequiredPort<C> requires(AbstractComponent<?, ?> owner, String name, Contract<C> contract,
         InteractionSpec interaction, ProtocolSpec protocol) {
         return ComponentInitializer.register(owner,
             new RequiredPort<>(owner, name, contract, interaction, protocol, false));
     }
 
-    /** Declares a required port whose provider must be ready before its owner starts. */
+    /** Creates and registers a required port whose provider must be ready before its owner starts. */
     public static <C> RequiredPort<C> requiresAtStartup(AbstractComponent<?, ?> owner, String name,
         Contract<C> contract, InteractionSpec interaction, ProtocolSpec protocol) {
         return ComponentInitializer.register(owner,
             new RequiredPort<>(owner, name, contract, interaction, protocol, true));
     }
 
-    /** Declares a provided port. */
+    /** Creates and registers a provided port. */
     public static <C> ProvidedPort<C> provides(AbstractComponent<?, ?> owner, String name, Contract<C> contract,
         InteractionSpec interaction, ProtocolSpec protocol) {
         return ComponentInitializer.register(owner, new ProvidedPort<>(owner, name, contract, interaction, protocol));

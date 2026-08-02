@@ -8,7 +8,7 @@ Public contracts:
   immutable topology.
 - `construction.EnvironmentBuilder` and `construction.EnvironmentCreator<E>`: the mutable component,
   connection, configuration, and logging boundary plus the typed facade creation callback.
-- `construction.ComponentPorts`: low-level helpers for programmatic port declarations; annotated
+- `construction.ComponentPortFactory`: low-level helpers for programmatic port declarations; annotated
   fields remain the normal declarative path.
 - `model.environment.EnvironmentTopology`: one concrete immutable model of components and logical
   connections, consumed by environment facades and runtime code.
@@ -45,7 +45,7 @@ Public contracts:
 The model is grouped by responsibility:
 
 - `model.component`: component identity, declaration, configuration markers, and lifecycle values;
-- `model.topology`: contracts, typed ports, and logical connections;
+- `model.topology`: contracts, declared interaction/protocol semantics, typed ports, and logical connections;
 - `model.environment`: immutable topology and the environment facade;
 - `model.runtime`: detached runtime state values;
 - `model.communication` and `model.endpoint`: communication semantics and endpoint values;
@@ -86,7 +86,7 @@ documented extension point rather than a nested builder implementation detail.
 The lower-level `EnvironmentBuilder.component(...)` overloads accept an already materialized
 configuration and `ComponentDriver<C, O>`. The explicit-`ComponentType` overload supports isolated
 tests and programmatically built configurations without adding factory methods or constructor DSLs
-to concrete component classes. Programmatically constructed component fixtures use `ComponentPorts`;
+to concrete component classes. Programmatically constructed component fixtures use `ComponentPortFactory`;
 the component model itself exposes no port factory methods.
 
 `ComponentFactory`, `ConnectionFactory`, reflection-backed `ComponentMetadata`, `ComponentInitializer`,

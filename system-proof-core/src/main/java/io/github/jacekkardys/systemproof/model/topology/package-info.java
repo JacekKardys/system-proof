@@ -1,2 +1,2 @@
-/** Typed ports, contracts, and logical connections without runtime addresses. */
+/** Contracts, declared interaction/protocol semantics, typed ports, and logical connections. */
 package io.github.jacekkardys.systemproof.model.topology;

@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
-import static io.github.jacekkardys.systemproof.construction.ComponentPorts.requiresAtStartup;
-import static io.github.jacekkardys.systemproof.construction.ComponentPorts.provides;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.requiresAtStartup;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;

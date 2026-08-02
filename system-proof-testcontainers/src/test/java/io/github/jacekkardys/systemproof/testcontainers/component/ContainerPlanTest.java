@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
-import static io.github.jacekkardys.systemproof.construction.ComponentPorts.provides;
+import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

@@ -94,7 +94,7 @@ public final class EnvironmentBuilder {
 
     /** Builds the default environment facade. */
     public Environment build() {
-        return build(DefaultEnvironment::new);
+        return build(Environment::new);
     }
 
     /**

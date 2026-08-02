@@ -249,6 +249,24 @@ class PortDeclarationsTest {
     }
 
     @Test
+    void shouldRejectBlankInteraction() {
+        assertThatThrownBy(() -> component(
+            BlankInteractionComponent.class, SERVICE, null, new EmptyConfig(), UNUSED
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Port field '", "api", "must declare a non-blank interaction id");
+    }
+
+    @Test
+    void shouldRejectBlankProtocol() {
+        assertThatThrownBy(() -> component(
+            BlankProtocolComponent.class, SERVICE, null, new EmptyConfig(), UNUSED
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Port field '", "api", "must declare a non-blank protocol id");
+    }
+
+    @Test
     void shouldRejectStartupPrerequisiteOnAProvidedPortField() {
         assertThatThrownBy(() -> component(
             InvalidStartupPrerequisiteComponent.class,
@@ -414,6 +432,22 @@ class PortDeclarationsTest {
 
         private BlankContractComponent() {}
 
+    }
+
+    private static final class BlankInteractionComponent extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
+        @Communication(interaction = " ", protocol = "http")
+        private RequiredPort<Api> api;
+
+        private BlankInteractionComponent() {}
+    }
+
+    private static final class BlankProtocolComponent extends AbstractComponent<EmptyConfig, Void> {
+        @PortContract("api")
+        @Communication(interaction = "invocation", protocol = " ")
+        private RequiredPort<Api> api;
+
+        private BlankProtocolComponent() {}
     }
 
     @Documented
