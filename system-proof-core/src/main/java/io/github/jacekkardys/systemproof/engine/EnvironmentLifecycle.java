@@ -14,10 +14,8 @@ import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
 
 /** Mutable lifecycle state for one environment execution. */
 final class EnvironmentLifecycle {
-    private final Map<Component, ComponentState> componentStates =
-        new IdentityHashMap<>();
-    private final List<AbstractComponent<?, ?>> startedComponents =
-        new ArrayList<>();
+    private final Map<Component, ComponentState> componentStates = new IdentityHashMap<>();
+    private final List<AbstractComponent<?, ?>> startedComponents = new ArrayList<>();
     private final EnvironmentEventLog eventLog;
     private EnvironmentState state = EnvironmentState.DECLARED;
 
