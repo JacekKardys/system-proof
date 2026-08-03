@@ -5,6 +5,7 @@ import static io.github.jacekkardys.systemproof.environment.ComponentPortFactory
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.groups.Tuple.tuple;
 import static io.github.jacekkardys.systemproof.topology.Contract.contract;
@@ -44,6 +45,7 @@ import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.environment.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
+import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
@@ -153,6 +155,133 @@ class InteractionGatewayTest {
             environment.close();
         }
         listenerAddresses.forEach(InteractionGatewayTest::assertPortCanBeRebound);
+    }
+
+    @Test
+    void shouldExposeRequiredListenerFailureAndRedactItDuringEnvironmentCleanup()
+        throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32140);
+        IOException listenerFailure = new IOException(
+            "listener-secret at 127.0.0.1:32140"
+        );
+        IOException cleanupFailure = new IOException(
+            "cleanup-secret at 127.0.0.1:42140"
+        );
+        IOException socketCleanupFailure = new IOException(
+            "socket-cleanup-secret at 127.0.0.1:52140"
+        );
+        ControlledCloseSocket socket = ControlledCloseSocket.failingWith(
+            socketCleanupFailure
+        );
+        listener.accept(socket);
+        listener.failOnClose(cleanupFailure);
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            listener
+        );
+
+        environment.start();
+        assertThat(observationStatus(environment, ObservationRequirement.REQUIRED))
+            .isEqualTo(EffectiveObservationStatus.ACTIVE);
+        socket.awaitSetupEntered();
+        listener.awaitAcceptCalls(2);
+        listener.fail(listenerFailure);
+        awaitObservationStatus(
+            environment,
+            ObservationRequirement.REQUIRED,
+            EffectiveObservationStatus.FAILED
+        );
+        socket.releaseSetup();
+        socket.awaitCloseEntered();
+
+        Throwable thrown = catchThrowable(environment::close);
+
+        assertThat(thrown)
+            .isInstanceOf(IllegalStateException.class)
+            .hasCause(listenerFailure);
+        assertThat(listenerFailure.getSuppressed())
+            .containsExactly(cleanupFailure, socketCleanupFailure);
+        assertThat(socket.closeCalls()).isEqualTo(1);
+        assertThat(observationStatus(environment, ObservationRequirement.REQUIRED))
+            .isEqualTo(EffectiveObservationStatus.FAILED);
+        assertThat(environment.runtimeConnections())
+            .filteredOn(snapshot -> snapshot.observationRequirement()
+                == ObservationRequirement.REQUIRED)
+            .singleElement()
+            .satisfies(snapshot -> assertThat(snapshot.state())
+                .isEqualTo(ConnectionState.FAILED));
+
+        FailureEvent.ConnectionCleanup journalFailure = environment.journalSnapshot()
+            .entries()
+            .stream()
+            .map(entry -> entry.event())
+            .filter(FailureEvent.ConnectionCleanup.class::isInstance)
+            .map(FailureEvent.ConnectionCleanup.class::cast)
+            .findFirst()
+            .orElseThrow();
+        assertThat(journalFailure.failure().failureType()).isEqualTo("IOException");
+        assertThat(journalFailure.failure().message())
+            .hasValueSatisfying(message -> assertThat(message)
+                .contains("Route cleanup failed for connection '")
+                .doesNotContain(
+                    "listener-secret",
+                    "cleanup-secret",
+                    "socket-cleanup-secret",
+                    "127.0.0.1",
+                    "32140",
+                    "42140",
+                    "52140"
+                ));
+        assertThat(environment.diagnostics().content())
+            .contains("Route cleanup failed for connection '")
+            .doesNotContain(
+                "listener-secret",
+                "cleanup-secret",
+                "socket-cleanup-secret",
+                "127.0.0.1",
+                "32140",
+                "42140",
+                "52140"
+            );
+        environment.close();
+        assertThat(listener.closeCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldPreserveOptionalDegradationAfterEnvironmentShutdown() throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32141);
+        IOException listenerFailure = new IOException("optional listener failed");
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.OPTIONAL,
+            listener
+        );
+
+        environment.start();
+        assertThat(observationStatus(environment, ObservationRequirement.OPTIONAL))
+            .isEqualTo(EffectiveObservationStatus.ACTIVE);
+        listener.awaitAcceptCalls(1);
+        listener.fail(listenerFailure);
+        awaitObservationStatus(
+            environment,
+            ObservationRequirement.OPTIONAL,
+            EffectiveObservationStatus.DEGRADED
+        );
+
+        Throwable thrown = catchThrowable(environment::close);
+
+        assertThat(thrown)
+            .isInstanceOf(IllegalStateException.class)
+            .hasCause(listenerFailure);
+        assertThat(observationStatus(environment, ObservationRequirement.OPTIONAL))
+            .isEqualTo(EffectiveObservationStatus.DEGRADED);
+        assertThat(environment.runtimeConnections())
+            .filteredOn(snapshot -> snapshot.observationRequirement()
+                == ObservationRequirement.OPTIONAL)
+            .singleElement()
+            .satisfies(snapshot -> assertThat(snapshot.state())
+                .isEqualTo(ConnectionState.FAILED));
+        environment.close();
+        assertThat(listener.closeCalls()).isEqualTo(1);
     }
 
     @Test
@@ -552,6 +681,75 @@ class InteractionGatewayTest {
             gateway.tcp(sessions)
         );
         return routedEnvironment(builder, routing);
+    }
+
+    private static RoutedEnvironment observedEnvironment(
+        ObservationRequirement requirement,
+        ControllableGatewayListener listener
+    ) {
+        AtomicInteger openedListeners = new AtomicInteger();
+        InteractionGateway gateway = new InteractionGateway(
+            port -> {},
+            () -> openedListeners.getAndIncrement() == 0
+                ? listener
+                : ServerSocketGatewayListener.open()
+        );
+        Server server = server(new ArrayList<>(), new AtomicInteger());
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            requirement,
+            gateway.tcp(
+                commandAdapter("observed-route", new ArrayList<>(), new ArrayList<>()),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "transparent-route",
+                new ArrayList<>(),
+                new ArrayList<>()
+            ))
+        );
+        return routedEnvironment(builder, routing);
+    }
+
+    private static EffectiveObservationStatus observationStatus(
+        Environment environment,
+        ObservationRequirement requirement
+    ) {
+        return environment.runtimeConnections()
+            .stream()
+            .filter(snapshot -> snapshot.observationRequirement() == requirement)
+            .findFirst()
+            .orElseThrow()
+            .effectiveObservationStatus();
+    }
+
+    private static void awaitObservationStatus(
+        Environment environment,
+        ObservationRequirement requirement,
+        EffectiveObservationStatus expected
+    ) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (observationStatus(environment, requirement) != expected
+            && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(observationStatus(environment, requirement)).isEqualTo(expected);
     }
 
     private static Server server(

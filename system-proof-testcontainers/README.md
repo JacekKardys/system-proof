@@ -36,6 +36,19 @@ must establish an active adapter path and becomes `FAILED` while closing the aff
 if trustworthy observation is lost. Failed or degraded routes never admit later sessions as
 transparent retries.
 
+Unexpected accept-loop termination is also terminal: an active `REQUIRED` route becomes `FAILED`
+and an active `OPTIONAL` route becomes `DEGRADED` through the same dynamic runtime status. The
+configured `DISABLED` and `UNSUPPORTED` statuses retain their observation-capability meaning even
+though the failed listener cannot accept transport sessions. The first listener cause is retained
+for the later connection-owned cleanup, whose failures are
+suppressed without replacing it. Normal shutdown records its expected transition before closing
+the listener and changes a healthy `ACTIVE` route to `INACTIVE`. Sessions established before a
+listener failure remain route-owned and may finish normally; the failed listener accepts no new
+sessions, and the eventual route close still releases every remaining socket and task. A socket
+close failure observed by a finishing session is buffered by the route; after session tasks stop,
+the sole route close appends all socket failures to the listener cause in socket-registration
+order. Session cleanup never mutates the shared listener cause directly.
+
 For every observed physical socket pair the gateway opens one core `InteractionSession` and one
 adapter `ProtocolSession`. The two flow directions have independent `ProtocolStream` state, bounded
 buffers, and ordinals while sharing the same core `SessionId`. A stream decodes arbitrary

@@ -31,15 +31,27 @@ public final class InteractionGateway {
         new ProtocolLimits(1024 * 1024, 2 * 1024 * 1024);
 
     private final HostPortExposure hostPortExposure;
+    private final GatewayListenerFactory listenerFactory;
 
     public InteractionGateway() {
-        this(Testcontainers::exposeHostPorts);
+        this(Testcontainers::exposeHostPorts, ServerSocketGatewayListener::open);
     }
 
     InteractionGateway(HostPortExposure hostPortExposure) {
+        this(hostPortExposure, ServerSocketGatewayListener::open);
+    }
+
+    InteractionGateway(
+        HostPortExposure hostPortExposure,
+        GatewayListenerFactory listenerFactory
+    ) {
         this.hostPortExposure = Objects.requireNonNull(
             hostPortExposure,
             "hostPortExposure must not be null"
+        );
+        this.listenerFactory = Objects.requireNonNull(
+            listenerFactory,
+            "listenerFactory must not be null"
         );
     }
 
@@ -104,7 +116,8 @@ public final class InteractionGateway {
             context.observations(),
             context.coordinator(),
             effectiveProtocolAdapter,
-            effectiveProtocolLimits
+            effectiveProtocolLimits,
+            listenerFactory
         );
         try {
             route.start();
