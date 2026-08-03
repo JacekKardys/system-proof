@@ -1,9 +1,10 @@
-package io.github.jacekkardys.systemproof.proof;
+package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 
 /**
  * Immutable adapter-produced request to link one interaction to a safe key and typed native
@@ -50,8 +51,8 @@ public final class CorrelationContribution<T> {
         return nativeReference.encodedSize();
     }
 
-    /** Returns the detached immutable native-reference snapshot captured by this contribution. */
-    public EvidenceSnapshot nativeReferenceSnapshot() {
+    /** Returns the captured snapshot to the environment-owned proof registry. */
+    EvidenceSnapshot nativeReferenceSnapshot() {
         return nativeReference;
     }
 

@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.testcontainers.gateway;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
+import io.github.jacekkardys.systemproof.engine.execution.CorrelationContribution;
 
 /** One complete decoded interaction and the exact original bytes that formed it. */
 public final class ProtocolUnit<E> {

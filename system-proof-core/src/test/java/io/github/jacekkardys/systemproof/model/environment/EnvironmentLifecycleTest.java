@@ -4,6 +4,7 @@ import static io.github.jacekkardys.systemproof.construction.ComponentPortFactor
 import static io.github.jacekkardys.systemproof.construction.ComponentPortFactory.provides;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static io.github.jacekkardys.systemproof.api.EnvironmentLogging.logs;
@@ -23,8 +24,8 @@ import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
-import io.github.jacekkardys.systemproof.routing.ConnectionRoute;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.execution.ConnectionRoute;
+import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
@@ -499,6 +500,49 @@ class EnvironmentLifecycleTest {
         assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
         environment.close();
         assertThat(cleanup).containsExactly("second", "first");
+    }
+
+    @Test
+    void shouldCleanEveryComponentWhenCloseFailuresReuseTheSameThrowable() {
+        List<String> cleanup = new ArrayList<>();
+        IllegalStateException sharedFailure =
+            new IllegalStateException("shared component cleanup failure");
+        Standalone first = failingCleanupComponent("first", cleanup, sharedFailure);
+        Standalone second = failingCleanupComponent("second", cleanup, sharedFailure);
+        Standalone third = failingCleanupComponent("third", cleanup, sharedFailure);
+        Environment environment = new EnvironmentBuilder()
+            .components(first, second, third)
+            .build()
+            .start();
+
+        assertThatThrownBy(environment::close)
+            .isSameAs(sharedFailure)
+            .satisfies(failure -> assertThat(failure.getSuppressed()).isEmpty());
+
+        assertThat(cleanup).containsExactly("third", "second", "first");
+        assertThat(environment.componentState(first)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.componentState(second)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.componentState(third)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+        assertThatCode(environment::close).doesNotThrowAnyException();
+        assertThat(cleanup).containsExactly("third", "second", "first");
+    }
+
+    private static Standalone failingCleanupComponent(
+        String id,
+        List<String> cleanup,
+        RuntimeException failure
+    ) {
+        return new Standalone(
+            id,
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime(() -> {
+                        cleanup.add(id);
+                        throw failure;
+                    })
+                    .build()
+        );
     }
 
     @Test

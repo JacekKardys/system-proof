@@ -69,8 +69,20 @@ final class EnvironmentRuntimeFailures {
         if (first == null) {
             return next;
         }
+        if (first == next || isAlreadySuppressed(first, next)) {
+            return first;
+        }
         first.addSuppressed(next);
         return first;
+    }
+
+    private static boolean isAlreadySuppressed(Throwable primary, Throwable candidate) {
+        for (Throwable suppressed : primary.getSuppressed()) {
+            if (suppressed == candidate) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static void rethrowCleanupFailure(Throwable failure) {

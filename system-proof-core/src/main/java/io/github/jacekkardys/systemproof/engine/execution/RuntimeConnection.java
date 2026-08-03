@@ -1,10 +1,7 @@
 package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.observation.ConnectionObservations;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.routing.ConnectionRoute;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;
 import io.github.jacekkardys.systemproof.model.topology.Connection;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;

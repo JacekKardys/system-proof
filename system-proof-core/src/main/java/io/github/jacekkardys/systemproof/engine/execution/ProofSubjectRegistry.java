@@ -7,11 +7,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
-import io.github.jacekkardys.systemproof.proof.ProofSubjectScope;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
@@ -20,11 +18,14 @@ import io.github.jacekkardys.systemproof.observation.InteractionRef;
 
 /** Environment-owned linearizable subject registry and current-state journal index. */
 final class ProofSubjectRegistry implements ProofSubjects {
-    private final ProofSubjectScope scope = new ProofSubjectScope();
+    private static final long FIRST_SUBJECT_VALUE = 1L;
+
+    private final Object owner = new Object();
     private final EnvironmentEventLog eventLog;
     private final Map<ProofSubjectRef, SubjectState> subjects = new HashMap<>();
     private final Map<CorrelationKey, Set<ProofSubjectRef>> subjectsByKey =
         new HashMap<>();
+    private long nextSubjectValue = FIRST_SUBJECT_VALUE;
     private boolean acceptingPublications = true;
 
     ProofSubjectRegistry(EnvironmentEventLog eventLog) {
@@ -34,7 +35,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
     @Override
     public synchronized ProofSubjectRef create() {
         requireAccepting("create proof subjects");
-        ProofSubjectRef subject = scope.create();
+        ProofSubjectRef subject = createReference();
         eventLog.proofSubjectCreated(subject);
         subjects.put(subject, new SubjectState());
         return subject;
@@ -170,9 +171,23 @@ final class ProofSubjectRegistry implements ProofSubjects {
         acceptingPublications = false;
     }
 
+    private ProofSubjectRef createReference() {
+        if (nextSubjectValue < FIRST_SUBJECT_VALUE) {
+            throw new IllegalStateException(
+                "Proof-subject identity space is exhausted for this environment execution"
+            );
+        }
+        ProofSubjectRef reference = new RuntimeProofSubjectRef(owner, nextSubjectValue);
+        nextSubjectValue = nextSubjectValue == Long.MAX_VALUE
+            ? Long.MIN_VALUE
+            : nextSubjectValue + 1L;
+        return reference;
+    }
+
     private SubjectState requireSubject(ProofSubjectRef subject) {
         Objects.requireNonNull(subject, "subject must not be null");
-        if (!scope.owns(subject)) {
+        if (!(subject instanceof RuntimeProofSubjectRef reference)
+            || !reference.belongsTo(owner)) {
             throw new IllegalArgumentException(
                 "Proof subject belongs to a different environment execution"
             );
@@ -196,6 +211,43 @@ final class ProofSubjectRegistry implements ProofSubjects {
 
     private static final class SubjectState {
         private final Map<CorrelationKey, Resolution> resolutions = new HashMap<>();
+    }
+
+    private static final class RuntimeProofSubjectRef implements ProofSubjectRef {
+        private final Object owner;
+        private final long value;
+
+        private RuntimeProofSubjectRef(Object owner, long value) {
+            this.owner = Objects.requireNonNull(owner, "owner must not be null");
+            if (value < FIRST_SUBJECT_VALUE) {
+                throw new IllegalArgumentException(
+                    "proof-subject value must be at least " + FIRST_SUBJECT_VALUE
+                );
+            }
+            this.value = value;
+        }
+
+        private boolean belongsTo(Object candidateOwner) {
+            return owner == candidateOwner;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other
+                || other instanceof RuntimeProofSubjectRef reference
+                    && owner == reference.owner
+                    && value == reference.value;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * System.identityHashCode(owner) + Long.hashCode(value);
+        }
+
+        @Override
+        public String toString() {
+            return "proof-subject-" + value;
+        }
     }
 
     private sealed interface Resolution permits Missing, Unique, Ambiguous {}

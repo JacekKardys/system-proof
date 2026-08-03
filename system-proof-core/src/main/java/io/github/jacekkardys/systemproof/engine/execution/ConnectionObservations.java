@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.observation;
+package io.github.jacekkardys.systemproof.engine.execution;
 
 /**
  * Restricted traffic-observation capability bound to one exact runtime connection.

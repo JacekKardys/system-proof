@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.routing;
+package io.github.jacekkardys.systemproof.engine.execution;
 
 /**
  * Prepares one typed consumer route from one exact runtime connection context.

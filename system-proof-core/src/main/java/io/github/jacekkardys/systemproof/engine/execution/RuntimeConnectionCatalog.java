@@ -15,7 +15,6 @@ import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
 
 /** Immutable one-to-one materialization and identity indexes for topology connections. */
 final class RuntimeConnectionCatalog {
