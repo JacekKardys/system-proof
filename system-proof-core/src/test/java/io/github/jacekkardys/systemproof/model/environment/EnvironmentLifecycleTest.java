@@ -185,6 +185,64 @@ class EnvironmentLifecycleTest {
     }
 
     @Test
+    void shouldStopAfterTheFirstComponentFailureAndCompleteProofExecution() {
+        IllegalStateException startupFailure = new IllegalStateException("first failed");
+        AtomicInteger laterStarts = new AtomicInteger();
+        Standalone first = new Standalone(
+            "first",
+            (component, context) -> {
+                throw startupFailure;
+            }
+        );
+        Standalone later = new Standalone(
+            "later",
+            (component, context) -> {
+                laterStarts.incrementAndGet();
+                return io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime()
+                    .build();
+            }
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(first, later)
+            .build();
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause()).isSameAs(startupFailure);
+        assertThat(laterStarts).hasValue(0);
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+        assertThat(environment.componentState(first)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.componentState(later)).isEqualTo(ComponentState.DECLARED);
+        assertThatThrownBy(environment.proofSubjects()::create)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Environment execution is complete and cannot create proof subjects");
+    }
+
+    @Test
+    void shouldRejectANullRuntimeReturnedByTheDriver() {
+        Standalone component = new Standalone(
+            "null-runtime",
+            (declaration, context) -> null
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(component)
+            .build();
+
+        assertThatThrownBy(environment::start)
+            .isInstanceOf(EnvironmentStartException.class)
+            .hasRootCauseInstanceOf(NullPointerException.class)
+            .hasRootCauseMessage(
+                "Driver for component 'standalone-null-runtime' returned null runtime"
+            );
+        assertThat(environment.componentState(component)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+    }
+
+    @Test
     void shouldRollbackOnlyStartedComponentsInReverseOrderAndAtMostOnce() {
         List<String> cleanup = new ArrayList<>();
         IllegalStateException startupFailure =
@@ -397,6 +455,50 @@ class EnvironmentLifecycleTest {
                 "shared cleanup failed",
                 "[STATE] component=server type=server state=FAILED"
             );
+    }
+
+    @Test
+    void shouldAttemptEveryComponentCleanupAndAggregateFailuresInStopOrder() {
+        List<String> cleanup = new ArrayList<>();
+        IllegalStateException firstFailure = new IllegalStateException("first cleanup failed");
+        IllegalStateException secondFailure = new IllegalStateException("second cleanup failed");
+        Standalone first = new Standalone(
+            "first",
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime(() -> {
+                        cleanup.add("first");
+                        throw firstFailure;
+                    })
+                    .build()
+        );
+        Standalone second = new Standalone(
+            "second",
+            (component, context) ->
+                io.github.jacekkardys.systemproof.driver.ComponentRuntime
+                    .<Void>runtime(() -> {
+                        cleanup.add("second");
+                        throw secondFailure;
+                    })
+                    .build()
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(first, second)
+            .build()
+            .start();
+
+        assertThatThrownBy(environment::close)
+            .isSameAs(secondFailure)
+            .satisfies(failure ->
+                assertThat(failure.getSuppressed()).containsExactly(firstFailure)
+            );
+
+        assertThat(cleanup).containsExactly("second", "first");
+        assertThat(environment.componentState(first)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.componentState(second)).isEqualTo(ComponentState.FAILED);
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+        environment.close();
+        assertThat(cleanup).containsExactly("second", "first");
     }
 
     @Test
@@ -674,6 +776,12 @@ class EnvironmentLifecycleTest {
                 assertThat(connection.state()).isEqualTo(ConnectionState.STOPPED);
                 assertThat(connection.directTargetAvailable()).isFalse();
             });
+        assertThat(environment.componentState(client)).isEqualTo(ComponentState.DECLARED);
+        assertThat(environment.componentState(server)).isEqualTo(ComponentState.DECLARED);
+        assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+        assertThatThrownBy(environment.proofSubjects()::create)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Environment execution is complete and cannot create proof subjects");
     }
 
     private enum Invocation implements InteractionSpec {

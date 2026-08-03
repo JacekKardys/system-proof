@@ -1,21 +1,16 @@
 package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
 
-/** Running component handles and typed values published for provided endpoint contracts. */
+/** Attaches component runtime endpoint bindings to environment-owned connections. */
 final class RuntimeBindings {
     private final RuntimeConnectionRegistry connections;
-    private final Map<Component, ComponentRuntime<?>> runtimes =
-        new IdentityHashMap<>();
 
     RuntimeBindings(RuntimeConnectionRegistry connections) {
         this.connections = Objects.requireNonNull(connections, "connections must not be null");
@@ -27,9 +22,6 @@ final class RuntimeBindings {
     ) {
         Objects.requireNonNull(component, "component must not be null");
         Objects.requireNonNull(runtime, "runtime must not be null");
-        if (runtimes.containsKey(component)) {
-            throw new IllegalStateException("Component '" + component.id() + "' already has a runtime");
-        }
         List<ProvidedPort<?>> providedPorts = new ArrayList<>();
         component.ports().stream()
             .filter(ProvidedPort.class::isInstance)
@@ -54,28 +46,10 @@ final class RuntimeBindings {
             connections.failProviderMaterialization(component, failure);
             throw failure;
         }
-        runtimes.put(component, runtime);
     }
 
     <T> T resolve(RequiredPort<T> required) {
         return connections.resolve(required);
-    }
-
-    <C extends io.github.jacekkardys.systemproof.model.component.RuntimeConfig, O> O operations(
-        AbstractComponent<C, O> component
-    ) {
-        Object operations = requireRuntime(component).operations();
-        if (operations == null) {
-            throw new IllegalStateException(
-                "Component '" + component.id() + "' (type=" + component.type()
-                    + ") has no runtime operations"
-            );
-        }
-        return component.castOperations(operations);
-    }
-
-    ComponentRuntime<?> runtime(AbstractComponent<?, ?> component) {
-        return requireRuntime(component);
     }
 
     Throwable beginDetach(AbstractComponent<?, ?> component) {
@@ -90,19 +64,7 @@ final class RuntimeBindings {
         connections.failProviderCleanup(component, failure);
     }
 
-    void detachRuntime(AbstractComponent<?, ?> component) {
-        runtimes.remove(component);
-    }
-
     void providerStartFailure(AbstractComponent<?, ?> component, Throwable failure) {
         connections.failProviderMaterialization(component, failure);
-    }
-
-    private ComponentRuntime<?> requireRuntime(Component component) {
-        ComponentRuntime<?> runtime = runtimes.get(component);
-        if (runtime == null) {
-            throw new IllegalStateException("Component '" + component.id() + "' has no runtime");
-        }
-        return runtime;
     }
 }

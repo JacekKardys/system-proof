@@ -62,12 +62,6 @@ final class EnvironmentRuntimeFailures {
         );
     }
 
-    static IllegalStateException componentWasNotStarted(Component component) {
-        return new IllegalStateException(
-            "Component '" + component.id() + "' was not recorded as started"
-        );
-    }
-
     static Throwable accumulate(Throwable first, Throwable next) {
         if (next == null) {
             return first;
