@@ -30,6 +30,7 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationValues;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.environment.ComponentLifecycleException;
+import io.github.jacekkardys.systemproof.environment.ComponentPortFactory;
 import io.github.jacekkardys.systemproof.environment.ConnectionRoute;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouteContext;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
@@ -369,6 +370,14 @@ class CoreArchitectureTest {
             );
         assertThat(externallyVisibleMethods(runtime)).isEmpty();
 
+        Class<?> runtimeFactory = loadType("environment.EnvironmentRuntimeFactory");
+        assertThat(Modifier.isPublic(runtimeFactory.getModifiers())).isFalse();
+        assertThat(runtimeFactory.getDeclaredConstructors())
+            .allSatisfy(constructor ->
+                assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue()
+            );
+        assertThat(externallyVisibleMethods(runtimeFactory)).isEmpty();
+
         Class<?> storage = loadType("environment.ScenarioJournal");
         assertThat(Modifier.isPublic(storage.getModifiers())).isFalse();
         assertThat(externallyVisibleConstructors(storage)).isEmpty();
@@ -418,6 +427,15 @@ class CoreArchitectureTest {
                 "ports():java.util.List",
                 "type():component.ComponentType"
             );
+        assertThat(methodKeys(ComponentPortFactory.class))
+            .containsExactly(
+                "provides(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.ProvidedPort",
+                "requires(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.RequiredPort",
+                "requiresAtStartup(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.RequiredPort"
+            );
         assertThat(methodKeys(ComponentRuntime.class))
             .containsExactly(
                 "close():void",
@@ -441,6 +459,18 @@ class CoreArchitectureTest {
                 "toString():java.lang.String"
             )
             .doesNotContain("runtimeComponents():java.util.List");
+        assertThat(Modifier.isFinal(EnvironmentTopology.class.getModifiers())).isTrue();
+        assertThat(EnvironmentTopology.class.getDeclaredConstructors())
+            .hasSize(1)
+            .allSatisfy(constructor ->
+                assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue()
+            );
+        assertThat(Arrays.stream(EnvironmentTopology.class.getDeclaredMethods())
+            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> Modifier.isStatic(method.getModifiers()))
+            .filter(method -> method.getReturnType() == EnvironmentTopology.class)
+            .map(Method::getName))
+            .containsExactly("of");
         assertThat(methodKeys(EnvironmentLogging.class))
             .containsExactly(
                 "defaults():environment.EnvironmentLogging",

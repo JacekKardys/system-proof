@@ -94,14 +94,14 @@ public final class EnvironmentBuilder {
     }
 
     /**
-     * Validates and freezes construction state before creating a typed environment facade.
+     * Freezes construction state through the validated topology boundary before creating a typed
+     * environment facade.
      *
      * @param creator facade creator invoked with immutable construction results
      * @return the created environment facade
      */
     public <E extends Environment> E build(EnvironmentCreator<E> creator) {
         Objects.requireNonNull(creator, "creator must not be null");
-        TopologyValidator.validate(components, connections);
         EnvironmentTopology topology = EnvironmentTopology.of(components, connections);
         logging.validateAgainst(topology);
         return Objects.requireNonNull(creator.create(topology, logging), "creator must not return null");

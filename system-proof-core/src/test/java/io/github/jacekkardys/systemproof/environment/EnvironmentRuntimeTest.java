@@ -20,7 +20,7 @@ class EnvironmentRuntimeTest {
 
     @Test
     void shouldCreateCompleteRuntimesWithDefaultAndExplicitRouting() {
-        EnvironmentTopology topology = EnvironmentTopology.of(List.of(), List.of());
+        EnvironmentTopology topology = topology();
         EnvironmentLogging logging = EnvironmentLogging.defaults();
 
         EnvironmentRuntime direct = EnvironmentRuntime.of(topology, logging);
@@ -40,7 +40,7 @@ class EnvironmentRuntimeTest {
 
     @Test
     void shouldRejectNullFactoryArguments() {
-        EnvironmentTopology topology = EnvironmentTopology.of(List.of(), List.of());
+        EnvironmentTopology topology = topology();
         EnvironmentLogging logging = EnvironmentLogging.defaults();
 
         assertThatNullPointerException()
@@ -56,8 +56,9 @@ class EnvironmentRuntimeTest {
 
     @Test
     void shouldValidateLoggingAgainstTopologyAtTheFactoryBoundary() {
+        TestComponent inside = new TestComponent();
         TestComponent outside = new TestComponent();
-        EnvironmentTopology topology = EnvironmentTopology.of(List.of(), List.of());
+        EnvironmentTopology topology = EnvironmentTopology.of(List.of(inside), List.of());
         EnvironmentLogging logging = logs()
             .componentLevel(outside, LogLevel.DEBUG)
             .build();
@@ -67,6 +68,10 @@ class EnvironmentRuntimeTest {
             .hasMessage(
                 "Logging configuration references component 'component' outside the environment"
             );
+    }
+
+    private static EnvironmentTopology topology() {
+        return EnvironmentTopology.of(List.of(new TestComponent()), List.of());
     }
 
     private record EmptyConfig() implements RuntimeConfig {}

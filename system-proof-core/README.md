@@ -69,16 +69,20 @@ component-target meaning.
 `component(ComponentClass.class)` and `component("qualifier", ComponentClass.class)`. Materialization
 binds `C` and `D`, constructs the driver and component, initializes annotated ports, and only then
 adds the exact returned component instance to the builder. `Environment` contains no component
-factory, mutable declaration collections, or construction DSL. The builder validates and freezes
-the topology and logging configuration before creating the runtime facade.
+factory, mutable declaration collections, or construction DSL. The builder delegates topology
+construction to `EnvironmentTopology.of(...)` and validates logging before creating the runtime
+facade.
 
 Construction ends at `build(...)`: it passes immutable `EnvironmentTopology` and
 `EnvironmentLogging` results to the selected facade constructor. Runtime execution never retains
 the builder, mutable declaration lists, configuration binder, component materializer, or validator.
 `EnvironmentTopology` is one concrete immutable snapshot, not an interface paired with a
-construction-only implementation. Its static `of(...)` factory is the low-level snapshot boundary;
-`EnvironmentBuilder` is the normal entry point and validates before calling it. The driver-bearing
-runtime component view is package-private; public inspection returns `List<Component>`.
+construction-only implementation. Its static `of(...)` factory is the single owner of full
+structural topology validation. It validates complete component initialization, atomically freezes
+port declarations, and retains immutable component and connection snapshots before runtime
+assembly. `EnvironmentBuilder` is the normal entry point and delegates to this boundary. The
+driver-bearing runtime component view is package-private; public inspection returns
+`List<Component>`.
 `EnvironmentCreator<E>` is a separate functional interface so facade creation remains an explicit,
 documented extension point rather than a nested builder implementation detail.
 
