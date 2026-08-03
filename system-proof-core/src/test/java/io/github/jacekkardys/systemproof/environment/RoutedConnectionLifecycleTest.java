@@ -429,6 +429,147 @@ class RoutedConnectionLifecycleTest {
     }
 
     @Test
+    void shouldRollBackTheWholeBatchWhenLaterObservationInstallationFails() {
+        String directInternal = "dynamic-direct-internal-secret";
+        String directExternal = "dynamic-direct-external-secret";
+        String routeInternal = "dynamic-route-internal-secret";
+        String routeExternal = "dynamic-route-external-secret";
+        String statusSecret = "dynamic-observation-status-secret";
+        String firstCleanupSecret = "first-dynamic-cleanup-secret";
+        String thirdCleanupSecret = "third-dynamic-cleanup-secret";
+        IllegalStateException startupFailure = new IllegalStateException(
+            "observation installation exposed " + statusSecret
+        );
+        IllegalStateException firstCleanupFailure = new IllegalStateException(
+            "route cleanup exposed " + firstCleanupSecret
+        );
+        AssertionError thirdCleanupFailure = new AssertionError(
+            "route cleanup exposed " + thirdCleanupSecret
+        );
+        AtomicInteger preparations = new AtomicInteger();
+        List<ConnectionId> preparedIds = new ArrayList<>();
+        List<ConnectionId> cleanupOrder = new ArrayList<>();
+        List<AtomicInteger> statusCalls = List.of(
+            new AtomicInteger(),
+            new AtomicInteger(),
+            new AtomicInteger()
+        );
+        List<AtomicInteger> cleanupCalls = List.of(
+            new AtomicInteger(),
+            new AtomicInteger(),
+            new AtomicInteger()
+        );
+        Server server = new Server((component, context) ->
+            ComponentRuntime.<Void>runtime()
+                .provides(
+                    ((Server) component).api,
+                    binding(
+                        new ApiEndpoint(directInternal),
+                        new ApiEndpoint(directExternal)
+                    )
+                )
+                .build()
+        );
+        Client first = new Client("dynamic-first", (component, context) -> {
+            throw new AssertionError("Consumer should not start");
+        });
+        Client second = new Client("dynamic-second", (component, context) -> {
+            throw new AssertionError("Consumer should not start");
+        });
+        Client third = new Client("dynamic-third", (component, context) -> {
+            throw new AssertionError("Consumer should not start");
+        });
+        Environment environment = routedEnvironment(
+            new EnvironmentBuilder()
+                .components(first, second, third, server)
+                .connect(first.api, server.api)
+                .connect(second.api, server.api)
+                .connect(third.api, server.api),
+            ConnectionRouting.routed(
+                API,
+                ObservationRequirement.REQUIRED,
+                context -> {
+                    int routeIndex = preparations.getAndIncrement();
+                    ConnectionId connectionId = context.connection().id();
+                    preparedIds.add(connectionId);
+                    return ConnectionRoute.routed(
+                        binding(
+                            new ApiEndpoint(routeInternal + "-" + routeIndex),
+                            new ApiEndpoint(routeExternal + "-" + routeIndex)
+                        ),
+                        () -> {
+                            int invocation = statusCalls.get(routeIndex).incrementAndGet();
+                            if (routeIndex == 2 && invocation == 2) {
+                                throw startupFailure;
+                            }
+                            return EffectiveObservationStatus.ACTIVE;
+                        },
+                        () -> {
+                            cleanupCalls.get(routeIndex).incrementAndGet();
+                            cleanupOrder.add(connectionId);
+                            if (routeIndex == 2) {
+                                throw thirdCleanupFailure;
+                            }
+                            if (routeIndex == 0) {
+                                throw firstCleanupFailure;
+                            }
+                        }
+                    );
+                }
+            )
+        );
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+        environment.close();
+
+        assertThat(thrown.getCause()).isSameAs(startupFailure);
+        assertThat(startupFailure.getSuppressed())
+            .containsExactly(thirdCleanupFailure, firstCleanupFailure);
+        assertThat(statusCalls).allSatisfy(calls -> assertThat(calls).hasValue(2));
+        assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
+        assertThat(cleanupOrder).containsExactly(
+            preparedIds.get(2),
+            preparedIds.get(1),
+            preparedIds.get(0)
+        );
+        assertThat(environment.runtimeConnections()).hasSize(3).allSatisfy(snapshot -> {
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+            assertThat(snapshot.directTargetAvailable()).isFalse();
+            assertThat(snapshot.consumerTargetAvailable()).isFalse();
+        });
+        assertThat(
+            events(environment, ConnectionLifecycleEvent.class).stream()
+                .anyMatch(event -> event.state() == ConnectionState.RUNNING)
+        ).isFalse();
+        assertThat(events(environment, FailureEvent.ConnectionCleanup.class)).hasSize(2);
+        assertThat(environment.diagnostics().content())
+            .contains("Route preparation failed for connection '" + preparedIds.get(2) + "'")
+            .doesNotContain(
+                directInternal,
+                directExternal,
+                routeInternal,
+                routeExternal,
+                statusSecret,
+                firstCleanupSecret,
+                thirdCleanupSecret
+            );
+        assertThat(environment.journalSnapshot().entries())
+            .map(entry -> entry.event().toString())
+            .allSatisfy(rendered -> assertThat(rendered).doesNotContain(
+                directInternal,
+                directExternal,
+                routeInternal,
+                routeExternal,
+                statusSecret,
+                firstCleanupSecret,
+                thirdCleanupSecret
+            ));
+    }
+
+    @Test
     void shouldPreserveProviderCleanupAsSuppressedAfterRouteCleanupFails() {
         String directInternal = "direct-internal-cleanup-secret";
         String directExternal = "direct-external-cleanup-secret";

@@ -302,7 +302,8 @@ class ConnectionRoutingTest {
         connection.beginStartup();
         RuntimeConnection.RouteOwnership<C> ownership =
             connection.acquireRoute(directTarget);
-        connection.bindTargets(connection.validateRoute(ownership));
+        RuntimeConnection.PreparedTargets<C> prepared = connection.validateRoute(ownership);
+        connection.bindTargets(connection.prepareInstallation(prepared));
         return connection;
     }
 

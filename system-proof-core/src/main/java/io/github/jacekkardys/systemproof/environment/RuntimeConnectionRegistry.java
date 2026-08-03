@@ -18,7 +18,13 @@ import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot;
 
-/** One environment-owned materialization of the immutable topology connection declarations. */
+/**
+ * One environment-owned materialization of the immutable topology connection declarations.
+ *
+ * <p>Route preparation and extension-provided installation values remain transaction-owned until
+ * every entry in a provider batch is ready. The registry then commits the batch without invoking
+ * extension SPI and rolls every acquired route back in reverse order if any step fails.
+ */
 final class RuntimeConnectionRegistry {
     private final RuntimeConnectionCatalog catalog;
     private final EnvironmentEventPublisher events;
@@ -152,31 +158,46 @@ final class RuntimeConnectionRegistry {
         List<RuntimeConnection.PreparedTargets<?>> preparedTargets
     ) {
         Objects.requireNonNull(preparedTargets, "preparedTargets must not be null");
-        Set<RuntimeConnection<?>> unique = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
-            Objects.requireNonNull(prepared, "prepared target must not be null");
-            if (!catalog.owns(prepared.connection())) {
-                throw new IllegalArgumentException(
-                    "Connection '" + prepared.connection().id()
-                        + "' is outside this runtime registry"
-                );
+        List<RuntimeConnection.PreparedTargets<?>> transaction = new ArrayList<>();
+        preparedTargets.stream()
+            .filter(Objects::nonNull)
+            .forEach(transaction::add);
+        try {
+            Set<RuntimeConnection<?>> unique = Collections.newSetFromMap(
+                new IdentityHashMap<>()
+            );
+            for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
+                Objects.requireNonNull(prepared, "prepared target must not be null");
+                if (!catalog.owns(prepared.connection())) {
+                    throw new IllegalArgumentException(
+                        "Connection '" + prepared.connection().id()
+                            + "' is outside this runtime registry"
+                    );
+                }
+                if (!unique.add(prepared.connection())) {
+                    throw new IllegalStateException(
+                        "Connection '" + prepared.connection().id()
+                            + "' was prepared more than once"
+                    );
+                }
+                validatePrepared(prepared);
             }
-            if (!unique.add(prepared.connection())) {
-                throw new IllegalStateException(
-                    "Connection '" + prepared.connection().id()
-                        + "' was prepared more than once"
-                );
+            List<RuntimeConnection.Installation<?>> installations =
+                prepareInstallations(preparedTargets);
+            for (RuntimeConnection.Installation<?> installation : installations) {
+                bindPrepared(installation);
             }
-            validatePrepared(prepared);
-        }
-        for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
-            bindPrepared(prepared);
+        } catch (RuntimeException | Error failure) {
+            rollbackPreparedRoutes(transaction, failure);
+            throw failure;
         }
         preparedTargets.forEach(prepared -> recordLifecycle(prepared.connection()));
     }
 
     synchronized void failProviderMaterialization(Component provider, Throwable failure) {
-        for (RuntimeConnection<?> connection : targeting(provider)) {
+        List<RuntimeConnection<?>> targeted = targeting(provider);
+        closeCommittedRoutesForFailure(targeted, failure);
+        for (RuntimeConnection<?> connection : targeted) {
             failMaterialization(connection, failure);
         }
     }
@@ -314,15 +335,47 @@ final class RuntimeConnectionRegistry {
     private static <C> void validatePreparedTyped(
         RuntimeConnection.PreparedTargets<C> prepared
     ) {
-        prepared.connection().validateCanBind(prepared);
+        prepared.connection().validateCanInstall(prepared);
     }
 
-    private static void bindPrepared(RuntimeConnection.PreparedTargets<?> prepared) {
-        bindTyped(prepared);
+    private List<RuntimeConnection.Installation<?>> prepareInstallations(
+        List<RuntimeConnection.PreparedTargets<?>> preparedTargets
+    ) {
+        List<RuntimeConnection.Installation<?>> installations = new ArrayList<>();
+        for (RuntimeConnection.PreparedTargets<?> prepared : preparedTargets) {
+            try {
+                installations.add(prepareInstallation(prepared));
+            } catch (RuntimeException | Error failure) {
+                if (prepared.connection().routingMode() == RoutingMode.ROUTED) {
+                    events.protectRoutePreparationFailure(
+                        prepared.connection().declaration(),
+                        failure
+                    );
+                }
+                throw failure;
+            }
+        }
+        return installations;
     }
 
-    private static <C> void bindTyped(RuntimeConnection.PreparedTargets<C> prepared) {
-        prepared.connection().bindTargets(prepared);
+    private static RuntimeConnection.Installation<?> prepareInstallation(
+        RuntimeConnection.PreparedTargets<?> prepared
+    ) {
+        return prepareInstallationTyped(prepared);
+    }
+
+    private static <C> RuntimeConnection.Installation<C> prepareInstallationTyped(
+        RuntimeConnection.PreparedTargets<C> prepared
+    ) {
+        return prepared.connection().prepareInstallation(prepared);
+    }
+
+    private static void bindPrepared(RuntimeConnection.Installation<?> installation) {
+        bindTyped(installation);
+    }
+
+    private static <C> void bindTyped(RuntimeConnection.Installation<C> installation) {
+        installation.connection().bindTargets(installation);
     }
 
     private static void requireState(
@@ -345,7 +398,7 @@ final class RuntimeConnectionRegistry {
         Collections.reverse(reverse);
         for (RuntimeConnection.PreparedTargets<?> targets : reverse) {
             try {
-                targets.closeRoute();
+                targets.rollbackRoute();
             } catch (Exception | Error cleanupFailure) {
                 EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
                 events.protectRouteCleanupFailure(
@@ -365,7 +418,7 @@ final class RuntimeConnectionRegistry {
         Throwable preparationFailure
     ) {
         try {
-            ownership.closeRoute();
+            ownership.closeTransactionRoute();
         } catch (Exception | Error cleanupFailure) {
             EnvironmentRuntimeFailures.accumulate(preparationFailure, cleanupFailure);
             events.protectRouteCleanupFailure(
@@ -377,6 +430,40 @@ final class RuntimeConnectionRegistry {
                 cleanupFailure
             );
         }
+    }
+
+    private void closeCommittedRoutesForFailure(
+        List<RuntimeConnection<?>> targeted,
+        Throwable startupFailure
+    ) {
+        Objects.requireNonNull(startupFailure, "startupFailure must not be null");
+        for (RuntimeConnection<?> connection : targeted) {
+            if (connection.state() == ConnectionState.RUNNING) {
+                connection.beginStopping();
+                recordLifecycle(connection);
+            }
+        }
+        List<RuntimeConnection<?>> reverse = new ArrayList<>(targeted);
+        Collections.reverse(reverse);
+        for (RuntimeConnection<?> connection : reverse) {
+            if (connection.state() != ConnectionState.STOPPING) {
+                continue;
+            }
+            try {
+                connection.closeRoute();
+            } catch (Exception | Error cleanupFailure) {
+                EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
+                events.protectRouteCleanupFailure(
+                    connection.declaration(),
+                    cleanupFailure
+                );
+                events.connectionCleanupFailure(
+                    connection.declaration(),
+                    cleanupFailure
+                );
+            }
+        }
+        invalidateDirectTargets(targeted);
     }
 
     private Throwable closeRoutesReverse(List<RuntimeConnection<?>> targeted) {

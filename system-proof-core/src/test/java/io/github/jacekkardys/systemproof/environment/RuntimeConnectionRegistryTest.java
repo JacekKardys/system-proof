@@ -32,6 +32,8 @@ import io.github.jacekkardys.systemproof.topology.Connection;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
+import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 import io.github.jacekkardys.systemproof.topology.Contract;
 import io.github.jacekkardys.systemproof.topology.InteractionSpec;
 import io.github.jacekkardys.systemproof.topology.ProtocolSpec;
@@ -194,7 +196,9 @@ class RuntimeConnectionRegistryTest {
             .doesNotContain(
                 "beginStartup",
                 "prepareTargets",
+                "prepareInstallation",
                 "bindTargets",
+                "rollbackTargets",
                 "beginStopping",
                 "closeRoute",
                 "invalidateDirectTarget",
@@ -222,7 +226,9 @@ class RuntimeConnectionRegistryTest {
             connection.acquireRoute(binding("internal", "external"));
         RuntimeConnection.PreparedTargets<String> prepared =
             connection.validateRoute(ownership);
-        connection.bindTargets(prepared);
+        RuntimeConnection.Installation<String> installation =
+            connection.prepareInstallation(prepared);
+        connection.bindTargets(installation);
         assertThatThrownBy(() -> connection.acquireRoute(binding("other", "other")))
             .hasMessageContaining("cannot bind a direct target from state RUNNING");
         connection.beginStopping();
@@ -420,6 +426,187 @@ class RuntimeConnectionRegistryTest {
                 "route-secret",
                 "route-secret-external"
             );
+    }
+
+    @Test
+    void shouldRollBackEveryPreparedRouteWhenBatchMembershipIsInvalid() {
+        Client first = new Client("invalid-batch-first");
+        Client second = new Client("invalid-batch-second");
+        Server server = new Server();
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
+        List<ConnectionId> cleanupOrder = new ArrayList<>();
+        List<AtomicInteger> cleanupCalls = List.of(
+            new AtomicInteger(),
+            new AtomicInteger()
+        );
+        AtomicInteger preparations = new AtomicInteger();
+        RuntimeConnectionRegistry registry = registry(
+            List.of(firstDeclaration, secondDeclaration),
+            new ScenarioJournal(() -> 0L),
+            ConnectionRouting.routed(
+                API,
+                context -> {
+                    int routeIndex = preparations.getAndIncrement();
+                    ConnectionId connectionId = context.connection().id();
+                    return ConnectionRoute.routed(
+                        binding("route", "route-external"),
+                        () -> {
+                            cleanupCalls.get(routeIndex).incrementAndGet();
+                            cleanupOrder.add(connectionId);
+                        }
+                    );
+                }
+            )
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+        List<RuntimeConnection.PreparedTargets<?>> prepared =
+            registry.prepareTargets(server, provider);
+
+        assertThatThrownBy(() -> registry.bindTargets(List.of(
+            prepared.get(0),
+            prepared.get(0),
+            prepared.get(1)
+        )))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("was prepared more than once");
+
+        assertThat(cleanupOrder).containsExactly(
+            secondDeclaration.id(),
+            firstDeclaration.id()
+        );
+        assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
+        assertThat(registry.snapshots()).allSatisfy(snapshot -> {
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.STARTING);
+            assertThat(snapshot.directTargetAvailable()).isFalse();
+            assertThat(snapshot.consumerTargetAvailable()).isFalse();
+        });
+        registry.failProviderMaterialization(
+            server,
+            new IllegalStateException("invalid batch")
+        );
+        assertThat(registry.stopRemaining()).isNull();
+        assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
+    }
+
+    @Test
+    void shouldCloseCommittedRoutesOnceWhenProviderMaterializationFails() {
+        Client first = new Client("committed-first");
+        Client second = new Client("committed-second");
+        Client third = new Client("committed-third");
+        Server server = new Server();
+        Connection<String> firstDeclaration = connection(first.api, server.api);
+        Connection<String> secondDeclaration = connection(second.api, server.api);
+        Connection<String> thirdDeclaration = connection(third.api, server.api);
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        IllegalStateException startupFailure = new IllegalStateException(
+            "provider startup failed after route publication"
+        );
+        IllegalStateException firstCleanupFailure = new IllegalStateException(
+            "first committed route cleanup failed"
+        );
+        AssertionError thirdCleanupFailure = new AssertionError(
+            "third committed route cleanup failed"
+        );
+        AtomicInteger preparations = new AtomicInteger();
+        List<ConnectionId> cleanupOrder = new ArrayList<>();
+        List<AtomicInteger> cleanupCalls = List.of(
+            new AtomicInteger(),
+            new AtomicInteger(),
+            new AtomicInteger()
+        );
+        ConnectionRouting routing = ConnectionRouting.routed(
+            API,
+            context -> {
+                int routeIndex = preparations.getAndIncrement();
+                ConnectionId connectionId = context.connection().id();
+                return ConnectionRoute.routed(
+                    binding("committed-route", "committed-route-external"),
+                    () -> {
+                        cleanupCalls.get(routeIndex).incrementAndGet();
+                        cleanupOrder.add(connectionId);
+                        if (routeIndex == 2) {
+                            throw thirdCleanupFailure;
+                        }
+                        if (routeIndex == 0) {
+                            throw firstCleanupFailure;
+                        }
+                    }
+                );
+            }
+        );
+        RuntimeConnectionRegistry registry = registry(
+            List.of(firstDeclaration, secondDeclaration, thirdDeclaration),
+            journal,
+            routing
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+        registry.bindTargets(registry.prepareTargets(server, provider));
+
+        registry.failProviderMaterialization(server, startupFailure);
+        registry.failProviderMaterialization(server, startupFailure);
+
+        assertThat(startupFailure.getSuppressed())
+            .containsExactly(thirdCleanupFailure, firstCleanupFailure);
+        assertThat(cleanupOrder).containsExactly(
+            thirdDeclaration.id(),
+            secondDeclaration.id(),
+            firstDeclaration.id()
+        );
+        assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
+        assertThat(registry.stopRemaining()).isNull();
+        assertThat(registry.snapshots()).allSatisfy(snapshot -> {
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+            assertThat(snapshot.directTargetAvailable()).isFalse();
+            assertThat(snapshot.consumerTargetAvailable()).isFalse();
+        });
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
+            .hasSize(2);
+    }
+
+    @Test
+    void shouldKeepReadingDynamicObservationStatusAfterTransactionalCommit() {
+        Client client = new Client("dynamic-observation");
+        Server server = new Server();
+        Connection<String> declaration = connection(client.api, server.api);
+        AtomicReference<EffectiveObservationStatus> status = new AtomicReference<>(
+            EffectiveObservationStatus.ACTIVE
+        );
+        RuntimeConnectionRegistry registry = registry(
+            List.of(declaration),
+            new ScenarioJournal(() -> 0L),
+            ConnectionRouting.routed(
+                API,
+                ObservationRequirement.REQUIRED,
+                context -> ConnectionRoute.routed(
+                    binding("observed-route", "observed-route-external"),
+                    status::get,
+                    () -> {}
+                )
+            )
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+
+        registry.bindTargets(registry.prepareTargets(server, provider));
+
+        assertThat(registry.snapshot(declaration.id()).effectiveObservationStatus())
+            .isEqualTo(EffectiveObservationStatus.ACTIVE);
+        status.set(EffectiveObservationStatus.INACTIVE);
+        assertThat(registry.snapshot(declaration.id()).effectiveObservationStatus())
+            .isEqualTo(EffectiveObservationStatus.INACTIVE);
+        assertThat(registry.beginProviderCleanup(server)).isNull();
+        registry.completeProviderCleanup(server);
     }
 
     @Test
