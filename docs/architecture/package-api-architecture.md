@@ -59,6 +59,12 @@ component state and handles, connection bindings and routes, proof-subject alloc
 storage, redaction state, SLF4J emission, and cleanup accumulation. Public read models own none of
 those concerns.
 
+`EnvironmentTopology.of(...)` is the single owner of full structural topology validation. It first
+copies component and connection declarations, validates those exact immutable snapshots, and only
+then builds read indexes. `EnvironmentBuilder` delegates to that boundary, while environment runtime
+assembly accepts the resulting valid type without repeating topology validation. Every supported
+`EnvironmentTopology` instance is structurally validated before it can reach environment execution.
+
 ## Dependency direction
 
 The following is the actual direct core package-import graph. It is generated from main Java

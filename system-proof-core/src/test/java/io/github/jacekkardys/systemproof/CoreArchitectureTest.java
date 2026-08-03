@@ -369,6 +369,14 @@ class CoreArchitectureTest {
             );
         assertThat(externallyVisibleMethods(runtime)).isEmpty();
 
+        Class<?> runtimeFactory = loadType("environment.EnvironmentRuntimeFactory");
+        assertThat(Modifier.isPublic(runtimeFactory.getModifiers())).isFalse();
+        assertThat(runtimeFactory.getDeclaredConstructors())
+            .allSatisfy(constructor ->
+                assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue()
+            );
+        assertThat(externallyVisibleMethods(runtimeFactory)).isEmpty();
+
         Class<?> storage = loadType("environment.ScenarioJournal");
         assertThat(Modifier.isPublic(storage.getModifiers())).isFalse();
         assertThat(externallyVisibleConstructors(storage)).isEmpty();
@@ -441,6 +449,18 @@ class CoreArchitectureTest {
                 "toString():java.lang.String"
             )
             .doesNotContain("runtimeComponents():java.util.List");
+        assertThat(Modifier.isFinal(EnvironmentTopology.class.getModifiers())).isTrue();
+        assertThat(EnvironmentTopology.class.getDeclaredConstructors())
+            .hasSize(1)
+            .allSatisfy(constructor ->
+                assertThat(Modifier.isPrivate(constructor.getModifiers())).isTrue()
+            );
+        assertThat(Arrays.stream(EnvironmentTopology.class.getDeclaredMethods())
+            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> Modifier.isStatic(method.getModifiers()))
+            .filter(method -> method.getReturnType() == EnvironmentTopology.class)
+            .map(Method::getName))
+            .containsExactly("of");
         assertThat(methodKeys(EnvironmentLogging.class))
             .containsExactly(
                 "defaults():environment.EnvironmentLogging",

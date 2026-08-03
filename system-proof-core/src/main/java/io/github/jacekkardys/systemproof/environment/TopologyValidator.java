@@ -9,11 +9,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.topology.PortDirection;
 import io.github.jacekkardys.systemproof.topology.PortRef;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /** Structural validation performed while an environment topology is constructed. */
@@ -25,12 +27,14 @@ final class TopologyValidator {
             throw new IllegalArgumentException("Environment must contain at least one component");
         }
         Set<ComponentId> ids = new HashSet<>();
-        Set<PortRef> registeredPorts = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<Component> registeredComponents = identitySet();
+        Set<PortRef> registeredPorts = identitySet();
         for (AbstractComponent<?, ?> component : components) {
             Objects.requireNonNull(component, "component must not be null");
             if (!ids.add(component.id())) {
                 throw new IllegalArgumentException("Duplicate component ID '" + component.id() + "'");
             }
+            registeredComponents.add(component);
             registeredPorts.addAll(component.ports());
         }
 
@@ -38,18 +42,38 @@ final class TopologyValidator {
         Map<ConnectionId, ConnectionRef> connectionsById = new HashMap<>();
         for (ConnectionRef connection : connections) {
             Objects.requireNonNull(connection, "connection must not be null");
-            requireRegistered(connection.from(), registeredPorts);
-            requireRegistered(connection.to(), registeredPorts);
-            if (connection.from().direction() != PortDirection.REQUIRED
-                || connection.to().direction() != PortDirection.PROVIDED) {
-                throw new IllegalArgumentException("Connection '" + connection.id() + "' must be REQUIRED -> PROVIDED");
+            PortRef from = Objects.requireNonNull(
+                connection.from(),
+                "connection source port must not be null"
+            );
+            PortRef to = Objects.requireNonNull(
+                connection.to(),
+                "connection target port must not be null"
+            );
+            requireRegistered(from, registeredComponents, registeredPorts);
+            requireRegistered(to, registeredComponents, registeredPorts);
+            if (from.direction() != PortDirection.REQUIRED
+                || to.direction() != PortDirection.PROVIDED) {
+                throw new IllegalArgumentException("Connection '" + connection.id()
+                    + "' must be REQUIRED -> PROVIDED");
             }
-            ConnectionRef duplicate = connectionsById.putIfAbsent(connection.id(), connection);
+            RequiredPort<?> required = (RequiredPort<?>) from;
+            ConnectionId expectedId = ConnectionId.between(required, (ProvidedPort<?>) to);
+            ConnectionId actualId = Objects.requireNonNull(
+                connection.id(),
+                "connection id must not be null for " + describe(connection)
+            );
+            if (!actualId.equals(expectedId)) {
+                throw new IllegalArgumentException("Connection ID mismatch: declared='" + actualId
+                    + "', expected='" + expectedId + "' for " + describe(connection));
+            }
+            ConnectionFactory.validateCompatibility(from, to);
+
+            ConnectionRef duplicate = connectionsById.putIfAbsent(actualId, connection);
             if (duplicate != null) {
-                throw new IllegalArgumentException("Duplicate connection '" + connection.id() + "': existing "
+                throw new IllegalArgumentException("Duplicate connection '" + actualId + "': existing "
                     + describe(duplicate) + "; conflicting " + describe(connection));
             }
-            RequiredPort<?> required = (RequiredPort<?>) connection.from();
             ConnectionRef existing = connected.putIfAbsent(required, connection);
             if (existing != null) {
                 throw new IllegalArgumentException(describePort("required", required)
@@ -78,15 +102,32 @@ final class TopologyValidator {
             + "', protocol='" + port.protocol().id() + "']";
     }
 
-    private static void requireRegistered(PortRef port, Set<PortRef> registered) {
-        if (!registered.contains(port) || port.owner().ports().stream().noneMatch(candidate -> candidate == port)) {
-            throw new IllegalArgumentException(describePort(
-                port.direction() == PortDirection.REQUIRED ? "required" : "provided", port)
-                + " is not owned by a component in this environment");
+    private static void requireRegistered(
+        PortRef port,
+        Set<Component> registeredComponents,
+        Set<PortRef> registeredPorts
+    ) {
+        String description = describePort(
+            port.direction() == PortDirection.REQUIRED ? "required" : "provided",
+            port
+        );
+        if (!registeredComponents.contains(port.owner())) {
+            throw new IllegalArgumentException(description
+                + " belongs to a component outside this environment");
+        }
+        if (!registeredPorts.contains(port)
+            || port.owner().ports().stream().noneMatch(candidate -> candidate == port)) {
+            throw new IllegalArgumentException(description
+                + " is not the exact port instance registered by component '"
+                + port.owner().id() + "'");
         }
     }
 
     private static String describe(ConnectionRef connection) {
         return describePort("required", connection.from()) + " to " + describePort("provided", connection.to());
+    }
+
+    private static <T> Set<T> identitySet() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
     }
 }

@@ -21,7 +21,7 @@ public class Environment implements AutoCloseable {
     private final EnvironmentLogging logging;
     private final EnvironmentRuntime runtime;
 
-    /** Creates a runtime facade from an already constructed topology and logging configuration. */
+    /** Creates a runtime facade from a structurally validated topology and logging configuration. */
     public Environment(EnvironmentTopology topology, EnvironmentLogging logging) {
         this(topology, logging, ConnectionRouting.direct());
     }

@@ -19,7 +19,9 @@ final class ConnectionFactory {
         return new Connection<>(from, to, ConnectionId.between(from, to));
     }
 
-    private static void validateCompatibility(PortRef from, PortRef to) {
+    static void validateCompatibility(PortRef from, PortRef to) {
+        Objects.requireNonNull(from, "from must not be null");
+        Objects.requireNonNull(to, "to must not be null");
         reject(!from.contractId().equals(to.contractId()), from, to,
             "contract id mismatch: required=" + from.contractId() + ", provided=" + to.contractId());
         reject(!from.contractType().equals(to.contractType()), from, to,

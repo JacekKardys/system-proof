@@ -1,5 +1,6 @@
 package io.github.jacekkardys.systemproof.environment;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -19,14 +20,16 @@ import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /**
- * Immutable snapshot of component and connection declarations used by an environment at runtime.
+ * Structurally validated immutable snapshot of component and connection declarations used by an
+ * environment at runtime.
  *
- * <p>It contains read indexes only. Structural validation and assembly belong to the
- * environment owner.</p>
+ * <p>The public factory validates the exact defensive snapshots retained by the topology before
+ * building its read indexes. Every supported instance is therefore valid before it can reach
+ * environment execution.</p>
  */
 @Accessors(fluent = true)
 @Value
-public class EnvironmentTopology {
+public final class EnvironmentTopology {
 
     @Getter(AccessLevel.PACKAGE)
     List<AbstractComponent<?, ?>> runtimeComponents;
@@ -54,20 +57,22 @@ public class EnvironmentTopology {
     }
 
     /**
-     * Captures an already structurally validated topology.
+     * Defensively snapshots and structurally validates a topology.
      *
      * @param components runtime-manageable components in declaration order
      * @param connections logical connections in declaration order
-     * @return immutable topology snapshot
+     * @return structurally validated immutable topology snapshot
+     * @throws NullPointerException if either list or any list element is {@code null}
+     * @throws IllegalArgumentException if the topology violates a structural invariant
      */
     public static EnvironmentTopology of(
         List<? extends AbstractComponent<?, ?>> components,
         List<ConnectionRef> connections
     ) {
         List<AbstractComponent<?, ?>> runtimeComponents = copyRuntimeComponents(components);
-        Objects.requireNonNull(connections, "connections must not be null");
+        List<ConnectionRef> connectionSnapshot = copyConnections(connections);
 
-        List<ConnectionRef> connectionSnapshot = List.copyOf(connections);
+        TopologyValidator.validate(runtimeComponents, connectionSnapshot);
 
         Map<RequiredPort<?>, ConnectionRef> byRequired = new IdentityHashMap<>();
         Map<ConnectionId, ConnectionRef> byId = new LinkedHashMap<>();
@@ -121,7 +126,9 @@ public class EnvironmentTopology {
         List<? extends AbstractComponent<?, ?>> components
     ) {
         Objects.requireNonNull(components, "components must not be null");
-        for (Object component : components) {
+        List<?> componentSnapshot = new ArrayList<>(components);
+        List<AbstractComponent<?, ?>> runtimeComponents = new ArrayList<>(componentSnapshot.size());
+        for (Object component : componentSnapshot) {
             Objects.requireNonNull(component, "components must not contain null");
             if (!(component instanceof AbstractComponent<?, ?>)) {
                 throw new IllegalArgumentException(
@@ -130,7 +137,17 @@ public class EnvironmentTopology {
                         + component.getClass().getName() + "'"
                 );
             }
+            runtimeComponents.add((AbstractComponent<?, ?>) component);
         }
-        return List.copyOf(components);
+        return List.copyOf(runtimeComponents);
+    }
+
+    private static List<ConnectionRef> copyConnections(List<ConnectionRef> connections) {
+        Objects.requireNonNull(connections, "connections must not be null");
+        List<ConnectionRef> connectionSnapshot = new ArrayList<>(connections);
+        for (ConnectionRef connection : connectionSnapshot) {
+            Objects.requireNonNull(connection, "connections must not contain null");
+        }
+        return List.copyOf(connectionSnapshot);
     }
 }

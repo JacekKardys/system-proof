@@ -6,7 +6,10 @@ import lombok.experimental.Accessors;
 
 /**
  * A typed, directional required-to-provided relationship without runtime addresses.
- * Construction code is responsible for compatibility checks and deterministic identity creation.
+ *
+ * <p>Publicly constructed instances are detached declarations. The validated
+ * {@code EnvironmentTopology.of(...)} boundary verifies endpoint membership, deterministic
+ * identity, and compatibility before a connection can reach environment execution.</p>
  */
 @Getter
 @Accessors(fluent = true)
