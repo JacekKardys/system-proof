@@ -3,16 +3,14 @@ package io.github.jacekkardys.systemproof.testcontainers.gateway;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -20,6 +18,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +35,16 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 
-/** One connection-owned listener, its active socket pairs, and bounded directional pipelines. */
+/**
+ * One connection-owned listener, its active socket pairs, and bounded directional pipelines.
+ *
+ * <p>The atomic route state linearizes listener failure against expected shutdown. Unexpected
+ * accept-loop termination preserves its first cause and makes an active required observation
+ * {@code FAILED}, or an active optional observation {@code DEGRADED}. Established sessions remain
+ * route-owned and may finish after listener failure; no new sessions can be accepted. A later
+ * close performs deterministic cleanup once and propagates the listener cause with cleanup
+ * failures suppressed.
+ */
 final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider {
     private static final Logger LOG = LoggerFactory.getLogger(GatewayRoute.class);
     private static final int MAXIMUM_READ_CHUNK_BYTES = 8 * 1024;
@@ -50,12 +58,11 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     private final InteractionDecisionCoordinator coordinator;
     private final ProtocolAdapter<E> protocolAdapter;
     private final ProtocolLimits protocolLimits;
-    private final ServerSocket listener;
+    private final GatewayListener listener;
     private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
-    private final Set<Socket> sockets = ConcurrentHashMap.newKeySet();
-    private final AtomicReference<EffectiveObservationStatus> observationStatus;
-    private final AtomicBoolean started = new AtomicBoolean();
-    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ConcurrentHashMap<Socket, SocketResource> sockets = new ConcurrentHashMap<>();
+    private final AtomicLong socketSequence = new AtomicLong();
+    private final AtomicReference<RouteState> state;
 
     private GatewayRoute(
         ConnectionId connectionId,
@@ -68,7 +75,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         ProtocolAdapter<E> protocolAdapter,
         ProtocolLimits protocolLimits,
         EffectiveObservationStatus initialObservationStatus,
-        ServerSocket listener
+        GatewayListener listener
     ) {
         this.connectionId = Objects.requireNonNull(
             connectionId,
@@ -93,10 +100,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
         this.protocolAdapter = protocolAdapter;
         this.protocolLimits = protocolLimits;
-        observationStatus = new AtomicReference<>(Objects.requireNonNull(
-            initialObservationStatus,
-            "initialObservationStatus must not be null"
-        ));
+        state = new AtomicReference<>(RouteState.prepared(initialObservationStatus));
         this.listener = Objects.requireNonNull(listener, "listener must not be null");
     }
 
@@ -111,19 +115,46 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         ProtocolAdapter<E> protocolAdapter,
         ProtocolLimits protocolLimits
     ) {
+        return open(
+            connectionId,
+            target,
+            connectTimeout,
+            shutdownTimeout,
+            observationRequirement,
+            observations,
+            coordinator,
+            protocolAdapter,
+            protocolLimits,
+            ServerSocketGatewayListener::open
+        );
+    }
+
+    static <E> GatewayRoute<E> open(
+        ConnectionId connectionId,
+        InetSocketAddress target,
+        Duration connectTimeout,
+        Duration shutdownTimeout,
+        ObservationRequirement observationRequirement,
+        ConnectionObservations observations,
+        InteractionDecisionCoordinator coordinator,
+        ProtocolAdapter<E> protocolAdapter,
+        ProtocolLimits protocolLimits,
+        GatewayListenerFactory listenerFactory
+    ) {
         EffectiveObservationStatus initialStatus = validateObservationConfiguration(
             observationRequirement,
             protocolAdapter,
             protocolLimits
         );
-        ServerSocket listener = null;
+        GatewayListener listener = null;
         try {
-            listener = new ServerSocket();
-            listener.setReuseAddress(true);
-            listener.bind(new InetSocketAddress(
-                InetAddress.getByAddress(new byte[] {127, 0, 0, 1}),
-                0
-            ));
+            listener = Objects.requireNonNull(
+                Objects.requireNonNull(
+                    listenerFactory,
+                    "listenerFactory must not be null"
+                ).open(),
+                "Listener factory returned null"
+            );
             return new GatewayRoute<>(
                 connectionId,
                 target,
@@ -137,7 +168,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 initialStatus,
                 listener
             );
-        } catch (IOException | RuntimeException failure) {
+        } catch (IOException | RuntimeException | Error failure) {
             if (listener != null) {
                 try {
                     listener.close();
@@ -155,39 +186,60 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
 
     @Override
     public EffectiveObservationStatus observationStatus() {
-        return observationStatus.get();
+        return state.get().observationStatus();
     }
 
     int listenerPort() {
-        return listener.getLocalPort();
+        return listener.port();
     }
 
     void start() {
-        if (!started.compareAndSet(false, true)) {
-            throw new IllegalStateException(
-                "InteractionGateway route for connection '" + connectionId
-                    + "' was started more than once"
-            );
-        }
-        if (closed.get()) {
-            throw new IllegalStateException(
-                "InteractionGateway route for connection '" + connectionId
-                    + "' is already closed"
-            );
-        }
+        beginAccepting();
         tasks.submit(this::acceptConnections);
+    }
+
+    private void beginAccepting() {
+        while (true) {
+            RouteState current = state.get();
+            if (current.phase() == RoutePhase.ACCEPTING) {
+                throw new IllegalStateException(
+                    "InteractionGateway route for connection '" + connectionId
+                        + "' was started more than once"
+                );
+            }
+            if (current.phase() != RoutePhase.PREPARED) {
+                throw new IllegalStateException(
+                    "InteractionGateway route for connection '" + connectionId
+                        + "' is already closed"
+                );
+            }
+            RouteState accepting = current.withPhase(RoutePhase.ACCEPTING);
+            if (state.compareAndSet(current, accepting)) {
+                return;
+            }
+        }
     }
 
     @Override
     public void close() throws Exception {
-        if (!closed.compareAndSet(false, true)) {
+        RouteState closing = claimCleanup();
+        if (closing == null) {
             return;
         }
-        Throwable failure = closeSocket(listener, null);
-        for (Socket socket : sockets) {
+
+        Throwable failure = closing.terminalCause();
+        failure = closeResource(listener, failure);
+        List<SocketResource> activeSockets = sockets.values().stream()
+            .sorted(Comparator.comparingLong(SocketResource::sequence))
+            .toList();
+        for (SocketResource socket : activeSockets) {
             failure = closeSocket(socket, failure);
         }
-        tasks.shutdownNow();
+        try {
+            tasks.shutdownNow();
+        } catch (RuntimeException | Error shutdownFailure) {
+            failure = accumulate(failure, shutdownFailure);
+        }
         try {
             if (!tasks.awaitTermination(shutdownTimeoutMillis, TimeUnit.MILLISECONDS)) {
                 failure = accumulate(
@@ -202,10 +254,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             Thread.currentThread().interrupt();
             failure = accumulate(failure, interrupted);
         }
-        observationStatus.compareAndSet(
-            EffectiveObservationStatus.ACTIVE,
-            EffectiveObservationStatus.INACTIVE
-        );
+        completeCleanup();
         if (failure != null) {
             if (failure instanceof Exception exception) {
                 throw exception;
@@ -215,34 +264,107 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     }
 
     private void acceptConnections() {
-        while (!closed.get()) {
-            try {
-                Socket downstream = listener.accept();
+        Throwable exitFailure = null;
+        try {
+            while (isAccepting()) {
+                Socket downstream = Objects.requireNonNull(
+                    listener.accept(),
+                    "Gateway listener returned null socket"
+                );
+                EffectiveObservationStatus admittedStatus = observationStatus();
                 if (register(downstream)) {
                     try {
-                        tasks.submit(() -> openSession(downstream));
+                        tasks.submit(() -> openSession(downstream, admittedStatus));
                     } catch (RejectedExecutionException rejected) {
                         closeQuietly(downstream);
-                        if (!closed.get()) {
+                        if (isAccepting()) {
                             throw rejected;
                         }
                     }
                 }
-            } catch (SocketException failure) {
-                if (!closed.get()) {
-                    logListenerFailure(failure);
-                }
-                return;
-            } catch (IOException failure) {
-                if (!closed.get()) {
-                    logListenerFailure(failure);
-                }
-                return;
+            }
+        } catch (Throwable failure) {
+            exitFailure = failure;
+        } finally {
+            if (exitFailure == null && isAccepting()) {
+                exitFailure = new IllegalStateException(
+                    "InteractionGateway accept loop terminated without route shutdown"
+                );
+            }
+            if (exitFailure != null && recordListenerFailure(exitFailure)) {
+                logListenerFailure(exitFailure);
+            }
+        }
+        if (exitFailure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    private RouteState claimCleanup() {
+        while (true) {
+            RouteState current = state.get();
+            if (current.cleanupClaimed()) {
+                return null;
+            }
+            RouteState closing = current.phase() == RoutePhase.FAILED
+                ? current.claimCleanup()
+                : current.beginExpectedShutdown();
+            if (state.compareAndSet(current, closing)) {
+                return closing;
             }
         }
     }
 
-    private void openSession(Socket downstream) {
+    private void completeCleanup() {
+        state.updateAndGet(current -> current.phase() == RoutePhase.CLOSING
+            ? current.withPhase(RoutePhase.CLOSED)
+            : current
+        );
+    }
+
+    private boolean recordListenerFailure(Throwable failure) {
+        Objects.requireNonNull(failure, "failure must not be null");
+        while (true) {
+            RouteState current = state.get();
+            if (current.phase() != RoutePhase.ACCEPTING) {
+                return false;
+            }
+            EffectiveObservationStatus failedStatus = current.observationStatus()
+                == EffectiveObservationStatus.ACTIVE
+                    ? listenerFailureStatus()
+                    : current.observationStatus();
+            RouteState failed = current.fail(failedStatus, failure);
+            if (state.compareAndSet(current, failed)) {
+                return true;
+            }
+        }
+    }
+
+    private EffectiveObservationStatus listenerFailureStatus() {
+        return observationRequirement == ObservationRequirement.REQUIRED
+            ? EffectiveObservationStatus.FAILED
+            : EffectiveObservationStatus.DEGRADED;
+    }
+
+    private boolean isAccepting() {
+        return state.get().phase() == RoutePhase.ACCEPTING;
+    }
+
+    private boolean resourcesOpen() {
+        RouteState current = state.get();
+        return !current.cleanupClaimed()
+            && (current.phase() == RoutePhase.ACCEPTING
+                || current.phase() == RoutePhase.FAILED);
+    }
+
+    private boolean isCleanupClaimed() {
+        return state.get().cleanupClaimed();
+    }
+
+    private void openSession(
+        Socket downstream,
+        EffectiveObservationStatus admittedStatus
+    ) {
         Socket upstream = new Socket();
         if (!register(upstream)) {
             closeQuietly(downstream);
@@ -252,7 +374,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             downstream.setTcpNoDelay(true);
             upstream.setTcpNoDelay(true);
             upstream.connect(target, connectTimeoutMillis);
-            Session session = createSession(downstream, upstream);
+            Session session = createSession(downstream, upstream, admittedStatus);
             try {
                 tasks.submit(() -> session.pump(
                     downstream,
@@ -268,7 +390,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 ));
             } catch (RejectedExecutionException rejected) {
                 session.close();
-                if (!closed.get()) {
+                if (!isCleanupClaimed()) {
                     throw rejected;
                 }
             }
@@ -279,7 +401,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             closeQuietly(upstream);
             rethrowErrorCause(failure);
         } catch (IOException | RuntimeException failure) {
-            if (!closed.get()) {
+            if (!isCleanupClaimed()) {
                 LOG.warn(
                     "InteractionGateway session setup failed for connection '{}': {}",
                     connectionId,
@@ -291,14 +413,17 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         }
     }
 
-    private Session createSession(Socket downstream, Socket upstream)
+    private Session createSession(
+        Socket downstream,
+        Socket upstream,
+        EffectiveObservationStatus admittedStatus
+    )
         throws ObservationPipelineException {
-        EffectiveObservationStatus currentStatus = observationStatus();
-        if (currentStatus == EffectiveObservationStatus.DISABLED
-            || currentStatus == EffectiveObservationStatus.UNSUPPORTED) {
+        if (admittedStatus == EffectiveObservationStatus.DISABLED
+            || admittedStatus == EffectiveObservationStatus.UNSUPPORTED) {
             return new Session(downstream, upstream, null, null, null, null);
         }
-        if (currentStatus != EffectiveObservationStatus.ACTIVE) {
+        if (admittedStatus != EffectiveObservationStatus.ACTIVE) {
             throw new ObservationPipelineException(
                 FailureStage.ADAPTER,
                 new IllegalStateException("Observation route is not active")
@@ -361,20 +486,35 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     }
 
     private boolean register(Socket socket) {
-        if (closed.get()) {
-            closeQuietly(socket);
+        Objects.requireNonNull(socket, "socket must not be null");
+        if (!resourcesOpen()) {
+            closeUntrackedQuietly(socket);
             return false;
         }
-        sockets.add(socket);
-        if (closed.get()) {
-            closeQuietly(socket);
+        SocketResource resource = new SocketResource(
+            socket,
+            socketSequence.getAndIncrement()
+        );
+        SocketResource previous = sockets.putIfAbsent(socket, resource);
+        if (previous != null) {
+            throw new IllegalStateException("Gateway socket was registered more than once");
+        }
+        if (!resourcesOpen()) {
+            closeSocket(resource, null);
             return false;
         }
         return true;
     }
 
     private void closeQuietly(Socket socket) {
-        sockets.remove(socket);
+        SocketResource resource = sockets.get(socket);
+        if (resource == null) {
+            return;
+        }
+        closeSocket(resource, null);
+    }
+
+    private static void closeUntrackedQuietly(Socket socket) {
         try {
             socket.close();
         } catch (IOException ignored) {
@@ -387,13 +527,15 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             observationRequirement == ObservationRequirement.REQUIRED
                 ? EffectiveObservationStatus.FAILED
                 : EffectiveObservationStatus.DEGRADED;
-        observationStatus.updateAndGet(current ->
-            current == EffectiveObservationStatus.ACTIVE ? failedStatus : current
-        );
+        state.updateAndGet(current -> current.withObservationStatus(
+            current.observationStatus() == EffectiveObservationStatus.ACTIVE
+                ? failedStatus
+                : current.observationStatus()
+        ));
     }
 
     private void logObservationFailure(FailureStage stage) {
-        if (!closed.get()) {
+        if (!isCleanupClaimed()) {
             LOG.warn(
                 "InteractionGateway observation failed closed for connection '{}' at stage {}",
                 connectionId,
@@ -402,9 +544,9 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         }
     }
 
-    private void logListenerFailure(Exception failure) {
+    private void logListenerFailure(Throwable failure) {
         LOG.warn(
-            "InteractionGateway listener failed for connection '{}': {}",
+            "InteractionGateway listener failed for connection '{}' at stage ACCEPT: {}",
             connectionId,
             failure.getClass().getSimpleName()
         );
@@ -456,7 +598,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 destination.shutdownOutput();
             } catch (ProtocolAdapterException failure) {
                 failObservation();
-                if (!closed.get() && !sessionClosed.get()) {
+                if (!isCleanupClaimed() && !sessionClosed.get()) {
                     LOG.warn(
                         "InteractionGateway protocol observation failed closed for connection '{}' with classification {}",
                         connectionId,
@@ -472,7 +614,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 rethrowErrorCause(failure);
                 return;
             } catch (IOException failure) {
-                if (!closed.get() && !sessionClosed.get()) {
+                if (!isCleanupClaimed() && !sessionClosed.get()) {
                     LOG.debug(
                         "InteractionGateway session ended for connection '{}': {}",
                         connectionId,
@@ -729,7 +871,15 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         return value;
     }
 
-    private static Throwable closeSocket(AutoCloseable resource, Throwable failure) {
+    private Throwable closeSocket(SocketResource resource, Throwable failure) {
+        if (!resource.claimClose()) {
+            return failure;
+        }
+        sockets.remove(resource.socket(), resource);
+        return closeResource(resource.socket(), failure);
+    }
+
+    private static Throwable closeResource(AutoCloseable resource, Throwable failure) {
         try {
             resource.close();
             return failure;
@@ -739,16 +889,132 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     }
 
     private static Throwable accumulate(Throwable first, Throwable next) {
+        if (next == null) {
+            return first;
+        }
         if (first == null) {
             return next;
+        }
+        if (first == next || isAlreadySuppressed(first, next)) {
+            return first;
         }
         first.addSuppressed(next);
         return first;
     }
 
+    private static boolean isAlreadySuppressed(Throwable primary, Throwable candidate) {
+        for (Throwable suppressed : primary.getSuppressed()) {
+            if (suppressed == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void rethrowErrorCause(ObservationPipelineException failure) {
         if (failure.getCause() instanceof Error error) {
             throw error;
+        }
+    }
+
+    private enum RoutePhase {
+        PREPARED,
+        ACCEPTING,
+        CLOSING,
+        CLOSED,
+        FAILED
+    }
+
+    private record RouteState(
+        RoutePhase phase,
+        EffectiveObservationStatus observationStatus,
+        Throwable terminalCause,
+        boolean cleanupClaimed
+    ) {
+        private RouteState {
+            Objects.requireNonNull(phase, "phase must not be null");
+            Objects.requireNonNull(
+                observationStatus,
+                "observationStatus must not be null"
+            );
+            if (phase == RoutePhase.FAILED && terminalCause == null) {
+                throw new IllegalArgumentException("Failed route must retain its terminal cause");
+            }
+            if (phase != RoutePhase.FAILED && terminalCause != null) {
+                throw new IllegalArgumentException(
+                    "Only a failed route may retain a terminal cause"
+                );
+            }
+        }
+
+        private static RouteState prepared(EffectiveObservationStatus observationStatus) {
+            return new RouteState(
+                RoutePhase.PREPARED,
+                Objects.requireNonNull(
+                    observationStatus,
+                    "initialObservationStatus must not be null"
+                ),
+                null,
+                false
+            );
+        }
+
+        private RouteState withPhase(RoutePhase next) {
+            return new RouteState(next, observationStatus, terminalCause, cleanupClaimed);
+        }
+
+        private RouteState withObservationStatus(EffectiveObservationStatus next) {
+            next = Objects.requireNonNull(next, "next must not be null");
+            return next == observationStatus
+                ? this
+                : new RouteState(phase, next, terminalCause, cleanupClaimed);
+        }
+
+        private RouteState beginExpectedShutdown() {
+            EffectiveObservationStatus shutdownStatus = observationStatus
+                == EffectiveObservationStatus.ACTIVE
+                    ? EffectiveObservationStatus.INACTIVE
+                    : observationStatus;
+            return new RouteState(RoutePhase.CLOSING, shutdownStatus, null, true);
+        }
+
+        private RouteState fail(
+            EffectiveObservationStatus failedStatus,
+            Throwable failure
+        ) {
+            return new RouteState(
+                RoutePhase.FAILED,
+                failedStatus,
+                Objects.requireNonNull(failure, "failure must not be null"),
+                false
+            );
+        }
+
+        private RouteState claimCleanup() {
+            return new RouteState(phase, observationStatus, terminalCause, true);
+        }
+    }
+
+    private static final class SocketResource {
+        private final Socket socket;
+        private final long sequence;
+        private final AtomicBoolean closeClaimed = new AtomicBoolean();
+
+        private SocketResource(Socket socket, long sequence) {
+            this.socket = Objects.requireNonNull(socket, "socket must not be null");
+            this.sequence = sequence;
+        }
+
+        private Socket socket() {
+            return socket;
+        }
+
+        private long sequence() {
+            return sequence;
+        }
+
+        private boolean claimClose() {
+            return closeClaimed.compareAndSet(false, true);
         }
     }
 

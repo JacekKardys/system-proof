@@ -433,9 +433,13 @@ final class RuntimeConnection<C> {
     }
 
     private EffectiveObservationStatus failedObservationStatus() {
-        return observationRequirement == ObservationRequirement.DISABLED
-            ? EffectiveObservationStatus.DISABLED
-            : EffectiveObservationStatus.FAILED;
+        return switch (observationStatus) {
+            case DISABLED, UNSUPPORTED, DEGRADED, FAILED -> observationStatus;
+            case PENDING, ACTIVE, INACTIVE -> observationRequirement
+                == ObservationRequirement.DISABLED
+                    ? EffectiveObservationStatus.DISABLED
+                    : EffectiveObservationStatus.FAILED;
+        };
     }
 
     private void transition(ConnectionState next) {
