@@ -16,7 +16,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
@@ -82,6 +81,10 @@ class ProofSubjectCorrelationTest {
                 .containsExactlyInAnyOrder("create", "arm", "correlation");
             assertThat(CorrelationKey.class.getMethods())
                 .noneMatch(method -> method.getReturnType().isArray());
+            ProofSubjectRef forged = new ProofSubjectRef() {};
+            assertThatThrownBy(() -> first.proofSubjects().arm(forged, key))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Proof subject belongs to a different environment execution");
             assertThatThrownBy(() -> second.proofSubjects().arm(subject, key))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Proof subject belongs to a different environment execution");

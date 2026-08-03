@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.execution.EnvironmentRuntime;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;

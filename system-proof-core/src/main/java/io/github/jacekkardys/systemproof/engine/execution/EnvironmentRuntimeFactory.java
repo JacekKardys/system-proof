@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
@@ -13,14 +12,14 @@ import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 final class EnvironmentRuntimeFactory {
     private EnvironmentRuntimeFactory() {}
 
-    static EnvironmentRuntime create(
+    static Assembly assemble(
         EnvironmentTopology topology,
         EnvironmentLogging logging
     ) {
-        return create(topology, logging, ConnectionRouting.direct());
+        return assemble(topology, logging, ConnectionRouting.direct());
     }
 
-    static EnvironmentRuntime create(
+    static Assembly assemble(
         EnvironmentTopology topology,
         EnvironmentLogging logging,
         ConnectionRouting routing
@@ -66,10 +65,22 @@ final class EnvironmentRuntimeFactory {
             inspector
         );
 
-        return new EnvironmentRuntime(
+        return new Assembly(
             execution,
             componentSupervisor,
             inspector
         );
+    }
+
+    record Assembly(
+        EnvironmentExecution execution,
+        ComponentRuntimeSupervisor components,
+        EnvironmentInspector inspector
+    ) {
+        Assembly {
+            Objects.requireNonNull(execution, "execution must not be null");
+            Objects.requireNonNull(components, "components must not be null");
+            Objects.requireNonNull(inspector, "inspector must not be null");
+        }
     }
 }

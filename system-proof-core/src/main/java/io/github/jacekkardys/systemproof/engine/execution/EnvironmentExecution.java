@@ -62,9 +62,7 @@ final class EnvironmentExecution {
         lifecycle.markStartFailed();
         eventLog.environmentStartupFailure(failure);
         Throwable cleanupFailure = cleanup();
-        if (cleanupFailure != null && cleanupFailure != failure) {
-            failure.addSuppressed(cleanupFailure);
-        }
+        EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
         lifecycle.markStopped();
         EnvironmentDiagnostics captured = inspector.diagnostics();
         throw new EnvironmentStartException(failure, captured);

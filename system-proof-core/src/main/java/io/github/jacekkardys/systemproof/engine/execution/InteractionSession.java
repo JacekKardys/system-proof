@@ -1,6 +1,5 @@
-package io.github.jacekkardys.systemproof.observation;
+package io.github.jacekkardys.systemproof.engine.execution;
 
-import io.github.jacekkardys.systemproof.proof.CorrelationContribution;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;

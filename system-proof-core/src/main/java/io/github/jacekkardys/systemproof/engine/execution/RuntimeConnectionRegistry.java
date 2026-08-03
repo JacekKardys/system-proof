@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.component.Component;
@@ -349,7 +348,7 @@ final class RuntimeConnectionRegistry {
             try {
                 targets.closeRoute();
             } catch (Exception | Error cleanupFailure) {
-                startupFailure.addSuppressed(cleanupFailure);
+                EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
                 eventLog.protectRouteCleanupFailure(
                     targets.connection().declaration(),
                     cleanupFailure
@@ -369,7 +368,7 @@ final class RuntimeConnectionRegistry {
         try {
             ownership.closeRoute();
         } catch (Exception | Error cleanupFailure) {
-            preparationFailure.addSuppressed(cleanupFailure);
+            EnvironmentRuntimeFailures.accumulate(preparationFailure, cleanupFailure);
             eventLog.protectRouteCleanupFailure(
                 ownership.connection().declaration(),
                 cleanupFailure

@@ -162,20 +162,32 @@ that facade's constructor.
 ## Core package boundaries
 
 - `model.*` contains immutable topology, component, endpoint, and runtime snapshots.
-- `routing` contains immutable route selection and the typed route-provider SPI.
-- `observation` contains evidence schemas/snapshots, interaction identity, and restricted traffic
-  observation and forwarding-decision capabilities.
-- `proof` contains proof-subject and correlation contracts and immutable values.
+- `observation` contains stable evidence schemas/snapshots, interaction identity, and
+  forwarding-decision contracts.
+- `proof` contains stable proof-subject, correlation-key, cardinality, and result contracts. It
+  depends on observation values, never the reverse.
 - `journal` owns append-only storage and journal events; it consumes observation and proof values
   without defining them.
 - `diagnostics` renders runtime state and journal snapshots without depending on execution
   implementations.
-- `engine.execution` owns one mutable environment execution. Lifecycle, component bindings,
-  connection materialization, proof indexing, and cleanup collaborators remain co-located so their
-  mutators can stay package-private.
+- `engine.execution` contains the public environment facade and the runtime-coupled route-provider
+  and connection-observation SPI. Its package-private implementation owns lifecycle, component
+  bindings, route selection and preparation, connection materialization, proof indexing, and
+  cleanup for one execution.
 
-Dependencies point from the stable model and capability packages toward journal/diagnostics and
-then into execution. Journal and diagnostics never depend back on execution implementations.
+The allowed dependency direction is from execution toward stable contracts: `engine.execution`
+may depend on `diagnostics`, `journal`, `proof`, `observation`, and `model.*`; `diagnostics` may
+depend on journal and stable values; `journal` may depend on proof, observation, and model values;
+and `proof` may depend on `observation`. None of those packages depends back on execution.
+External route providers depend only on the deliberate public SPI in `engine.execution` and its
+stable value contracts.
+
+Mutable environment, component, connection, route, and proof-index state remains in
+`engine.execution`; `journal` owns only its append-only history. Route selection and preparation
+stay package-private because they require runtime-owned endpoint bindings. A selected provider sees
+the direct binding only through its one `ConnectionRouteContext`; runtime snapshots and the public
+environment facade never expose provider endpoint lookup or endpoint values, which may contain
+credentials, aliases, or other secrets.
 
 ## Runtime model
 

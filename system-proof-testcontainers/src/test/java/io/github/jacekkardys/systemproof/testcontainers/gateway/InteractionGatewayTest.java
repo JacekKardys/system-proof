@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouting;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;

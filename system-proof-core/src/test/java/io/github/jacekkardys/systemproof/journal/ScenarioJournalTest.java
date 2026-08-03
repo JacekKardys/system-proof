@@ -249,7 +249,12 @@ class ScenarioJournalTest {
             assertEvidenceSnapshotBoundary();
             return;
         }
-        if (valueType == CorrelationKey.class || valueType == ProofSubjectRef.class) {
+        if (valueType == ProofSubjectRef.class) {
+            assertThat(valueType.isInterface()).isTrue();
+            assertThat(valueType.getDeclaredMethods()).isEmpty();
+            return;
+        }
+        if (valueType == CorrelationKey.class) {
             assertOpaqueImmutableValue(valueType);
             return;
         }

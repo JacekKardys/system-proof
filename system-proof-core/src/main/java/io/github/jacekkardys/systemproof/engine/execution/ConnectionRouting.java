@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.routing;
+package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -6,7 +6,6 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.observation.ConnectionObservations;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.model.topology.Connection;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
@@ -100,7 +99,7 @@ public final class ConnectionRouting {
     }
 
     /** Resolves the immutable execution policy for one materialized connection. */
-    public <C> Selection<C> select(Connection<C> connection) {
+    <C> Selection<C> select(Connection<C> connection) {
         Objects.requireNonNull(connection, "connection must not be null");
         Rule<?> rule = matchingRule(connection);
         if (rule == null) {
@@ -213,8 +212,8 @@ public final class ConnectionRouting {
         }
     }
 
-    /** Read-only boundary between routing configuration and runtime connection execution. */
-    public static final class Selection<C> {
+    /** Internal boundary between routing configuration and runtime connection execution. */
+    static final class Selection<C> {
         private final RoutingMode mode;
         private final ObservationRequirement observationRequirement;
         private final ConnectionRouteProvider<C> provider;
@@ -238,15 +237,15 @@ public final class ConnectionRouting {
             }
         }
 
-        public RoutingMode mode() {
+        RoutingMode mode() {
             return mode;
         }
 
-        public ObservationRequirement observationRequirement() {
+        ObservationRequirement observationRequirement() {
             return observationRequirement;
         }
 
-        public ConnectionRoute<C> prepare(
+        ConnectionRoute<C> prepare(
             ConnectionDescriptor connection,
             ConnectionObservations observations,
             InteractionDecisionCoordinator coordinator,
@@ -261,15 +260,15 @@ public final class ConnectionRouting {
             ));
         }
 
-        public EndpointBinding<C> consumerTarget(ConnectionRoute<C> route) {
+        EndpointBinding<C> consumerTarget(ConnectionRoute<C> route) {
             return Objects.requireNonNull(route, "route must not be null").consumerTarget();
         }
 
-        public EffectiveObservationStatus observationStatus(ConnectionRoute<C> route) {
+        EffectiveObservationStatus observationStatus(ConnectionRoute<C> route) {
             return Objects.requireNonNull(route, "route must not be null").observationStatus();
         }
 
-        public void close(ConnectionRoute<C> route) throws Exception {
+        void close(ConnectionRoute<C> route) throws Exception {
             Objects.requireNonNull(route, "route must not be null").close();
         }
     }

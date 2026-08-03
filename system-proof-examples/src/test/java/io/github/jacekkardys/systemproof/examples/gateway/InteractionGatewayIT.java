@@ -27,7 +27,7 @@ import org.testcontainers.utility.MountableFile;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
+import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.execution.EnvironmentStartException;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;

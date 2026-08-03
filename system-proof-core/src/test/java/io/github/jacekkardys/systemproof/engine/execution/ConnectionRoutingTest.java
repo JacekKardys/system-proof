@@ -11,8 +11,6 @@ import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.b
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
-import io.github.jacekkardys.systemproof.routing.ConnectionRoute;
-import io.github.jacekkardys.systemproof.routing.ConnectionRouting;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;

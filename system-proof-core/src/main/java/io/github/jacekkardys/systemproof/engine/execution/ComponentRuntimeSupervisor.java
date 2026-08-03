@@ -189,12 +189,6 @@ final class ComponentRuntimeSupervisor {
         return (ComponentExecution<C, O>) requireExecution(component);
     }
 
-    private static void addSuppressed(Throwable primary, Throwable additional) {
-        if (primary != additional) {
-            primary.addSuppressed(additional);
-        }
-    }
-
     private final class ComponentExecution<C extends RuntimeConfig, O> {
         private final AbstractComponent<C, O> component;
         private ComponentState state = ComponentState.DECLARED;
@@ -236,7 +230,7 @@ final class ComponentRuntimeSupervisor {
             try {
                 bindings.providerStartFailure(component, failure);
             } catch (RuntimeException | Error attachmentFailure) {
-                addSuppressed(failure, attachmentFailure);
+                EnvironmentRuntimeFailures.accumulate(failure, attachmentFailure);
             }
             failStart(this);
             eventLog.componentStartupFailure(component, failure);
@@ -247,7 +241,7 @@ final class ComponentRuntimeSupervisor {
                 startedRuntime.close();
             } catch (Exception | Error cleanupFailure) {
                 eventLog.componentCleanupFailure(component, cleanupFailure);
-                addSuppressed(failure, cleanupFailure);
+                EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
             }
         }
 
