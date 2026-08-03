@@ -610,6 +610,92 @@ class RuntimeConnectionRegistryTest {
     }
 
     @Test
+    void shouldCaptureFinalDynamicObservationStatusWithoutAPreCloseSnapshot() {
+        assertFinalObservationStatus(
+            "required-failed",
+            ObservationRequirement.REQUIRED,
+            EffectiveObservationStatus.FAILED,
+            EffectiveObservationStatus.FAILED
+        );
+        assertFinalObservationStatus(
+            "optional-degraded",
+            ObservationRequirement.OPTIONAL,
+            EffectiveObservationStatus.DEGRADED,
+            EffectiveObservationStatus.DEGRADED
+        );
+        assertFinalObservationStatus(
+            "required-healthy",
+            ObservationRequirement.REQUIRED,
+            EffectiveObservationStatus.ACTIVE,
+            EffectiveObservationStatus.INACTIVE
+        );
+        assertFinalObservationStatus(
+            "optional-unsupported",
+            ObservationRequirement.OPTIONAL,
+            EffectiveObservationStatus.UNSUPPORTED,
+            EffectiveObservationStatus.UNSUPPORTED
+        );
+    }
+
+    @Test
+    void shouldCloseRouteOnceWhenFinalObservationStatusReadFails() {
+        String statusSecret = "final-observation-status-secret";
+        IllegalStateException statusFailure = new IllegalStateException(
+            "final observation status exposed " + statusSecret
+        );
+        Client client = new Client("final-status-failure");
+        Server server = new Server();
+        Connection<String> declaration = connection(client.api, server.api);
+        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
+        AtomicInteger cleanupCalls = new AtomicInteger();
+        AtomicInteger statusCalls = new AtomicInteger();
+        RuntimeConnectionRegistry registry = registry(
+            List.of(declaration),
+            journal,
+            ConnectionRouting.routed(
+                API,
+                ObservationRequirement.REQUIRED,
+                context -> ConnectionRoute.routed(
+                    binding("observed-route", "observed-route-external"),
+                    () -> {
+                        if (statusCalls.incrementAndGet() == 3) {
+                            throw statusFailure;
+                        }
+                        return EffectiveObservationStatus.ACTIVE;
+                    },
+                    cleanupCalls::incrementAndGet
+                )
+            )
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+        registry.bindTargets(registry.prepareTargets(server, provider));
+
+        assertThat(registry.beginProviderCleanup(server)).isSameAs(statusFailure);
+        assertThat(registry.beginProviderCleanup(server)).isNull();
+        assertThat(registry.stopRemaining()).isNull();
+        registry.completeProviderCleanup(server);
+
+        assertThat(cleanupCalls).hasValue(1);
+        assertThat(statusCalls).hasValue(3);
+        assertThat(registry.snapshot(declaration.id())).satisfies(snapshot -> {
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+            assertThat(snapshot.effectiveObservationStatus())
+                .isEqualTo(EffectiveObservationStatus.FAILED);
+            assertThat(snapshot.directTargetAvailable()).isFalse();
+            assertThat(snapshot.consumerTargetAvailable()).isFalse();
+        });
+        assertThat(journal.snapshot().entries())
+            .map(entry -> entry.event())
+            .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
+            .hasSize(1);
+        assertThat(new JournalRenderer().render(journal.snapshot()).content())
+            .doesNotContain(statusSecret);
+    }
+
+    @Test
     void shouldFailOneConnectionAndCloseItsRouteExactlyOnce() {
         Client client = new Client("cleanup");
         Server server = new Server();
@@ -728,6 +814,58 @@ class RuntimeConnectionRegistryTest {
             new EnvironmentEventPublisher(journal, EnvironmentLogging.defaults()),
             routing
         );
+    }
+
+    private static void assertFinalObservationStatus(
+        String qualifier,
+        ObservationRequirement requirement,
+        EffectiveObservationStatus finalStatus,
+        EffectiveObservationStatus expectedStatus
+    ) {
+        Client client = new Client(qualifier);
+        Server server = new Server();
+        Connection<String> declaration = connection(client.api, server.api);
+        AtomicReference<EffectiveObservationStatus> status = new AtomicReference<>(
+            EffectiveObservationStatus.ACTIVE
+        );
+        AtomicInteger statusCalls = new AtomicInteger();
+        AtomicInteger cleanupCalls = new AtomicInteger();
+        RuntimeConnectionRegistry registry = registry(
+            List.of(declaration),
+            new ScenarioJournal(() -> 0L),
+            ConnectionRouting.routed(
+                API,
+                requirement,
+                context -> ConnectionRoute.routed(
+                    binding("observed-route", "observed-route-external"),
+                    () -> {
+                        statusCalls.incrementAndGet();
+                        return status.get();
+                    },
+                    cleanupCalls::incrementAndGet
+                )
+            )
+        );
+        registry.beginStartup();
+        ComponentRuntime<Void> provider = ComponentRuntime.<Void>runtime()
+            .provides(server.api, binding("direct", "direct-external"))
+            .build();
+        registry.bindTargets(registry.prepareTargets(server, provider));
+        status.set(finalStatus);
+
+        assertThat(registry.beginProviderCleanup(server)).isNull();
+        registry.completeProviderCleanup(server);
+        assertThat(registry.beginProviderCleanup(server)).isNull();
+        assertThat(registry.stopRemaining()).isNull();
+
+        assertThat(registry.snapshot(declaration.id())).satisfies(snapshot -> {
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.STOPPED);
+            assertThat(snapshot.effectiveObservationStatus()).isEqualTo(expectedStatus);
+            assertThat(snapshot.directTargetAvailable()).isFalse();
+            assertThat(snapshot.consumerTargetAvailable()).isFalse();
+        });
+        assertThat(statusCalls).hasValue(3);
+        assertThat(cleanupCalls).hasValue(1);
     }
 
     private static <C> RuntimeConnection<C> runtimeConnection(

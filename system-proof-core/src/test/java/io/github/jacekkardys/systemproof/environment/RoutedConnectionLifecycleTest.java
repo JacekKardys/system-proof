@@ -570,19 +570,24 @@ class RoutedConnectionLifecycleTest {
     }
 
     @Test
-    void shouldPreserveProviderCleanupAsSuppressedAfterRouteCleanupFails() {
+    void shouldPreserveCleanupFailureOrderingAndRedactFinalStatusFailure() {
         String directInternal = "direct-internal-cleanup-secret";
         String directExternal = "direct-external-cleanup-secret";
         String routedInternal = "routed-internal-cleanup-secret";
         String routedExternal = "routed-external-cleanup-secret";
+        String statusSecret = "final-observation-cleanup-secret";
         IllegalStateException routeFailure =
             new IllegalStateException(
                 "route cleanup exposed " + directInternal + " " + directExternal
                     + " " + routedInternal + " " + routedExternal
             );
+        IllegalStateException statusFailure = new IllegalStateException(
+            "final observation status exposed " + statusSecret
+        );
         IllegalStateException providerFailure =
             new IllegalStateException("provider cleanup failed");
         AtomicInteger routeCleanupCalls = new AtomicInteger();
+        AtomicInteger statusCalls = new AtomicInteger();
         Server server = new Server((component, context) ->
             ComponentRuntime.<Void>runtime(() -> {
                 throw providerFailure;
@@ -607,11 +612,18 @@ class RoutedConnectionLifecycleTest {
                 .connect(client.api, server.api),
             ConnectionRouting.routed(
                 API,
+                ObservationRequirement.REQUIRED,
                 context -> ConnectionRoute.routed(
                     binding(
                         new ApiEndpoint(routedInternal),
                         new ApiEndpoint(routedExternal)
                     ),
+                    () -> {
+                        if (statusCalls.incrementAndGet() == 3) {
+                            throw statusFailure;
+                        }
+                        return EffectiveObservationStatus.ACTIVE;
+                    },
                     () -> {
                         routeCleanupCalls.incrementAndGet();
                         throw routeFailure;
@@ -630,10 +642,15 @@ class RoutedConnectionLifecycleTest {
                 routedExternal
             )
             .satisfies(failure ->
-                assertThat(failure.getSuppressed()).containsExactly(providerFailure)
+                assertThat(failure.getSuppressed()).containsExactly(
+                    statusFailure,
+                    providerFailure
+                )
             );
+        environment.close();
 
         assertThat(routeCleanupCalls).hasValue(1);
+        assertThat(statusCalls).hasValue(3);
         assertThat(environment.runtimeConnections())
             .singleElement()
             .satisfies(snapshot -> {
@@ -659,12 +676,22 @@ class RoutedConnectionLifecycleTest {
                         + environment.connections().getFirst().id() + "'"
                 )
             );
+        assertThat(environment.journalSnapshot().entries())
+            .map(entry -> entry.event().toString())
+            .allSatisfy(rendered -> assertThat(rendered).doesNotContain(
+                directInternal,
+                directExternal,
+                routedInternal,
+                routedExternal,
+                statusSecret
+            ));
         assertThat(environment.diagnostics().content())
             .doesNotContain(
                 directInternal,
                 directExternal,
                 routedInternal,
-                routedExternal
+                routedExternal,
+                statusSecret
             );
     }
 

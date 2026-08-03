@@ -19,8 +19,9 @@ import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnap
  *
  * <p>Only the environment-owned registry can mutate lifecycle state or bind direct and consumer
  * targets. A prepared route remains transaction-owned until an installation commits it here;
- * normal shutdown then closes the runtime-owned route before discarding its final reference.
- * Public callers can inspect immutable metadata and detached snapshots only.
+ * normal shutdown then closes the runtime-owned route, captures its final dynamic observation
+ * status while retaining the reference, and only then discards it. Public callers can inspect
+ * immutable metadata and detached snapshots only.
  */
 final class RuntimeConnection<C> {
     private final Connection<C> declaration;
@@ -267,8 +268,28 @@ final class RuntimeConnection<C> {
                 "Connection '" + id() + "' cannot close its route from state " + state
             );
         }
-        if (routeOwnership != null) {
+        if (routeOwnership == null || routeOwnership.closed()) {
+            return;
+        }
+        Throwable cleanupFailure = null;
+        try {
             routeOwnership.closeRuntimeRoute(this);
+        } catch (Exception | Error failure) {
+            cleanupFailure = failure;
+        }
+        try {
+            observationStatus = routing.observationStatus(routeOwnership.route());
+        } catch (RuntimeException | Error failure) {
+            cleanupFailure = EnvironmentRuntimeFailures.accumulate(
+                cleanupFailure,
+                failure
+            );
+        }
+        if (cleanupFailure instanceof Exception exception) {
+            throw exception;
+        }
+        if (cleanupFailure instanceof Error error) {
+            throw error;
         }
     }
 
