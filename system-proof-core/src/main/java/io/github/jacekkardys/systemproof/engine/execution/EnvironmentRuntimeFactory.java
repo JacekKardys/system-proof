@@ -27,8 +27,10 @@ final class EnvironmentRuntimeFactory {
     ) {
         topology = Objects.requireNonNull(topology, "topology must not be null");
         List<AbstractComponent<?, ?>> components = topology.runtimeComponents();
-        List<AbstractComponent<?, ?>> startOrder =
-            ComponentStartPlan.order(components, topology::connectionFrom);
+        ComponentExecutionPlan plan = ComponentExecutionPlan.create(
+            components,
+            topology::connectionFrom
+        );
         logging = Objects.requireNonNull(logging, "logging must not be null");
         logging.validateAgainst(topology);
         routing = Objects.requireNonNull(routing, "routing must not be null");
@@ -44,18 +46,30 @@ final class EnvironmentRuntimeFactory {
         );
         RuntimeBindings bindings = new RuntimeBindings(connections);
         RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, eventLog);
-        EnvironmentLifecycle lifecycle = new EnvironmentLifecycle(components, eventLog);
+        EnvironmentLifecycle lifecycle = new EnvironmentLifecycle(eventLog);
+        ComponentRuntimeSupervisor componentSupervisor =
+            new ComponentRuntimeSupervisor(plan, bindings, diagnostics, eventLog);
+        EnvironmentInspector inspector = new EnvironmentInspector(
+            lifecycle,
+            componentSupervisor,
+            connections,
+            diagnostics,
+            journal,
+            proofSubjects
+        );
+        EnvironmentExecution execution = new EnvironmentExecution(
+            lifecycle,
+            componentSupervisor,
+            connections,
+            proofSubjects,
+            eventLog,
+            inspector
+        );
 
         return new EnvironmentRuntime(
-            components,
-            startOrder,
-            connections,
-            bindings,
-            journal,
-            eventLog,
-            proofSubjects,
-            diagnostics,
-            lifecycle
+            execution,
+            componentSupervisor,
+            inspector
         );
     }
 }
