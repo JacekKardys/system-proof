@@ -10,7 +10,13 @@ public final class JournalEntry {
     private final Optional<Duration> diagnosticElapsedTime;
     private final ScenarioEvent event;
 
-    JournalEntry(
+    /**
+     * Creates a detached immutable read-model entry.
+     *
+     * <p>Only entries obtained from an environment snapshot are facts stored by that execution;
+     * constructing this value does not publish it.
+     */
+    public JournalEntry(
         JournalSequence journalSequence,
         Optional<Duration> diagnosticElapsedTime,
         ScenarioEvent event

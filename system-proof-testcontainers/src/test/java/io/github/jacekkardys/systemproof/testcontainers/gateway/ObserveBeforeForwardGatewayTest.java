@@ -14,6 +14,7 @@ import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -37,7 +38,6 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
@@ -877,7 +877,8 @@ class ObserveBeforeForwardGatewayTest {
 
     private static final class RecordingObservations implements ConnectionObservations {
         private final ConnectionId connectionId;
-        private final ScenarioJournal journal = new ScenarioJournal();
+        private final List<InteractionObservationEvent> recordedEvents =
+            Collections.synchronizedList(new ArrayList<>());
         private final AtomicLong nextSession = new AtomicLong(SessionId.FIRST_VALUE);
         private final boolean failJournal;
         private final TestCorrelations correlations = new TestCorrelations();
@@ -905,11 +906,9 @@ class ObserveBeforeForwardGatewayTest {
         }
 
         private List<InteractionObservationEvent> events() {
-            return journal.snapshot().entries().stream()
-                .map(entry -> entry.event())
-                .filter(InteractionObservationEvent.class::isInstance)
-                .map(InteractionObservationEvent.class::cast)
-                .toList();
+            synchronized (recordedEvents) {
+                return List.copyOf(recordedEvents);
+            }
         }
 
         private void arm(String subject, CorrelationKey key) {
@@ -960,7 +959,7 @@ class ObserveBeforeForwardGatewayTest {
                     direction,
                     ordinals.get(direction).getAndIncrement()
                 );
-                journal.append(new InteractionObservationEvent(
+                recordedEvents.add(new InteractionObservationEvent(
                     interactionRef,
                     EvidenceSnapshot.capture(codec, evidence)
                 ));

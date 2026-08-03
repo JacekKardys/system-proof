@@ -6,7 +6,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 
 /** Owns environment-scoped driver resources and their reverse-order cleanup lifecycle. */
@@ -14,10 +13,10 @@ final class SharedDriverResources {
     private final IdentityHashMap<DriverResourceKey<?>, AutoCloseable> resources =
         new IdentityHashMap<>();
     private final List<SharedResource> creationOrder = new ArrayList<>();
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
 
-    SharedDriverResources(EnvironmentEventLog eventLog) {
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+    SharedDriverResources(EnvironmentEventPublisher events) {
+        this.events = Objects.requireNonNull(events, "events must not be null");
     }
 
     synchronized <R extends AutoCloseable> R getOrCreate(
@@ -44,7 +43,7 @@ final class SharedDriverResources {
             try {
                 resource.value().close();
             } catch (Exception | Error failure) {
-                eventLog.driverResourceCleanupFailure(resource.name(), failure);
+                events.driverResourceCleanupFailure(resource.name(), failure);
                 firstFailure = EnvironmentRuntimeFailures.accumulate(firstFailure, failure);
             }
         }

@@ -166,14 +166,15 @@ that facade's constructor.
   forwarding-decision contracts.
 - `proof` contains stable proof-subject, correlation-key, cardinality, and result contracts. It
   depends on observation values, never the reverse.
-- `journal` owns append-only storage and journal events; it consumes observation and proof values
-  without defining them.
-- `diagnostics` renders runtime state and journal snapshots without depending on execution
-  implementations.
+- `journal` contains the closed event vocabulary and detached immutable journal read models; it
+  consumes observation and proof values without defining them.
+- `diagnostics` contains `JournalRenderer` and rendered runtime diagnostics without depending on
+  execution implementations.
 - `engine.execution` contains the public environment facade and the runtime-coupled route-provider
   and connection-observation SPI. Its package-private implementation owns lifecycle, component
-  bindings, route selection and preparation, connection materialization, proof indexing, and
-  cleanup for one execution.
+  bindings, route selection and preparation, connection materialization, the one mutable journal,
+  event publication, route-failure redaction, SLF4J emission, proof indexing, and cleanup for one
+  execution.
 
 The allowed dependency direction is from execution toward stable contracts: `engine.execution`
 may depend on `diagnostics`, `journal`, `proof`, `observation`, and `model.*`; `diagnostics` may
@@ -182,8 +183,9 @@ and `proof` may depend on `observation`. None of those packages depends back on 
 External route providers depend only on the deliberate public SPI in `engine.execution` and its
 stable value contracts.
 
-Mutable environment, component, connection, route, and proof-index state remains in
-`engine.execution`; `journal` owns only its append-only history. Route selection and preparation
+Mutable environment, component, connection, route, journal-storage, redaction, and proof-index state
+remains in `engine.execution`; `journal` owns only immutable vocabulary and read contracts. Route
+selection and preparation
 stay package-private because they require runtime-owned endpoint bindings. A selected provider sees
 the direct binding only through its one `ConnectionRouteContext`; runtime snapshots and the public
 environment facade never expose provider endpoint lookup or endpoint values, which may contain
@@ -271,8 +273,10 @@ metadata. Secrets use `Secret<T>` and are redacted from diagnostics.
 
 ## Diagnostics
 
-Every environment owns exactly one append-only `ScenarioJournal`. It is the authoritative
-structured history. The sealed event hierarchy contains core-owned immutable envelopes for:
+Every environment execution owns exactly one package-private append-only `ScenarioJournal`. It is
+the authoritative structured history and the only owner of sequence allocation, insertion order,
+diagnostic-time capture, and snapshot copying. There is no public mutable journal or generic
+`append(ScenarioEvent)` capability. The sealed event hierarchy contains immutable envelopes for:
 
 - framework environment, component, and runtime-connection lifecycle transitions, failures, and
   diagnostics;
@@ -289,6 +293,11 @@ allocates a connection-local `SessionId`, allocates a monotonic ordinal independ
 session direction, creates the complete `InteractionRef`, and returns that reference after append.
 The caller cannot supply a connection, session, ordinal, interaction reference, component, or
 arbitrary event.
+
+`ScenarioEvent` is a public sealed inspectable vocabulary. Its public record constructors create
+detached values but cannot publish them into an environment. Before 1.0, adding a new permitted
+event is an explicit compatibility change for callers using exhaustive pattern switches. The
+framework retains control of both permitted implementations and the environment-owned append path.
 
 `Environment.proofSubjects()` is the only public correlation facade. It allocates an opaque
 `ProofSubjectRef`, arms it with a namespaced/versioned `CorrelationKey` containing only defensively
@@ -319,7 +328,8 @@ registry, or parallel evidence store is used.
 Correlation native references use the same copy boundary. A `CorrelationContribution<T>` retains
 only its safe key and detached `EvidenceSnapshot`; it never retains the source reference or codec.
 The environment may keep a synchronized current-cardinality index, but every creation, arming, and
-non-idempotent publication fact remains in `ScenarioJournal`, which is the only event history.
+non-idempotent publication fact remains in the one environment journal, which is the only event
+history.
 
 Component-originated and connection-originated contributions are separate. The component-scoped
 `JournalContributions` capability on `DriverContext` retains only checkpoints and disruption
@@ -329,11 +339,20 @@ journal. Existing `DriverContext.log(...)` remains journal-backed and restricted
 driver-owned component. `Environment.journalSnapshot()` returns a detached immutable snapshot for
 typed assertions.
 
+Publication validates scope and identity, freezes or redacts a failure, appends the immutable event,
+and only then applies the logging threshold and emits through SLF4J. Identity-based route-failure
+redaction therefore happens before storage; journal events, loggers, and renderers never retain or
+re-read a `Throwable`. Protected messages contain only failure type, route stage, and structured
+connection identity.
+
 Textual environment logs are rendered views of one captured journal snapshot. They retain the
 readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
 components, container output, bootstrap messages, and cleanup failures, but own no independent
 event history. Logging thresholds control only SLF4J emission; lower-level events remain in the
-journal and therefore remain available to failure diagnostics.
+journal and therefore remain available to failure diagnostics. `OFF` likewise suppresses emission,
+not storage. `JournalRenderer` accepts only detached immutable entries/snapshots, renders full or
+component-scoped views, repeats the same prefix for every multiline entry, and builds complete
+output with one `StringBuilder`, linear in the total generated character count.
 
 `journalSequence` is a one-based position local to one journal. It provides unique storage order
 and deterministic rendering only. It is not a wall-clock or distributed sequence, an

@@ -1,16 +1,15 @@
 package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
 
 /** Mutable environment-level lifecycle state for one execution. */
 final class EnvironmentLifecycle {
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
     private EnvironmentState state = EnvironmentState.DECLARED;
 
-    EnvironmentLifecycle(EnvironmentEventLog eventLog) {
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+    EnvironmentLifecycle(EnvironmentEventPublisher events) {
+        this.events = Objects.requireNonNull(events, "events must not be null");
     }
 
     EnvironmentState state() {
@@ -71,7 +70,7 @@ final class EnvironmentLifecycle {
 
     private void transition(EnvironmentState next) {
         state = next;
-        eventLog.environmentLifecycle(next);
+        events.environmentLifecycle(next);
     }
 
     enum CloseAction {

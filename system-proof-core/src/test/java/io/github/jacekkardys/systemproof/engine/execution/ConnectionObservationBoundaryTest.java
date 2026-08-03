@@ -41,7 +41,6 @@ import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;

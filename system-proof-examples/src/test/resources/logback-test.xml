@@ -15,7 +15,7 @@
     </appender>
 
     <logger
-        name="io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog"
+        name="io.github.jacekkardys.systemproof.engine.execution.JournalSlf4jEmitter"
         level="TRACE"
         additivity="false">
         <appender-ref ref="ENVIRONMENT"/>

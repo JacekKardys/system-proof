@@ -6,7 +6,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.Component;
@@ -19,7 +18,7 @@ final class ComponentRuntimeSupervisor {
     private final ComponentExecutionPlan plan;
     private final RuntimeBindings bindings;
     private final RuntimeDiagnostics diagnostics;
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
     private final Map<Component, ComponentExecution<?, ?>> executions =
         new IdentityHashMap<>();
     private final DriverServices driverServices;
@@ -28,7 +27,7 @@ final class ComponentRuntimeSupervisor {
         ComponentExecutionPlan plan,
         RuntimeBindings bindings,
         RuntimeDiagnostics diagnostics,
-        EnvironmentEventLog eventLog
+        EnvironmentEventPublisher events
     ) {
         this.plan = Objects.requireNonNull(plan, "plan must not be null");
         this.bindings = Objects.requireNonNull(bindings, "bindings must not be null");
@@ -36,13 +35,14 @@ final class ComponentRuntimeSupervisor {
             diagnostics,
             "diagnostics must not be null"
         );
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         plan.components().forEach(this::register);
         driverServices = new DriverServices(
             bindings,
             this::contains,
             this::state,
-            eventLog
+            diagnostics,
+            events
         );
     }
 
@@ -171,7 +171,7 @@ final class ComponentRuntimeSupervisor {
 
     private void setState(ComponentExecution<?, ?> execution, ComponentState next) {
         execution.state = next;
-        eventLog.componentLifecycle(execution.component, next);
+        events.componentLifecycle(execution.component, next);
     }
 
     private ComponentExecution<?, ?> requireExecution(Component component) {
@@ -200,7 +200,7 @@ final class ComponentRuntimeSupervisor {
 
         private void start() {
             beginStart(this);
-            eventLog.component(
+            events.component(
                 component,
                 LogLevel.DEBUG,
                 "Configuration " + component.configuration()
@@ -233,14 +233,14 @@ final class ComponentRuntimeSupervisor {
                 EnvironmentRuntimeFailures.accumulate(failure, attachmentFailure);
             }
             failStart(this);
-            eventLog.componentStartupFailure(component, failure);
+            events.componentStartupFailure(component, failure);
             if (startedRuntime == null) {
                 return;
             }
             try {
                 startedRuntime.close();
             } catch (Exception | Error cleanupFailure) {
-                eventLog.componentCleanupFailure(component, cleanupFailure);
+                events.componentCleanupFailure(component, cleanupFailure);
                 EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
             }
         }
@@ -283,7 +283,7 @@ final class ComponentRuntimeSupervisor {
                 : ComponentState.FAILED;
             completeStop(this, terminalState);
             if (componentFailure != null) {
-                eventLog.componentCleanupFailure(component, componentFailure);
+                events.componentCleanupFailure(component, componentFailure);
             }
             return componentFailure;
         }

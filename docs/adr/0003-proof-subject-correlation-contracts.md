@@ -120,7 +120,7 @@ The closed `ScenarioEvent` hierarchy adds three core-owned immutable facts:
 The registry is synchronized and retains only the current per-subject/key resolution plus the one
 unique candidate needed for typed lookup. It is an index, not a second event history. Every
 non-idempotent creation, arming, unmatched publication, unique resolution, and ambiguity detection
-is recorded in `ScenarioJournal`.
+is recorded in the single environment-owned journal.
 
 `JournalSequence`, diagnostic elapsed time, wall-clock time, append order, sleeps, rendered order,
 and ordinals from other sessions are never correlation inputs. Correlation depends only on explicit
@@ -130,7 +130,7 @@ identity. These facts establish cardinality, not cross-protocol causality.
 ### Gateway ordering and failure behavior
 
 `ProtocolUnit<E>` may carry an immutable list of `CorrelationContribution<?>` values alongside its
-typed evidence and exact original bytes. The protocol adapter receives no `ScenarioJournal`,
+typed evidence and exact original bytes. The protocol adapter receives no mutable journal storage,
 registry, `EnvironmentRuntime`, coordinator, socket, gateway lifecycle object, connection identity,
 session identity, or ordinal.
 
@@ -173,6 +173,8 @@ after cleanup where the execution boundary can preserve it.
 - Core gains a small protocol-neutral identity/cardinality API and no protocol/domain fields.
 - Adapters keep their native reference types and normalization policy.
 - The scenario journal remains the single auditable event history.
+- Mutable journal ownership, publication, redaction, logging, and rendering boundaries are defined
+  by [ADR 0004](0004-journal-ownership-and-rendering.md).
 - The gateway now exposes correlation state at the existing decision boundary without changing
   immediate `FORWARD`.
 - Issue #12 still owns semantic `HOLD`/`RELEASE`, barrier state, and causal guards.

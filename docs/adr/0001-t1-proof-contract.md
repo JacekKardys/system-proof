@@ -87,7 +87,7 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
 
 - `SmsIngestionSmokeIT` remains a smoke/baseline test and must not be presented as proof of T1.
 - This baseline task changes no production behavior and no public framework API.
-- `ScenarioJournal` supplies one closed, immutable structured history. Core owns sealed envelopes
+- One environment-owned journal supplies one closed, immutable structured history. Core owns sealed envelopes
   for framework lifecycle/failure/diagnostic events and for contributed interaction,
   checkpoint/barrier, and disruption records.
 - Protocol modules contribute typed values through a schema-specific `EvidenceCodec<T>`. Core
@@ -96,7 +96,7 @@ system-proof-examples -> system-proof-junit5        -> system-proof-core
   reopening `ScenarioEvent`, accepting arbitrary event implementations, or creating another
   history.
 - Drivers receive a component-scoped `JournalContributions` capability rather than
-  `ScenarioJournal`. The capability cannot forge framework lifecycle, cleanup failure, or
+  mutable journal storage. The capability cannot forge framework lifecycle, cleanup failure, or
   diagnostic events under another component identity.
 - Contributed observations are rendered explicitly from stable envelope metadata. Raw evidence is
   not rendered and arbitrary payload `toString()` is not a diagnostic contract.

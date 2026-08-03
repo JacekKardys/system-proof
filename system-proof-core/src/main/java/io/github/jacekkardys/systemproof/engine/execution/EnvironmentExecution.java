@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.engine.execution;
 
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
 
 /** Coordinates the environment lifecycle and cleanup of its execution subsystems. */
@@ -11,7 +10,7 @@ final class EnvironmentExecution {
     private final ComponentRuntimeSupervisor components;
     private final RuntimeConnectionRegistry connections;
     private final ProofSubjectRegistry proofSubjects;
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
     private final EnvironmentInspector inspector;
 
     EnvironmentExecution(
@@ -19,7 +18,7 @@ final class EnvironmentExecution {
         ComponentRuntimeSupervisor components,
         RuntimeConnectionRegistry connections,
         ProofSubjectRegistry proofSubjects,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         EnvironmentInspector inspector
     ) {
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle must not be null");
@@ -29,7 +28,7 @@ final class EnvironmentExecution {
             proofSubjects,
             "proofSubjects must not be null"
         );
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         this.inspector = Objects.requireNonNull(inspector, "inspector must not be null");
     }
 
@@ -60,7 +59,7 @@ final class EnvironmentExecution {
 
     private void handleStartupFailure(Throwable failure) {
         lifecycle.markStartFailed();
-        eventLog.environmentStartupFailure(failure);
+        events.environmentStartupFailure(failure);
         Throwable cleanupFailure = cleanup();
         EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
         lifecycle.markStopped();

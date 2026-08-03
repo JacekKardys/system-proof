@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
@@ -22,44 +21,44 @@ import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot
 /** One environment-owned materialization of the immutable topology connection declarations. */
 final class RuntimeConnectionRegistry {
     private final RuntimeConnectionCatalog catalog;
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog
+        EnvironmentEventPublisher events
     ) {
         this(
             declarations,
-            eventLog,
+            events,
             ConnectionRouting.direct(),
             new ImmediateForwardDecisionCoordinator(),
-            new ProofSubjectRegistry(eventLog)
+            new ProofSubjectRegistry(events)
         );
     }
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing
     ) {
         this(
             declarations,
-            eventLog,
+            events,
             routing,
             new ImmediateForwardDecisionCoordinator(),
-            new ProofSubjectRegistry(eventLog)
+            new ProofSubjectRegistry(events)
         );
     }
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         ProofSubjectRegistry proofSubjects
     ) {
         this(
             declarations,
-            eventLog,
+            events,
             routing,
             new ImmediateForwardDecisionCoordinator(),
             proofSubjects
@@ -68,30 +67,30 @@ final class RuntimeConnectionRegistry {
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator
     ) {
         this(
             declarations,
-            eventLog,
+            events,
             routing,
             coordinator,
-            new ProofSubjectRegistry(eventLog)
+            new ProofSubjectRegistry(events)
         );
     }
 
     private RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator,
         ProofSubjectRegistry proofSubjects
     ) {
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         catalog = new RuntimeConnectionCatalog(
             declarations,
-            eventLog,
+            events,
             routing,
             coordinator,
             proofSubjects
@@ -137,7 +136,7 @@ final class RuntimeConnectionRegistry {
                 prepared.add(prepareTargets(connection, endpointBindings));
             } catch (RuntimeException | Error failure) {
                 if (connection.routingMode() == RoutingMode.ROUTED) {
-                    eventLog.protectRoutePreparationFailure(
+                    events.protectRoutePreparationFailure(
                         connection.declaration(),
                         failure
                     );
@@ -220,7 +219,7 @@ final class RuntimeConnectionRegistry {
             if (connection.state() == ConnectionState.STOPPING) {
                 connection.fail();
                 recordLifecycle(connection);
-                eventLog.connectionCleanupFailure(connection.declaration(), failure);
+                events.connectionCleanupFailure(connection.declaration(), failure);
             }
         }
     }
@@ -261,7 +260,7 @@ final class RuntimeConnectionRegistry {
             || connection.state() == ConnectionState.STOPPING) {
             connection.fail();
             recordLifecycle(connection);
-            eventLog.connectionMaterializationFailure(connection.declaration(), failure);
+            events.connectionMaterializationFailure(connection.declaration(), failure);
         }
     }
 
@@ -274,7 +273,7 @@ final class RuntimeConnectionRegistry {
     }
 
     private void recordLifecycle(RuntimeConnection<?> connection) {
-        eventLog.connectionLifecycle(
+        events.connectionLifecycle(
             connection.declaration(),
             connection.descriptor(),
             connection.state(),
@@ -349,11 +348,11 @@ final class RuntimeConnectionRegistry {
                 targets.closeRoute();
             } catch (Exception | Error cleanupFailure) {
                 EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
-                eventLog.protectRouteCleanupFailure(
+                events.protectRouteCleanupFailure(
                     targets.connection().declaration(),
                     cleanupFailure
                 );
-                eventLog.connectionCleanupFailure(
+                events.connectionCleanupFailure(
                     targets.connection().declaration(),
                     cleanupFailure
                 );
@@ -369,11 +368,11 @@ final class RuntimeConnectionRegistry {
             ownership.closeRoute();
         } catch (Exception | Error cleanupFailure) {
             EnvironmentRuntimeFailures.accumulate(preparationFailure, cleanupFailure);
-            eventLog.protectRouteCleanupFailure(
+            events.protectRouteCleanupFailure(
                 ownership.connection().declaration(),
                 cleanupFailure
             );
-            eventLog.connectionCleanupFailure(
+            events.connectionCleanupFailure(
                 ownership.connection().declaration(),
                 cleanupFailure
             );
@@ -391,13 +390,13 @@ final class RuntimeConnectionRegistry {
             try {
                 connection.closeRoute();
             } catch (Exception | Error cleanupFailure) {
-                eventLog.protectRouteCleanupFailure(
+                events.protectRouteCleanupFailure(
                     connection.declaration(),
                     cleanupFailure
                 );
                 connection.fail();
                 recordLifecycle(connection);
-                eventLog.connectionCleanupFailure(
+                events.connectionCleanupFailure(
                     connection.declaration(),
                     cleanupFailure
                 );

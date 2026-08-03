@@ -18,14 +18,13 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
+import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;
@@ -135,8 +134,8 @@ class RuntimeConnectionRegistryTest {
             .map(entry -> entry.event())
             .filteredOn(ConnectionLifecycleEvent.class::isInstance)
             .hasSize(10);
-        assertThat(new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
-            .snapshot()
+        assertThat(new JournalRenderer()
+            .render(journal.snapshot())
             .content())
             .doesNotContain("internal-secret-endpoint", "external-secret-endpoint");
     }
@@ -330,8 +329,8 @@ class RuntimeConnectionRegistryTest {
                 assertThat(snapshot.directTargetAvailable()).isFalse();
                 assertThat(snapshot.consumerTargetAvailable()).isFalse();
             });
-        assertThat(new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
-            .snapshot()
+        assertThat(new JournalRenderer()
+            .render(journal.snapshot())
             .content())
             .contains(
                 "mode=ROUTED",
@@ -413,8 +412,8 @@ class RuntimeConnectionRegistryTest {
             .map(entry -> entry.event())
             .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
             .hasSize(1);
-        assertThat(new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
-            .snapshot()
+        assertThat(new JournalRenderer()
+            .render(journal.snapshot())
             .content())
             .doesNotContain(
                 "direct-secret",
@@ -529,7 +528,7 @@ class RuntimeConnectionRegistryTest {
     ) {
         return new RuntimeConnectionRegistry(
             declarations,
-            new EnvironmentEventLog(journal, EnvironmentLogging.defaults())
+            new EnvironmentEventPublisher(journal, EnvironmentLogging.defaults())
         );
     }
 
@@ -540,7 +539,7 @@ class RuntimeConnectionRegistryTest {
     ) {
         return new RuntimeConnectionRegistry(
             declarations,
-            new EnvironmentEventLog(journal, EnvironmentLogging.defaults()),
+            new EnvironmentEventPublisher(journal, EnvironmentLogging.defaults()),
             routing
         );
     }
@@ -549,8 +548,8 @@ class RuntimeConnectionRegistryTest {
         Connection<C> declaration
     ) {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
-        EnvironmentEventLog eventLog =
-            new EnvironmentEventLog(journal, EnvironmentLogging.defaults());
+        EnvironmentEventPublisher eventLog =
+            new EnvironmentEventPublisher(journal, EnvironmentLogging.defaults());
         ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(eventLog);
         return new RuntimeConnection<>(
             declaration,

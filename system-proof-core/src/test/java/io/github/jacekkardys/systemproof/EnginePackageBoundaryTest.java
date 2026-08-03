@@ -10,7 +10,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,9 @@ import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouting;
 import io.github.jacekkardys.systemproof.engine.execution.CorrelationContribution;
 import io.github.jacekkardys.systemproof.engine.execution.EnvironmentRuntime;
 import io.github.jacekkardys.systemproof.engine.execution.RuntimeEndpointBindings;
+import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
+import io.github.jacekkardys.systemproof.journal.JournalEntry;
+import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
 
 class EnginePackageBoundaryTest {
@@ -77,6 +82,110 @@ class EnginePackageBoundaryTest {
                 "observation.InteractionRef",
                 "observation.SessionId"
             );
+    }
+
+    @Test
+    void shouldExposeOnlyJournalVocabularyReadModelsAndTheRenderer() throws Exception {
+        assertThat(publicTypes("journal", "journal"))
+            .containsExactly(
+                "journal.CheckpointEvent",
+                "journal.CheckpointEvent$Kind",
+                "journal.CheckpointEvent$Stage",
+                "journal.CheckpointId",
+                "journal.ComponentLifecycleEvent",
+                "journal.ConnectionLifecycleEvent",
+                "journal.CorrelationCandidateEvent",
+                "journal.DiagnosticEvent",
+                "journal.DiagnosticEvent$ComponentSubject",
+                "journal.DiagnosticEvent$ConnectionSubject",
+                "journal.DiagnosticEvent$EnvironmentSubject",
+                "journal.DiagnosticEvent$Subject",
+                "journal.DisruptionId",
+                "journal.DisruptionLifecycleEvent",
+                "journal.DisruptionLifecycleEvent$Stage",
+                "journal.EnvironmentLifecycleEvent",
+                "journal.FailureDetails",
+                "journal.FailureEvent",
+                "journal.FailureEvent$ComponentCleanup",
+                "journal.FailureEvent$ComponentStartup",
+                "journal.FailureEvent$ConnectionCleanup",
+                "journal.FailureEvent$ConnectionMaterialization",
+                "journal.FailureEvent$DriverResourceCleanup",
+                "journal.FailureEvent$EnvironmentStartup",
+                "journal.InteractionObservationEvent",
+                "journal.JournalEntry",
+                "journal.JournalSequence",
+                "journal.ProofSubjectArmedEvent",
+                "journal.ProofSubjectCreatedEvent",
+                "journal.ScenarioEvent",
+                "journal.ScenarioJournalSnapshot"
+            );
+        assertThat(publicTypes("diagnostics", "diagnostics"))
+            .containsExactly(
+                "diagnostics.EnvironmentDiagnostics",
+                "diagnostics.JournalRenderer"
+            );
+
+        assertThatThrownBy(() -> Class.forName(BASE_PACKAGE + "journal.ScenarioJournal"))
+            .isInstanceOf(ClassNotFoundException.class);
+        Class<?> storage = Class.forName(
+            BASE_PACKAGE + "engine.execution.ScenarioJournal"
+        );
+        assertThat(Modifier.isPublic(storage.getModifiers())).isFalse();
+        assertThat(storage.getDeclaredConstructors())
+            .noneMatch(constructor -> Modifier.isPublic(constructor.getModifiers()));
+        assertThat(storage.getDeclaredMethods())
+            .filteredOn(method -> method.getName().equals("append"))
+            .noneMatch(method -> Modifier.isPublic(method.getModifiers()));
+
+        assertThat(JournalRenderer.class.getDeclaredMethods())
+            .filteredOn(method -> Modifier.isPublic(method.getModifiers()))
+            .noneMatch(method ->
+                method.getName().equals("append")
+                    || method.getName().equals("publish")
+                    || Arrays.asList(method.getParameterTypes()).contains(ScenarioEvent.class)
+            );
+    }
+
+    @Test
+    void shouldKeepOneStorageOwnerIndependentOfRenderingAndSlf4j() throws Exception {
+        Path storage = CLASSES.resolve(
+            BASE_PATH + "engine/execution/ScenarioJournal.class"
+        );
+        assertThat(readBytecode(storage))
+            .doesNotContain(
+                BASE_PATH + "diagnostics/",
+                "org/slf4j/",
+                "EnvironmentLogging"
+            );
+
+        assertThat(classFiles("engine/execution").stream()
+            .map(path -> loadType("engine.execution", path))
+            .flatMap(type -> Arrays.stream(type.getDeclaredFields()))
+            .filter(field -> Collection.class.isAssignableFrom(field.getType())
+                || Map.class.isAssignableFrom(field.getType()))
+            .filter(field -> {
+                String fieldType = field.getGenericType().getTypeName();
+                return fieldType.contains("journal.JournalEntry")
+                    || fieldType.contains("journal.ScenarioEvent");
+            }))
+            .extracting(field -> field.getDeclaringClass().getName())
+            .containsExactly(BASE_PACKAGE + "engine.execution.ScenarioJournal");
+    }
+
+    @Test
+    void shouldExposeNoGenericJournalMutationEntryPoint() throws IOException {
+        assertThat(classFiles("").stream()
+            .map(EnginePackageBoundaryTest::loadType)
+            .filter(type -> Modifier.isPublic(type.getModifiers()))
+            .flatMap(type -> Arrays.stream(type.getDeclaredMethods()))
+            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> method.getName().equals("append")
+                || method.getName().equals("publish"))
+            .filter(method -> Arrays.stream(method.getParameterTypes())
+                .anyMatch(parameter -> parameter == ScenarioEvent.class
+                    || parameter == JournalEntry.class)))
+            .isEmpty();
     }
 
     @Test
@@ -187,6 +296,18 @@ class EnginePackageBoundaryTest {
         String binaryName = fileName.substring(0, fileName.length() - ".class".length());
         try {
             return Class.forName(BASE_PACKAGE + packageName + "." + binaryName);
+        } catch (ClassNotFoundException exception) {
+            throw new IllegalStateException("Cannot load type " + binaryName, exception);
+        }
+    }
+
+    private static Class<?> loadType(Path path) {
+        String binaryName = CLASSES.relativize(path).toString()
+            .replace('/', '.')
+            .replace('\\', '.');
+        binaryName = binaryName.substring(0, binaryName.length() - ".class".length());
+        try {
+            return Class.forName(binaryName);
         } catch (ClassNotFoundException exception) {
             throw new IllegalStateException("Cannot load type " + binaryName, exception);
         }

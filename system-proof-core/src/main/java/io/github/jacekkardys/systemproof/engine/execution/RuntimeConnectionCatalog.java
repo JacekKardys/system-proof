@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.topology.Connection;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
@@ -29,13 +28,13 @@ final class RuntimeConnectionCatalog {
 
     RuntimeConnectionCatalog(
         List<ConnectionRef> declarations,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator,
         ProofSubjectRegistry proofSubjects
     ) {
         Objects.requireNonNull(declarations, "declarations must not be null");
-        eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        events = Objects.requireNonNull(events, "events must not be null");
         routing = Objects.requireNonNull(routing, "routing must not be null");
         coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
         proofSubjects = Objects.requireNonNull(proofSubjects, "proofSubjects must not be null");
@@ -45,7 +44,7 @@ final class RuntimeConnectionCatalog {
         for (ConnectionRef declaration : declarations) {
             RuntimeConnection<?> connection = materialize(
                 Objects.requireNonNull(declaration, "declaration must not be null"),
-                eventLog,
+                events,
                 routing,
                 coordinator,
                 proofSubjects
@@ -130,7 +129,7 @@ final class RuntimeConnectionCatalog {
 
     private static RuntimeConnection<?> materialize(
         ConnectionRef declaration,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator,
         ProofSubjectRegistry proofSubjects
@@ -138,7 +137,7 @@ final class RuntimeConnectionCatalog {
         return switch (declaration) {
             case Connection<?> connection -> materializeTyped(
                 connection,
-                eventLog,
+                events,
                 routing,
                 coordinator,
                 proofSubjects
@@ -148,7 +147,7 @@ final class RuntimeConnectionCatalog {
 
     private static <C> RuntimeConnection<C> materializeTyped(
         Connection<C> declaration,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ConnectionRouting routing,
         InteractionDecisionCoordinator coordinator,
         ProofSubjectRegistry proofSubjects
@@ -156,7 +155,7 @@ final class RuntimeConnectionCatalog {
         return new RuntimeConnection<>(
             declaration,
             routing.select(declaration),
-            new ConnectionObservationPublisher(declaration, eventLog, proofSubjects),
+            new ConnectionObservationPublisher(declaration, events, proofSubjects),
             coordinator
         );
     }

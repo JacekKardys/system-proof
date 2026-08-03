@@ -75,8 +75,8 @@ per session direction. For every complete unit it unconditionally executes:
 frame -> record -> decide -> forward exact original bytes
 ```
 
-`InteractionSession.observe(...)` first copies typed evidence into the single environment
-`ScenarioJournal` and returns the stable `InteractionRef`. ADR 0003 extends this boundary with
+`InteractionSession.observe(...)` first copies typed evidence into the single environment journal
+and returns the stable `InteractionRef`. ADR 0003 extends this boundary with
 immutable correlation contributions: they are published after observation and before the one
 thread-safe environment coordinator returns the current milestone's only decision, `FORWARD`. Only
 then does the gateway write the adapter-preserved bytes. It validates that they equal the current

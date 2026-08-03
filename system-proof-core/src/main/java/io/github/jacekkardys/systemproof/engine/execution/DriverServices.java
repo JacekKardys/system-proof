@@ -4,7 +4,6 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.driver.JournalContributions;
@@ -22,20 +21,23 @@ final class DriverServices {
     private final RuntimeBindings bindings;
     private final Predicate<Component> contains;
     private final Function<Component, ComponentState> componentState;
-    private final EnvironmentEventLog eventLog;
+    private final RuntimeDiagnostics diagnostics;
+    private final EnvironmentEventPublisher events;
     private final SharedDriverResources sharedResources;
 
     DriverServices(
         RuntimeBindings bindings,
         Predicate<Component> contains,
         Function<Component, ComponentState> componentState,
-        EnvironmentEventLog eventLog
+        RuntimeDiagnostics diagnostics,
+        EnvironmentEventPublisher events
     ) {
         this.bindings = Objects.requireNonNull(bindings, "bindings must not be null");
         this.contains = Objects.requireNonNull(contains, "contains must not be null");
         this.componentState = Objects.requireNonNull(componentState, "componentState must not be null");
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
-        sharedResources = new SharedDriverResources(eventLog);
+        this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
+        sharedResources = new SharedDriverResources(events);
     }
 
     <T> T resolve(Component owner, RequiredPort<T> required) {
@@ -60,12 +62,12 @@ final class DriverServices {
 
     private void log(Component component, LogLevel level, String message) {
         requireContained(component);
-        eventLog.component(component, level, message);
+        events.component(component, level, message);
     }
 
     private String componentEvents(Component component) {
         requireContained(component);
-        return eventLog.componentSnapshot(component.id());
+        return diagnostics.componentEvents(component);
     }
 
     private ComponentState state(Component component) {
@@ -158,7 +160,7 @@ final class DriverServices {
             CheckpointEvent.Kind kind,
             CheckpointEvent.Stage stage
         ) {
-            eventLog.checkpoint(owner, checkpointId, kind, stage);
+            events.checkpoint(owner, checkpointId, kind, stage);
         }
 
         @Override
@@ -166,7 +168,7 @@ final class DriverServices {
             DisruptionId disruptionId,
             DisruptionLifecycleEvent.Stage stage
         ) {
-            eventLog.disruption(owner, disruptionId, stage);
+            events.disruption(owner, disruptionId, stage);
         }
     }
 }
