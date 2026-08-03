@@ -5,11 +5,11 @@ import java.util.List;
 import java.util.Objects;
 import org.testcontainers.containers.GenericContainer;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.model.component.Component;
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointAddress;
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.topology.PortDirection;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.endpoint.EndpointAddress;
+import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.topology.PortDirection;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 
 /** A prepared container and typed publishers for its logical provided ports. */
 public final class ContainerPlan {
@@ -25,22 +25,22 @@ public final class ContainerPlan {
         return new Builder(container);
     }
 
-    public GenericContainer<?> container() {
+    GenericContainer<?> container() {
         return container;
     }
 
-    public List<ProvidedPort<?>> ports() {
+    List<ProvidedPort<?>> ports() {
         return endpoints.stream().map(DeclaredEndpoint::port).toList();
     }
 
-    public Integer[] exposedPorts() {
+    Integer[] exposedPorts() {
         return endpoints.stream()
             .map(DeclaredEndpoint::containerPort)
             .distinct()
             .toArray(Integer[]::new);
     }
 
-    public void validateFor(Component component) {
+    void validateFor(Component component) {
         component.ports().stream()
             .filter(port -> port.direction() == PortDirection.PROVIDED)
             .map(port -> (ProvidedPort<?>) port)

@@ -1,8 +1,8 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.component.ComponentId;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.component.ComponentId;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /** Closed category of framework-owned immutable scenario failure values. */
 public sealed interface FailureEvent extends ScenarioEvent permits

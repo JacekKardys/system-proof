@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.examples.postgres;
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
+import io.github.jacekkardys.systemproof.endpoint.JdbcEndpoint;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.StartedContainer;

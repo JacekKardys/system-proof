@@ -1,24 +1,26 @@
 # System Proof Core
 
-This module contains the complete runtime-neutral environment model.
+This module contains the core domain contracts, extension SPI, read models, and environment
+execution implementation. The canonical compatibility and dependency policy is
+[Package and API architecture](../docs/architecture/package-api-architecture.md).
 
 Public contracts:
 
-- `model.environment.Environment`: lifecycle, diagnostics, and reverse-order cleanup over an
+- `environment.Environment`: lifecycle, diagnostics, and reverse-order cleanup over an
   immutable topology.
-- `construction.EnvironmentBuilder` and `construction.EnvironmentCreator<E>`: the mutable component,
+- `environment.EnvironmentBuilder` and `environment.EnvironmentCreator<E>`: the mutable component,
   connection, configuration, and logging boundary plus the typed facade creation callback.
-- `construction.ComponentPortFactory`: low-level helpers for programmatic port declarations; annotated
+- `environment.ComponentPortFactory`: low-level helpers for programmatic port declarations; annotated
   fields remain the normal declarative path.
-- `model.environment.EnvironmentTopology`: one concrete immutable model of components and logical
+- `environment.EnvironmentTopology`: one concrete immutable model of components and logical
   connections, consumed by environment facades and runtime code.
-- `model.component.Component` and `model.component.AbstractComponent<C, O>`: one component identity,
+- `component.Component` and `component.AbstractComponent<C, O>`: one component identity,
   typed configuration, owned ports, driver, lifecycle state, and optional typed operations.
 - `@SystemComponent` and `ComponentConfig<D>`: declarative component type, driver, flattened
   component configuration, and separate driver-only configuration.
 - `RequiredPort<C>`, `ProvidedPort<C>`, `Contract<C>`, `ConnectionId`, and `Connection<C>`:
   directional typed topology without runtime addresses.
-- `RuntimeConnection<C>` and detached `RuntimeConnectionSnapshot` values: one authoritative
+- detached `RuntimeConnectionSnapshot` values: inspection of the one authoritative internal
   runtime materialization per logical connection, without exposing endpoint values.
 - `ConnectionRouting`, `ConnectionRouteProvider<C>`, `ConnectionRouteContext<C>`, and
   `ConnectionRoute<C>`: typed runtime selection, orthogonal observation policy, connection-scoped
@@ -31,7 +33,7 @@ Public contracts:
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `configuration.EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted
   secrets.
-- sealed core-owned `ScenarioEvent` envelopes, `JournalEntry`, `JournalSequence`,
+- the open `ScenarioEvent` read contract, framework-owned event envelopes, `JournalEntry`, `JournalSequence`,
   `ScenarioJournalSnapshot`, `JournalRenderer`, `EvidenceCodec<T>`, and `EvidenceSnapshot`:
   detached inspection/rendering contracts and the external typed-evidence copy boundary. Mutable
   journal storage is not public.
@@ -43,14 +45,9 @@ Public contracts:
 - `EnvironmentLogging`, top-level `EnvironmentLoggingBuilder`, `EnvironmentDiagnostics`, and
   `EnvironmentStartException`: logging configuration, rendered journal views, and failure reporting.
 
-The model is grouped by responsibility:
-
-- `model.component`: component identity, declaration, configuration markers, and lifecycle values;
-- `model.topology`: contracts, declared interaction/protocol semantics, typed ports, and logical connections;
-- `model.environment`: immutable topology and the environment facade;
-- `model.runtime`: detached runtime state values;
-- `model.communication` and `model.endpoint`: communication semantics and endpoint values;
-- `model.logging` and `model.value`: logging and cross-cutting safe value types.
+Packages are grouped by domain owner, not by Java shape. The exact supported API/SPI and read-only
+surface is maintained in the canonical architecture document and enforced from compiled bytecode,
+including nested types.
 
 Core validates component ID uniqueness, port ownership and direction, contract/interaction/protocol
 compatibility, exactly one provider per required port, logging references, dependency cycles, and
@@ -78,9 +75,10 @@ the topology and logging configuration before creating the runtime facade.
 Construction ends at `build(...)`: it passes immutable `EnvironmentTopology` and
 `EnvironmentLogging` results to the selected facade constructor. Runtime execution never retains
 the builder, mutable declaration lists, configuration binder, component materializer, or validator.
-`EnvironmentTopology` is one concrete model class, not an interface paired with a construction-only
-implementation. Its public constructor is a low-level snapshot constructor and assumes structurally
-valid inputs; `EnvironmentBuilder` is the normal entry point and validates before calling it.
+`EnvironmentTopology` is one concrete immutable snapshot, not an interface paired with a
+construction-only implementation. Its static `of(...)` factory is the low-level snapshot boundary;
+`EnvironmentBuilder` is the normal entry point and validates before calling it. The driver-bearing
+runtime component view is package-private; public inspection returns `List<Component>`.
 `EnvironmentCreator<E>` is a separate functional interface so facade creation remains an explicit,
 documented extension point rather than a nested builder implementation detail.
 
@@ -117,7 +115,7 @@ Drivers still publish both internal and external endpoint values as the direct b
 `DriverContext.resolve(...)` reaches the required port's runtime connection and returns only the
 internal value of its consumer binding. `ComponentRuntime` has no public binding or provided-port
 resolution method. It only transfers its published bindings into a non-publicly-constructible,
-engine-owned typed boundary used by `RuntimeConnectionRegistry`. The external direct form is
+environment-owned typed boundary used by `RuntimeConnectionRegistry`. The external direct form is
 retained for JVM gateway routing. Public inspection returns detached immutable snapshots
 containing semantic metadata, state, mode, observation requirement, effective observation status,
 and separate direct/consumer availability; it never returns endpoint values, route implementations,
@@ -252,12 +250,13 @@ appends exactly once at the existing pipeline point. `JournalSlf4jEmitter` consu
 immutable stored entry only after append, owns logging thresholds, and treats `OFF` as no emission
 rather than no history. Neither collaborator owns a second event list.
 
-`ScenarioEvent` remains a public sealed inspection vocabulary; public record constructors create
-detached values but cannot append them to a runtime. Before 1.0, every new permitted variant is an
-explicit compatibility change for exhaustive pattern matching. `Environment.journalSnapshot()` is
-the supported authoritative read path. `JournalRenderer` consumes only detached snapshots, handles
-every permitted event explicitly, supports full and structured component filtering, repeats the
-same prefix across multiline messages, and appends into one `StringBuilder` so construction is
-linear in total output size.
+`ScenarioEvent` is a public open inspection contract; public framework record constructors and
+client implementations create detached values but cannot append them to a runtime. New framework
+facts therefore do not invalidate exhaustive switches over a sealed root because there is no
+sealed root. `Environment.journalSnapshot()` is the supported authoritative read path.
+`JournalRenderer` consumes only detached snapshots, handles every framework event explicitly and
+unknown events through a payload-free type fallback, supports full and structured component
+filtering, repeats the same prefix across multiline messages, and appends into one `StringBuilder`
+so construction is linear in total output size.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

@@ -7,7 +7,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
-import io.github.jacekkardys.systemproof.engine.execution.CorrelationContribution;
+import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;

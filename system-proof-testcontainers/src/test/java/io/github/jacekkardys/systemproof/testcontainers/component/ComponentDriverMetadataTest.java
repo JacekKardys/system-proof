@@ -5,11 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.component.DriverConfig;
-import io.github.jacekkardys.systemproof.model.environment.Environment;
-import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.model.component.SystemComponent;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.configuration.DriverConfig;
+import io.github.jacekkardys.systemproof.environment.Environment;
+import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.component.SystemComponent;
 
 class ComponentDriverMetadataTest {
 

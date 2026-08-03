@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.observation;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /**
  * Stable scenario identity of one observed protocol unit.

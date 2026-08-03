@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.component.ComponentId;
+import io.github.jacekkardys.systemproof.component.ComponentId;
 
 /**
  * Core-owned immutable record of a contributed disruption lifecycle stage.

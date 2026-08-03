@@ -10,9 +10,9 @@ import java.util.Arrays;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
-import io.github.jacekkardys.systemproof.engine.execution.RuntimeEndpointBindings;
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.environment.RuntimeEndpointBindings;
+import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 
 class CoreModuleBoundaryTest {
     @Test

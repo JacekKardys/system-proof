@@ -24,19 +24,19 @@ import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.JournalSequence;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
-import io.github.jacekkardys.systemproof.model.component.ComponentId;
-import io.github.jacekkardys.systemproof.model.component.ComponentState;
-import io.github.jacekkardys.systemproof.model.component.ComponentType;
-import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
-import io.github.jacekkardys.systemproof.model.logging.LogLevel;
-import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
-import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.component.ComponentId;
+import io.github.jacekkardys.systemproof.component.ComponentState;
+import io.github.jacekkardys.systemproof.component.ComponentType;
+import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
+import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
+import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
+import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
@@ -63,6 +63,18 @@ class JournalRendererTest {
                 + System.lineSeparator()
                 + "T+--:--:--.--- [FRAMEWORK] [environment] without time"
         );
+    }
+
+    @Test
+    void shouldRenderAnUnknownOpenScenarioEventWithoutInspectingItsPayload() {
+        JournalEntry entry = entry(1, new ClientScenarioEvent("not-rendered"));
+
+        assertThat(renderer.renderLines(entry))
+            .singleElement()
+            .asString()
+            .contains("[EVENT] [ClientScenarioEvent]")
+            .contains("Recorded scenario event type=")
+            .doesNotContain("not-rendered");
     }
 
     @Test
@@ -256,4 +268,6 @@ class JournalRendererTest {
             )
         );
     }
+
+    private record ClientScenarioEvent(String payload) implements ScenarioEvent {}
 }

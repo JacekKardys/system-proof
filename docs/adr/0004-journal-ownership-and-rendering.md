@@ -29,25 +29,32 @@ disruption facts.
 It creates detached `FailureDetails` before append. Stored events and snapshots never retain a
 `Throwable`; renderers and loggers consume only the frozen details.
 
-`JournalSlf4jEmitter` owns `EnvironmentLogging` thresholds and SLF4J emission. It receives the exact
-immutable `JournalEntry` returned after append. A threshold, including `OFF`, can suppress emission
-but cannot suppress storage or change `JournalSequence`.
+`EnvironmentLogging` and its builder belong to `environment`, where topology membership is known
+and validation can stay package-private. `LogLevel` belongs to `journal` because severity is part
+of a retained `DiagnosticEvent`. `JournalSlf4jEmitter` applies the validated thresholds and owns
+SLF4J emission. It receives the exact immutable `JournalEntry` returned after append. A threshold,
+including `OFF`, can suppress emission but cannot suppress storage or change `JournalSequence`.
 
 `JournalRenderer` is a stateless public diagnostics view over `JournalEntry` and
-`ScenarioJournalSnapshot`. It handles every permitted event explicitly, performs structured
+`ScenarioJournalSnapshot`. It handles every framework event explicitly, performs structured
 component filtering, repeats the complete prefix on every multiline output line, and builds a
-complete history with one `StringBuilder`. Its complexity is linear in the total number of
-generated characters.
+complete history with one `StringBuilder`. An unknown event uses a type-only fallback that does not
+inspect or render its payload. Its complexity is linear in the total number of generated
+characters.
 
-`ScenarioEvent` remains a public sealed inspection vocabulary. Core controls permitted
-implementations and the append path, but public record constructors still create detached values.
-Before 1.0, adding a permitted variant is an explicit compatibility change for exhaustive pattern
-switches. `Environment.journalSnapshot()` is the authoritative supported read path; constructing a
-detached read-model value does not publish it into an execution.
+`ScenarioEvent` is a public open inspection contract. Client switches over it must include a
+default branch, so adding a framework fact does not invalidate those switches. Implementing the
+contract grants no append, publication, contribution, or environment injection capability. Public
+framework record constructors and client implementations create detached values only.
+`Environment.journalSnapshot()` is the authoritative supported read path; constructing a detached
+read-model value does not publish it into an execution.
 
-Dependencies point from `engine.execution` to `diagnostics`, `journal`, `proof`, `observation`, and
-stable model values. `diagnostics` depends on journal read models. `journal` depends only on stable
-model, observation, and proof values. Neither `journal` nor `diagnostics` depends on execution.
+Dependencies point from `environment` to `diagnostics`, `journal`, `proof`, `observation`, and the
+stable component, topology, endpoint, configuration, and environment-state contracts.
+`diagnostics` depends on journal read models. `journal` does not depend on diagnostics and depends
+only on stable domain/read values, observation, and proof. Diagnostics depends on detached
+`environment.state`, not environment execution. Neither `journal` nor `diagnostics` depends on
+mutable execution types.
 
 ## Consequences
 
@@ -59,8 +66,8 @@ model, observation, and proof values. Neither `journal` nor `diagnostics` depend
 - Existing storage order, event semantics, diagnostic formatting, evidence copying, correlation,
   driver SPI, JUnit artifact persistence, gateway behavior, and container integrations remain
   unchanged.
-- New control or proof events extend the sealed vocabulary and renderer without changing storage,
-  redaction, or SLF4J ownership.
+- New control or proof events extend the framework vocabulary without changing storage, redaction,
+  SLF4J ownership, or the source compatibility of client switches over the open root.
 
 ## Rejected alternatives
 

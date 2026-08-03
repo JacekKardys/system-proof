@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.examples.sms.environment;
 
 import lombok.Getter;
 import lombok.experimental.Accessors;
-import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.SmsDatabaseOperations;
@@ -12,9 +12,9 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.component.redi
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.UkarimSmscOperations;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
-import io.github.jacekkardys.systemproof.model.environment.Environment;
-import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.environment.Environment;
+import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 
 /** Complete SMS ingestion topology with operations on the exact component instances started by System Proof. */
 public final class SmsExampleEnvironment extends Environment {

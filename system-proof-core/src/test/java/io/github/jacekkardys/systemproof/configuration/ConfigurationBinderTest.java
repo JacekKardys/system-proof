@@ -8,7 +8,6 @@ import jakarta.validation.constraints.NotBlank;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.model.value.Secret;
 
 class ConfigurationBinderTest {
     @Test

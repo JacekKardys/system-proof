@@ -15,16 +15,16 @@ import lombok.NonNull;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.Accessors;
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.communication.Communication;
-import io.github.jacekkardys.systemproof.model.topology.PortContract;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
-import io.github.jacekkardys.systemproof.model.topology.StartupPrerequisite;
-import io.github.jacekkardys.systemproof.model.component.SystemComponent;
-import io.github.jacekkardys.systemproof.model.endpoint.AmqpEndpoint;
-import io.github.jacekkardys.systemproof.model.endpoint.RedisEndpoint;
-import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.communication.Communication;
+import io.github.jacekkardys.systemproof.topology.PortContract;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.topology.StartupPrerequisite;
+import io.github.jacekkardys.systemproof.component.SystemComponent;
+import io.github.jacekkardys.systemproof.endpoint.AmqpEndpoint;
+import io.github.jacekkardys.systemproof.endpoint.RedisEndpoint;
+import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 
 @SystemComponent(type = "jasmin", driver = JasminTestcontainersDriver.class)
 @Getter

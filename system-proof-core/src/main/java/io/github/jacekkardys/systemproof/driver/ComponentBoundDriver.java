@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.driver;
 
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 /**
  * Driver SPI for runtime technologies that bind a driver to one concrete component class.

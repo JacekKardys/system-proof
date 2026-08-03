@@ -8,12 +8,12 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.Accessors;
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.communication.Communication;
-import io.github.jacekkardys.systemproof.model.topology.PortContract;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.component.SystemComponent;
-import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.communication.Communication;
+import io.github.jacekkardys.systemproof.topology.PortContract;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.component.SystemComponent;
+import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 
 @SystemComponent(
     type = "system-proof-smsc-simulator",

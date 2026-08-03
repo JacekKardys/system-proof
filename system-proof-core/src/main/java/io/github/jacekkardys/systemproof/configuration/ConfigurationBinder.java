@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.configuration;
 
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationValidator.validate;
 import static io.github.jacekkardys.systemproof.configuration.ConfigurationValidator.validateReturnValues;
-import static io.github.jacekkardys.systemproof.model.value.Secret.secret;
+import static io.github.jacekkardys.systemproof.configuration.Secret.secret;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
@@ -19,7 +19,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.value.Secret;
 
 /** Binds annotated configuration interfaces to immutable typed values. */
 public final class ConfigurationBinder {

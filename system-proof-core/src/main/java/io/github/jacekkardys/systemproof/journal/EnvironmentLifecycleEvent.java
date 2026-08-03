@@ -1,7 +1,7 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.environment.EnvironmentState;
+import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 
 /** A structured environment lifecycle transition. */
 public record EnvironmentLifecycleEvent(EnvironmentState state) implements ScenarioEvent {

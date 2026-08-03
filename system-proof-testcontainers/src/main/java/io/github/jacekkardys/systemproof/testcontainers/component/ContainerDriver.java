@@ -2,8 +2,8 @@ package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 /** Concrete composition driver for standard containers without custom lifecycle behavior. */
 public final class ContainerDriver<

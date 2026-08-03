@@ -1,17 +1,17 @@
 package io.github.jacekkardys.systemproof.testcontainers.gateway;
 
-import static io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding.binding;
+import static io.github.jacekkardys.systemproof.endpoint.EndpointBinding.binding;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Objects;
 import org.testcontainers.Testcontainers;
-import io.github.jacekkardys.systemproof.engine.execution.ConnectionRoute;
-import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouteContext;
-import io.github.jacekkardys.systemproof.engine.execution.ConnectionRouteProvider;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.environment.ConnectionRoute;
+import io.github.jacekkardys.systemproof.environment.ConnectionRouteContext;
+import io.github.jacekkardys.systemproof.environment.ConnectionRouteProvider;
+import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 
 /**
  * Creates connection-owned transparent TCP routes through the test JVM.

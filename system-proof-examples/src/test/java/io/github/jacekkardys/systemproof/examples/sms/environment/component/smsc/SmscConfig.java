@@ -9,8 +9,8 @@ import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
 import io.github.jacekkardys.systemproof.configuration.ConfigurationSource;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentVariable;
 import io.github.jacekkardys.systemproof.configuration.Literal;
-import io.github.jacekkardys.systemproof.model.component.DriverConfig;
-import io.github.jacekkardys.systemproof.model.value.Secret;
+import io.github.jacekkardys.systemproof.configuration.DriverConfig;
+import io.github.jacekkardys.systemproof.configuration.Secret;
 
 public interface SmscConfig
     extends ComponentConfig<SmscConfig.Driver> {

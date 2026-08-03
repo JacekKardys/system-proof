@@ -3,8 +3,8 @@ package io.github.jacekkardys.systemproof.examples.sms.environment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.model.component.Component;
-import io.github.jacekkardys.systemproof.model.topology.PortRef;
+import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.topology.PortRef;
 
 class SmsExampleEnvironmentDefinitionTest {
 
