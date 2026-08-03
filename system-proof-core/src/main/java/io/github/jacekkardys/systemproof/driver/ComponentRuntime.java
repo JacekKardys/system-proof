@@ -32,7 +32,7 @@ public final class ComponentRuntime<O> implements AutoCloseable {
     /**
      * Transfers published bindings into an environment-owned access boundary.
      *
-     * <p>The boundary cannot be constructed outside the runtime engine and exposes no public
+     * <p>The boundary cannot be constructed outside the environment runtime and exposes no public
      * endpoint lookup. Component drivers can publish endpoints but cannot retrieve them here.
      */
     public void publishBindingsTo(RuntimeEndpointBindings target) {

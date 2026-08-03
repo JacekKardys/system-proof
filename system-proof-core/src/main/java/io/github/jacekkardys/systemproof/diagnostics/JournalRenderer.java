@@ -148,6 +148,10 @@ public final class JournalRenderer {
                     + disruption.disruptionId().value() + "]",
                 "Recorded disruption stage=" + disruption.stage()
             );
+            default -> new RenderedEvent(
+                "[EVENT] [" + event.getClass().getSimpleName() + "]",
+                "Recorded scenario event type=" + event.getClass().getName()
+            );
         };
     }
 
@@ -178,6 +182,7 @@ public final class JournalRenderer {
             case FailureEvent.DriverResourceCleanup failure -> false;
             case FailureEvent.ConnectionMaterialization failure -> false;
             case FailureEvent.ConnectionCleanup failure -> false;
+            default -> false;
         };
     }
 

@@ -4,11 +4,10 @@ import java.util.Objects;
 import java.util.function.BiConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.component.Component;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 
 /** Applies logging thresholds and emits already-stored immutable entries through SLF4J. */

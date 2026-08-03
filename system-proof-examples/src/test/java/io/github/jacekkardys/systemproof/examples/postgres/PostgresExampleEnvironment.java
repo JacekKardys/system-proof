@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.examples.postgres;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;
 import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;

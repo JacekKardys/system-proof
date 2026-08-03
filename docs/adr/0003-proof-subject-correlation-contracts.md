@@ -110,7 +110,7 @@ completed candidates.
 
 ### Journal authority and runtime index
 
-The closed `ScenarioEvent` hierarchy adds three core-owned immutable facts:
+The framework `ScenarioEvent` vocabulary adds three core-owned immutable facts:
 
 - `ProofSubjectCreatedEvent`;
 - `ProofSubjectArmedEvent`, including whether the key is shared;

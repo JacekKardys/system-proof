@@ -2,8 +2,8 @@
  * Defines environment declaration, assembly, lifecycle, routing, execution, and inspection.
  *
  * <p>The supported surface consists of the environment facade and builder, immutable topology,
- * declared routing policy, and the narrow routing/session extension SPI. Detached execution state
- * lives in {@code environment.state}.
+ * logging thresholds, declared routing policy, and the narrow routing/session extension SPI.
+ * Detached execution state lives in {@code environment.state}.
  * Package-private types own all mutable construction, lifecycle, component, connection, proof,
  * journal, redaction, logging-emission, and cleanup state.
  *

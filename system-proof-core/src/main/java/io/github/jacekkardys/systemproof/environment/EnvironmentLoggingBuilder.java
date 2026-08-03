@@ -1,10 +1,11 @@
-package io.github.jacekkardys.systemproof.diagnostics;
+package io.github.jacekkardys.systemproof.environment;
 
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;

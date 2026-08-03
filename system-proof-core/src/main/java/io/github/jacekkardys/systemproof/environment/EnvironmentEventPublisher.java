@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
 import java.util.Optional;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
@@ -22,7 +21,7 @@ import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;

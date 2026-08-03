@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -20,17 +21,32 @@ class Junit5ModuleBoundaryTest {
     private static final String BASE_PATH = "io/github/jacekkardys/systemproof/junit/";
     private static final String BASE_PACKAGE = "io.github.jacekkardys.systemproof.junit.";
 
+    private static final Set<String> SUPPORTED_API = Set.of(
+        "annotation.EnvironmentDefinition",
+        "annotation.SystemProof"
+    );
+    private static final Set<String> SUPPORTED_SPI = Set.of();
+    private static final Set<String> READ_ONLY_MODEL = Set.of();
+    private static final Set<String> JAVA_PUBLIC_INTERNAL = Set.of(
+        "internal.EnvironmentLifecycleExtension",
+        "internal.EnvironmentParameterResolver",
+        "internal.SystemProofInvocationProvider"
+    );
+
     @Test
     void shouldExposeOnlyAnnotationsAsSupportedApiAndThreeReflectiveExtensions()
         throws IOException {
-        assertThat(externallyVisibleTypes())
-            .containsExactly(
-                "annotation.EnvironmentDefinition",
-                "annotation.SystemProof",
-                "internal.EnvironmentLifecycleExtension",
-                "internal.EnvironmentParameterResolver",
-                "internal.SystemProofInvocationProvider"
-            );
+        assertPairwiseDisjoint(SUPPORTED_API, SUPPORTED_SPI, READ_ONLY_MODEL, JAVA_PUBLIC_INTERNAL);
+        Set<String> classified = new TreeSet<>();
+        classified.addAll(SUPPORTED_API);
+        classified.addAll(SUPPORTED_SPI);
+        classified.addAll(READ_ONLY_MODEL);
+        classified.addAll(JAVA_PUBLIC_INTERNAL);
+
+        assertThat(externallyVisibleTypes()).containsExactlyElementsOf(classified);
+        assertThat(SUPPORTED_SPI).isEmpty();
+        assertThat(READ_ONLY_MODEL).isEmpty();
+        assertThat(externallyVisibleFields()).isEmpty();
     }
 
     @Test
@@ -84,6 +100,24 @@ class Junit5ModuleBoundaryTest {
                     || Modifier.isProtected(type.getModifiers()))
                 .map(type -> type.getName().substring(BASE_PACKAGE.length()))
                 .collect(Collectors.toCollection(TreeSet::new));
+        }
+    }
+
+    private static Set<String> externallyVisibleFields() throws IOException {
+        return externallyVisibleTypes().stream()
+            .map(Junit5ModuleBoundaryTest::loadType)
+            .flatMap(type -> Arrays.stream(type.getDeclaredFields()))
+            .filter(field -> Modifier.isPublic(field.getModifiers())
+                || Modifier.isProtected(field.getModifiers()))
+            .map(field -> field.getDeclaringClass().getName() + "#" + field.getName())
+            .collect(Collectors.toCollection(TreeSet::new));
+    }
+
+    @SafeVarargs
+    private static void assertPairwiseDisjoint(Set<String>... categories) {
+        Set<String> seen = new HashSet<>();
+        for (Set<String> category : categories) {
+            assertThat(category).allSatisfy(type -> assertThat(seen.add(type)).isTrue());
         }
     }
 

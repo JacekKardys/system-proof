@@ -16,7 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.reporting.ReportEntry;
 import org.junit.platform.testkit.engine.EngineTestKit;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
 import io.github.jacekkardys.systemproof.junit.annotation.EnvironmentDefinition;

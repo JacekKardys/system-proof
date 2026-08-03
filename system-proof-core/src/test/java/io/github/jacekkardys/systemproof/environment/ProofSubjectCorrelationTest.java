@@ -21,7 +21,6 @@ import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;

@@ -13,7 +13,7 @@ import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /** Driver-facing typed bindings, diagnostics, and environment-scoped shared resources. */

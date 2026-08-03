@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
-import static io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging.logs;
+import static io.github.jacekkardys.systemproof.environment.EnvironmentLogging.logs;
 import static io.github.jacekkardys.systemproof.driver.ComponentRuntime.runtime;
 import static io.github.jacekkardys.systemproof.topology.Contract.contract;
 import static io.github.jacekkardys.systemproof.endpoint.EndpointAddress.address;
@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
@@ -37,7 +36,7 @@ import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
@@ -563,7 +562,7 @@ class EnvironmentLifecycleTest {
         });
         Environment environment = new EnvironmentBuilder()
             .components(server)
-            .logging(io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging.logs()
+            .logging(io.github.jacekkardys.systemproof.environment.EnvironmentLogging.logs()
                 .warnByDefault())
             .build()
             .start();

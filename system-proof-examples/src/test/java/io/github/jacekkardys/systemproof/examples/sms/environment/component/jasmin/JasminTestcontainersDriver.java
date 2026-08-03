@@ -17,7 +17,7 @@ import io.github.jacekkardys.systemproof.endpoint.AmqpEndpoint;
 import io.github.jacekkardys.systemproof.endpoint.RedisEndpoint;
 import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.StartedContainer;

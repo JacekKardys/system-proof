@@ -9,7 +9,6 @@ import java.util.Objects;
 
 import lombok.AccessLevel;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import lombok.experimental.Accessors;
 
@@ -25,9 +24,7 @@ import io.github.jacekkardys.systemproof.topology.RequiredPort;
  * <p>It contains read indexes only. Structural validation and assembly belong to the
  * environment owner.</p>
  */
-@Getter
 @Accessors(fluent = true)
-@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 @Value
 public class EnvironmentTopology {
 
@@ -41,6 +38,20 @@ public class EnvironmentTopology {
 
     @Getter(AccessLevel.NONE)
     Map<ConnectionId, ConnectionRef> connectionsById;
+
+    private EnvironmentTopology(
+        List<AbstractComponent<?, ?>> runtimeComponents,
+        List<Component> components,
+        List<ConnectionRef> connections,
+        Map<RequiredPort<?>, ConnectionRef> connectionsByRequired,
+        Map<ConnectionId, ConnectionRef> connectionsById
+    ) {
+        this.runtimeComponents = runtimeComponents;
+        this.components = components;
+        this.connections = connections;
+        this.connectionsByRequired = connectionsByRequired;
+        this.connectionsById = connectionsById;
+    }
 
     /**
      * Captures an already structurally validated topology.

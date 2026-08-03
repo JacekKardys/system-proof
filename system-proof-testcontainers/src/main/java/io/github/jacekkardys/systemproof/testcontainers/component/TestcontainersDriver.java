@@ -10,8 +10,7 @@ import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
-import io.github.jacekkardys.systemproof.testcontainers.diagnostics.ContainerLogConsumer;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 
 /** Base driver that owns Testcontainers materialization while core owns lifecycle ordering. */
 public abstract class TestcontainersDriver<
@@ -90,7 +89,7 @@ public abstract class TestcontainersDriver<
         DriverContext context
     ) {}
 
-    public static String networkAlias(Component component) {
+    static String networkAlias(Component component) {
         return component.id() + ".test";
     }
 

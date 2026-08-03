@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.testcontainers.diagnostics;
+package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import java.util.Locale;
 import java.util.Objects;
@@ -8,10 +8,10 @@ import java.util.regex.Pattern;
 import org.testcontainers.containers.output.OutputFrame;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.component.Component;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 
 /** Sends container output into the environment's structured diagnostic journal. */
-public final class ContainerLogConsumer implements Consumer<OutputFrame> {
+final class ContainerLogConsumer implements Consumer<OutputFrame> {
     private static final Pattern LEVEL_MARKER = Pattern.compile(
         "(?i)(?:\\\"(?:level|severity)\\\"\\s*:\\s*\\\"|(?:^|[\\s\\[(:]))"
             + "(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|NOTICE|LOG)"
@@ -21,7 +21,7 @@ public final class ContainerLogConsumer implements Consumer<OutputFrame> {
     private final DriverContext context;
     private final Component component;
 
-    public ContainerLogConsumer(DriverContext context, Component component) {
+    ContainerLogConsumer(DriverContext context, Component component) {
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.component = Objects.requireNonNull(component, "component must not be null");
     }

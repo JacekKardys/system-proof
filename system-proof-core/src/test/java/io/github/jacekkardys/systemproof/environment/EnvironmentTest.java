@@ -5,7 +5,7 @@ import static io.github.jacekkardys.systemproof.environment.ComponentPortFactory
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging.logs;
+import static io.github.jacekkardys.systemproof.environment.EnvironmentLogging.logs;
 import static io.github.jacekkardys.systemproof.topology.Contract.contract;
 
 import org.junit.jupiter.api.Test;
@@ -14,7 +14,7 @@ import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.Contract;
 import io.github.jacekkardys.systemproof.topology.InteractionSpec;
 import io.github.jacekkardys.systemproof.topology.PortRef;

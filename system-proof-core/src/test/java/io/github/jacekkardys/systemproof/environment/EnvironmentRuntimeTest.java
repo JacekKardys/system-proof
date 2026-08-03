@@ -1,20 +1,19 @@
 package io.github.jacekkardys.systemproof.environment;
 
-import static io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging.logs;
+import static io.github.jacekkardys.systemproof.environment.EnvironmentLogging.logs;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 
 class EnvironmentRuntimeTest {
     private static final ComponentType COMPONENT = ComponentType.of("component");

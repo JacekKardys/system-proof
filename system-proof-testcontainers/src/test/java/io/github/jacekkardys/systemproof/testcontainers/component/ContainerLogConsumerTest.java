@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.testcontainers.diagnostics;
+package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,7 +14,7 @@ import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.component.ComponentType;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.PortRef;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;

@@ -33,7 +33,7 @@ Public contracts:
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `configuration.EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted
   secrets.
-- sealed core-owned `ScenarioEvent` envelopes, `JournalEntry`, `JournalSequence`,
+- the open `ScenarioEvent` read contract, framework-owned event envelopes, `JournalEntry`, `JournalSequence`,
   `ScenarioJournalSnapshot`, `JournalRenderer`, `EvidenceCodec<T>`, and `EvidenceSnapshot`:
   detached inspection/rendering contracts and the external typed-evidence copy boundary. Mutable
   journal storage is not public.
@@ -250,12 +250,13 @@ appends exactly once at the existing pipeline point. `JournalSlf4jEmitter` consu
 immutable stored entry only after append, owns logging thresholds, and treats `OFF` as no emission
 rather than no history. Neither collaborator owns a second event list.
 
-`ScenarioEvent` remains a public sealed inspection vocabulary; public record constructors create
-detached values but cannot append them to a runtime. Before 1.0, every new permitted variant is an
-explicit compatibility change for exhaustive pattern matching. `Environment.journalSnapshot()` is
-the supported authoritative read path. `JournalRenderer` consumes only detached snapshots, handles
-every permitted event explicitly, supports full and structured component filtering, repeats the
-same prefix across multiline messages, and appends into one `StringBuilder` so construction is
-linear in total output size.
+`ScenarioEvent` is a public open inspection contract; public framework record constructors and
+client implementations create detached values but cannot append them to a runtime. New framework
+facts therefore do not invalidate exhaustive switches over a sealed root because there is no
+sealed root. `Environment.journalSnapshot()` is the supported authoritative read path.
+`JournalRenderer` consumes only detached snapshots, handles every framework event explicitly and
+unknown events through a payload-free type fallback, supports full and structured component
+filtering, repeats the same prefix across multiline messages, and appends into one `StringBuilder`
+so construction is linear in total output size.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

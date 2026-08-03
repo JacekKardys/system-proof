@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.driver;
 import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /**

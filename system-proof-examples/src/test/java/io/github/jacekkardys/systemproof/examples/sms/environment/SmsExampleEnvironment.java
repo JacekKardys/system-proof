@@ -2,7 +2,7 @@ package io.github.jacekkardys.systemproof.examples.sms.environment;
 
 import lombok.Getter;
 import lombok.experimental.Accessors;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminComponent;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.SmsDatabaseOperations;

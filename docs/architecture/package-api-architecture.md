@@ -40,19 +40,18 @@ duplicate models. Java-public internal types may change at any time.
 | `communication` | Declarative communication annotations and built-in protocol semantics. |
 | `component` | Component declarations, identities, and lifecycle values. |
 | `configuration` | Component and driver configuration contracts, providers, validation, and redacted secrets. |
-| `diagnostics` | Logging configuration, immutable diagnostics, and stateless journal rendering. |
+| `diagnostics` | Immutable rendered diagnostics and stateless journal rendering. |
 | `driver` | Supported component-driver extension SPI. |
 | `endpoint` | Immutable endpoint addresses, bindings, and protocol-specific endpoint values. |
-| `environment` | Environment facade, validated assembly, routing SPI, and package-private execution. |
+| `environment` | Environment facade, logging configuration, validated assembly, routing SPI, and package-private execution. |
 | `environment.state` | Detached immutable environment and runtime-connection state. |
-| `journal` | Closed event vocabulary plus immutable entries and snapshots; never storage. |
+| `journal` | Open event read contract, framework-owned fact vocabulary, immutable entries and snapshots; never storage. |
 | `observation` | Observation policy/status, interaction identity, evidence, and forwarding decisions. |
 | `proof` | Proof-subject and correlation contracts over observation values. |
 | `topology` | Contracts, ports, protocol/interaction declarations, and logical connections. |
 | `junit.annotation` | Supported JUnit declaration annotations. |
 | `junit.internal` | Unsupported JUnit lifecycle implementation. |
-| `testcontainers.component` | Container-backed driver plans and runtime materialization. |
-| `testcontainers.diagnostics` | Container log adapters. |
+| `testcontainers.component` | Container-backed driver plans, runtime materialization, and internal container log capture. |
 | `testcontainers.gateway` | Protocol adapters and the observe-before-forward gateway. |
 
 Package-private types in `environment` own every mutable construction and execution concern:
@@ -62,31 +61,54 @@ those concerns.
 
 ## Dependency direction
 
-```text
-examples -> junit.annotation ---------------------> core domains
-        `-> testcontainers.component/gateway ----> core domains
+The following is the actual direct core package-import graph. It is generated from main Java
+sources and pinned exactly by `CoreArchitectureTest`; an added or removed edge requires this table
+and its rationale to change together.
 
-environment -> diagnostics -> journal
-environment -> driver / component / configuration / endpoint / topology
-environment -> proof -> observation -> topology
-journal ----> component / environment.state / topology / observation / proof
-```
+| Package | Direct core dependencies |
+| --- | --- |
+| `communication` | none |
+| `component` | `configuration`, `driver`, `topology` |
+| `configuration` | none |
+| `diagnostics` | `component`, `environment.state`, `journal`, `observation`, `proof`, `topology` |
+| `driver` | `component`, `configuration`, `endpoint`, `environment`, `journal`, `topology` |
+| `endpoint` | `configuration` |
+| `environment` | `communication`, `component`, `configuration`, `diagnostics`, `driver`, `endpoint`, `environment.state`, `journal`, `observation`, `proof`, `topology` |
+| `environment.state` | `observation`, `topology` |
+| `journal` | `component`, `environment.state`, `observation`, `proof`, `topology` |
+| `observation` | `topology` |
+| `proof` | `observation` |
+| `topology` | `component` |
+
+There is no `journal -> diagnostics` edge and therefore no diagnostics/journal cycle. Diagnostics
+renders journal facts. There is no `diagnostics -> environment` execution edge; its only
+environment dependency is the detached `environment.state` read model. Logging configuration and
+topology membership validation both belong to `environment`.
+
+Three direct two-way relationships remain and are explicit technical exceptions:
+
+- `component <-> driver`: a component declaration selects its typed driver, while the driver SPI
+  starts a component and returns its runtime;
+- `component <-> topology`: components own declared ports, while ports and connection identities
+  retain their owning component identity;
+- `driver <-> environment`: environment executes drivers; the only reverse edge is
+  `ComponentRuntime -> RuntimeEndpointBindings`, the non-constructible transfer bridge that can
+  publish bindings but cannot look them up.
 
 The following directions are forbidden and executable tests enforce them:
 
 - `observation -> proof`;
 - `configuration -> component`, `driver`, or environment execution;
 - `endpoint -> driver` or environment execution;
-- `journal` or `diagnostics` -> mutable environment execution types;
+- `journal -> diagnostics` or `diagnostics -> environment` execution types;
 - journal storage -> diagnostics, logging configuration, or SLF4J;
 - core -> JUnit or Testcontainers;
 - driver SPI -> Testcontainers;
 - public API -> provider endpoint lookup or proof-subject allocation;
 - JUnit public compatibility support -> `junit.internal`.
 
-The deliberate component/driver generic relationship is part of one typed extension contract.
-Neither side depends on Testcontainers. `RuntimeEndpointBindings` is the single technical transfer
-bridge used to keep provider endpoint lookup inside environment execution.
+Neither core side depends on Testcontainers. Provider endpoint lookup remains inside environment
+execution despite the explicitly guarded `RuntimeEndpointBindings` transfer edge.
 
 ## Supported core public API whitelist
 
@@ -98,10 +120,12 @@ whole.
 - Component declarations: `Component`, `SystemComponent`.
 - Configuration: `ConfigurationSource`, `EnvironmentConfiguration`, `EnvironmentVariable`,
   `Literal`, `Secret`.
-- Diagnostics configuration: `EnvironmentLogging`, `EnvironmentLoggingBuilder`, `LogLevel`.
+- Diagnostics rendering: `JournalRenderer`.
 - Environment API: `Environment`, `EnvironmentBuilder`, `EnvironmentCreator`,
-  `EnvironmentTopology`, `ComponentPortFactory`, `ConnectionRouting`,
+  `EnvironmentTopology`, `EnvironmentLogging`, `EnvironmentLoggingBuilder`, `ComponentPortFactory`,
+  `ConnectionRouting`,
   `EnvironmentStartException`, `ComponentLifecycleException`.
+- Journal severity: `LogLevel`, used by logging configuration and diagnostic facts.
 - Proof access: `ProofSubjects`.
 - Topology declarations: `Connection`, `Contract`, `DeclaredInteraction`, `DeclaredProtocol`,
   `InteractionSpec`, `ProtocolSpec`, `Port`, `PortContract`, `ProvidedPort`, `RequiredPort`, and
@@ -128,8 +152,8 @@ cleanup are not SPI. They remain package-private execution mechanics.
   `RedisEndpoint`, `SmppEndpoint`.
 - Environment state: `EnvironmentState`, `ConnectionState`, `RoutingMode`,
   `RuntimeConnectionSnapshot`.
-- Diagnostics: `EnvironmentDiagnostics`, `JournalRenderer`.
-- Journal: `ScenarioEvent`, `FailureEvent`, every permitted event record and nested event enum,
+- Diagnostics: `EnvironmentDiagnostics`.
+- Journal: `ScenarioEvent`, `FailureEvent`, every framework-owned event record and nested event enum,
   `FailureDetails`, `JournalEntry`, `JournalSequence`, `ScenarioJournalSnapshot`, `CheckpointId`,
   and `DisruptionId`.
 - Observation: `ObservationRequirement`, `EffectiveObservationStatus`, `EvidenceSchemaId`,
@@ -159,7 +183,9 @@ Only these core types remain Java-public without compatibility support:
 `EnvironmentRuntime`, its factory, assembly, lifecycle, inspector, component supervisor, connection
 registry, proof registry, journal store, redactor, emitter, and failure accumulator are
 package-private. `EnvironmentTopology.runtimeComponents()` is package-private; public topology
-inspection returns only `List<Component>` and logical connections.
+inspection returns only `List<Component>` and logical connections. `EnvironmentLogging` exposes
+only `logs()` and `defaults()` plus value methods; threshold lookup and `validateAgainst(...)` are
+package-private. Its builder is the supported mutation boundary.
 
 ## JUnit whitelist
 
@@ -174,13 +200,16 @@ running-environment, metadata, and failure-adapter collaborators are package-pri
 
 ## Testcontainers whitelist
 
-- Component API/SPI: `ContainerDriver` and nested factories, `ContainerPlan` and `Builder`,
-  `PortBinding`, `RuntimeEndpointFactory`, `StartedContainer`, `TestcontainersDriver`.
-- Diagnostics: `ContainerLogConsumer`.
-- Gateway API/SPI/read model: `InteractionGateway`, `ProtocolAdapter`,
-  `ProtocolAdapterException`, `ProtocolDecodeResult` and nested results, `ProtocolFailureKind`,
-  `ProtocolLimits`, `ProtocolSession`, `ProtocolStream`, `ProtocolUnit`, `TcpEndpointAdapter` and
-  `AddressReplacement`.
+- Supported API: `ContainerDriver`, `ContainerPlan` and `Builder`, `PortBinding`,
+  `InteractionGateway`, and `TcpEndpointAdapter`.
+- Supported SPI: `ContainerDriver.OperationsFactory`, `ContainerDriver.PlanFactory`,
+  `RuntimeEndpointFactory`, `StartedContainer`, `TestcontainersDriver`, `ProtocolAdapter`,
+  `ProtocolAdapterException`, `ProtocolSession`, `ProtocolStream`, and
+  `TcpEndpointAdapter.AddressReplacement`.
+- Inspectable read-only model: `ProtocolDecodeResult` and nested results,
+  `ProtocolFailureKind`, `ProtocolLimits`, and `ProtocolUnit`.
+- Java-public internal exceptions: none. `ContainerLogConsumer`, plan inspection/validation, and
+  `TestcontainersDriver.networkAlias(...)` are package-private implementation details.
 
 The Testcontainers surface depends on core contracts. Core and driver SPI never depend back on it.
 
@@ -195,7 +224,8 @@ named by the three whitelists above or by the Java-public internal table.
 | Component declarations and markers | Scenario authors and environment assembly / drivers and topology | Declaration initialization ends before execution; no runtime handles | Components use instance identity; IDs/types use value equality | No endpoint values or secrets | Component declaration contract |
 | Configuration API and SPI | Scenario/environment sources / component and driver binders | Immutable snapshots; no resources | Provider/value semantics as documented | `Secret.toString()` is always redacted; no generated secret equality/toString | Configuration contract |
 | Configuration Java-public internals | Environment assembly / configuration implementation | Stateless | No public constructors | Error text names fields, not secret values | Binding or validation implementation |
-| Diagnostics and logging | Scenario authors and inspector / users, JUnit, SLF4J emitter | Immutable configuration/read results; renderer is stateless | Value/configuration semantics | Rendering uses frozen redacted journal details | Diagnostic or logging policy |
+| Environment logging configuration | Scenario authors / environment publisher and SLF4J emitter | Immutable configuration; builder is mutable before `build()` | Value/configuration semantics | Threshold maps have no public accessors | Environment logging and membership policy |
+| Diagnostics rendering | Inspector / users and SLF4J emitter | Immutable rendered result; renderer is stateless | Read-result semantics | Rendering uses frozen redacted journal details; unknown event fallback renders only its type | Diagnostic presentation policy |
 | Driver SPI | Adapter authors / environment component supervisor | `ComponentRuntime` may own one closeable resource; environment closes it | Runtime and resource keys use identity where ownership requires it | Diagnostics are explicit suppliers; no endpoint rendering | Component runtime extension contract |
 | Endpoint values | Drivers / environment connection materialization | Immutable; no owned resources | Value equality | Passwords use `Secret`; endpoint values never appear in public runtime snapshots | Endpoint contract |
 | Environment API | Scenario authors / JUnit and examples | `Environment` owns exactly one execution; lifecycle methods are final | Facades use identity; topology snapshots use structural/value views | No provider endpoint lookup; exceptions use sanitized facts | Environment lifecycle or assembly contract |
@@ -209,13 +239,18 @@ named by the three whitelists above or by the Java-public internal table.
 | JUnit internal extensions | `@ExtendWith`/JUnit reflection / JUnit callbacks | Per-test shared context and lifecycle only | Internal identity | Diagnostics use environment read models | JUnit lifecycle implementation |
 | Testcontainers API/SPI | Adapter authors and examples / environment routing and drivers | Container/route resources have explicit owners | Plans and protocol results use documented value/identity semantics | Gateway diagnostics exclude hosts, mapped ports, credentials, and raw frames | Container or protocol adapter contract |
 
-## Sealed hierarchy policy
+## Event and sealed hierarchy evolution
 
-`ScenarioEvent`, `FailureEvent`, `CorrelationResult`, `ProtocolDecodeResult`, and `ConnectionRef` are
+`ScenarioEvent` is deliberately open. Framework releases may add immutable core fact records
+without making an exhaustive client switch source-incompatible. A client type may implement the
+read contract, but that grants no append, publication, contribution, or environment injection
+capability. `JournalRenderer` handles unknown implementations through a type-only fallback and
+never calls arbitrary payload `toString()`.
+
+`FailureEvent`, `CorrelationResult`, `ProtocolDecodeResult`, and `ConnectionRef` remain
 core-controlled sealed hierarchies. Their permitted implementations are inspectable read models,
-not user extension points. Before 1.0, adding a new permitted core fact/result is allowed but is an
-explicit source-compatibility change for exhaustive pattern switches. Storage, mutation, and
-publication do not become public when the vocabulary grows.
+not user extension points. Storage, mutation, and publication remain package-private when either
+the open event vocabulary or a closed result vocabulary grows.
 
 ## Placement examples
 
@@ -232,8 +267,10 @@ publication do not become public when the vocabulary grows.
 ## Enforcement
 
 `CoreArchitectureTest` walks every class file recursively, including nested `$` classes. It compares
-all public/protected types with the four exact whitelists, pins technical method/constructor surface,
-checks private runtime construction, forbids public route mechanics/provider lookup/proof allocation,
-verifies one journal storage owner, and checks dependency direction. `Junit5ModuleBoundaryTest` and
-`TestcontainersPublicSurfaceTest` guard their module surfaces and dependency boundaries. The examples
-module compiles against the supported imports and rejects internal/removed package usage.
+all public/protected types with the four exact, pairwise-disjoint whitelists; pins every public field
+and constant, sensitive method/constructor surfaces, the open `ScenarioEvent` contract, and the
+actual package graph; checks private runtime construction; forbids public route mechanics, provider
+lookup, proof allocation, and journal mutation; and verifies one journal storage owner.
+`Junit5ModuleBoundaryTest` and `TestcontainersPublicSurfaceTest` apply exact disjoint categories and
+field/surface guards to their modules. The examples module compiles against supported imports and
+rejects internal/removed package usage.

@@ -25,22 +25,22 @@ public final class ContainerPlan {
         return new Builder(container);
     }
 
-    public GenericContainer<?> container() {
+    GenericContainer<?> container() {
         return container;
     }
 
-    public List<ProvidedPort<?>> ports() {
+    List<ProvidedPort<?>> ports() {
         return endpoints.stream().map(DeclaredEndpoint::port).toList();
     }
 
-    public Integer[] exposedPorts() {
+    Integer[] exposedPorts() {
         return endpoints.stream()
             .map(DeclaredEndpoint::containerPort)
             .distinct()
             .toArray(Integer[]::new);
     }
 
-    public void validateFor(Component component) {
+    void validateFor(Component component) {
         component.ports().stream()
             .filter(port -> port.direction() == PortDirection.PROVIDED)
             .map(port -> (ProvidedPort<?>) port)

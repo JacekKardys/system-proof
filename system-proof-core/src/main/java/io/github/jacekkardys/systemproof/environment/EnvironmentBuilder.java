@@ -3,8 +3,6 @@ package io.github.jacekkardys.systemproof.environment;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLoggingBuilder;
 import io.github.jacekkardys.systemproof.configuration.EnvironmentConfiguration;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;

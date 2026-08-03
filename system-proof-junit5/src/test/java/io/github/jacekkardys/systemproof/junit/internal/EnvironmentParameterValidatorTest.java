@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.junit.internal;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
+import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 import lombok.val;

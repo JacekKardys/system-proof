@@ -1,6 +1,6 @@
-package io.github.jacekkardys.systemproof.diagnostics;
+package io.github.jacekkardys.systemproof.journal;
 
-/** Minimum severity emitted for one environment event source; diagnostics retain every event. */
+/** Severity retained by a diagnostic journal event and used by emission thresholds. */
 public enum LogLevel {
     OFF(Integer.MAX_VALUE),
     ERROR(50),

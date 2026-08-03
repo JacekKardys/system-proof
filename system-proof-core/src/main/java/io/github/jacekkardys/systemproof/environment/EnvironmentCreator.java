@@ -1,6 +1,5 @@
 package io.github.jacekkardys.systemproof.environment;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 
 /**
  * Extension point for returning a domain-specific {@link Environment} facade from

@@ -1,4 +1,4 @@
-package io.github.jacekkardys.systemproof.diagnostics;
+package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -6,25 +6,39 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Value;
-import lombok.experimental.Accessors;
 import io.github.jacekkardys.systemproof.component.Component;
-import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 
 /** Emission thresholds for framework, component, and connection events. */
-@Accessors(fluent = true)
-@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 @Value
 public final class EnvironmentLogging {
-    @Getter
+    @Getter(AccessLevel.NONE)
     LogLevel frameworkLevel;
+    @Getter(AccessLevel.NONE)
     LogLevel defaultComponentLevel;
+    @Getter(AccessLevel.NONE)
     LogLevel defaultConnectionLevel;
+    @Getter(AccessLevel.NONE)
     Map<Component, LogLevel> componentLevels;
+    @Getter(AccessLevel.NONE)
     Map<ConnectionId, LogLevel> connectionLevels;
+
+    private EnvironmentLogging(
+        LogLevel frameworkLevel,
+        LogLevel defaultComponentLevel,
+        LogLevel defaultConnectionLevel,
+        Map<Component, LogLevel> componentLevels,
+        Map<ConnectionId, LogLevel> connectionLevels
+    ) {
+        this.frameworkLevel = frameworkLevel;
+        this.defaultComponentLevel = defaultComponentLevel;
+        this.defaultConnectionLevel = defaultConnectionLevel;
+        this.componentLevels = componentLevels;
+        this.connectionLevels = connectionLevels;
+    }
 
     /** Creates an immutable, detached logging configuration. */
     static EnvironmentLogging of(
@@ -62,23 +76,27 @@ public final class EnvironmentLogging {
         return logs().build();
     }
 
-    public LogLevel componentLevel(Component component) {
+    LogLevel frameworkLevel() {
+        return frameworkLevel;
+    }
+
+    LogLevel componentLevel(Component component) {
         return componentLevels.getOrDefault(component, defaultComponentLevel);
     }
 
-    public LogLevel connectionLevel(ConnectionRef connection) {
+    LogLevel connectionLevel(ConnectionRef connection) {
         Objects.requireNonNull(connection, "connection must not be null");
         return connectionLevel(connection.id());
     }
 
-    public LogLevel connectionLevel(ConnectionId connectionId) {
+    LogLevel connectionLevel(ConnectionId connectionId) {
         return connectionLevels.getOrDefault(
             Objects.requireNonNull(connectionId, "connectionId must not be null"),
             defaultConnectionLevel
         );
     }
 
-    public void validateAgainst(EnvironmentTopology topology) {
+    void validateAgainst(EnvironmentTopology topology) {
         componentLevels.keySet().stream()
             .filter(component -> !topology.contains(component))
             .findFirst()

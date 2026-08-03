@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.List;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;

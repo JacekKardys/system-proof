@@ -22,7 +22,7 @@ import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 class JournalContributionBoundaryTest {

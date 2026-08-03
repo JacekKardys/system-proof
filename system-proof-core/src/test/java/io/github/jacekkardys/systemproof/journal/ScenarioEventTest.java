@@ -18,17 +18,34 @@ import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 class ScenarioEventTest {
+    private static final Set<Class<? extends ScenarioEvent>> FRAMEWORK_EVENTS = Set.of(
+        EnvironmentLifecycleEvent.class,
+        ComponentLifecycleEvent.class,
+        ConnectionLifecycleEvent.class,
+        FailureEvent.class,
+        DiagnosticEvent.class,
+        InteractionObservationEvent.class,
+        ProofSubjectCreatedEvent.class,
+        ProofSubjectArmedEvent.class,
+        CorrelationCandidateEvent.class,
+        CheckpointEvent.class,
+        DisruptionLifecycleEvent.class
+    );
+
     @Test
-    void shouldExposeOnlyAClosedStructurallyImmutableEventHierarchy() {
-        assertThat(ScenarioEvent.class.isSealed()).isTrue();
-        assertClosedImmutableHierarchy(ScenarioEvent.class, new HashSet<>());
+    void shouldKeepTheRootOpenWhileFrameworkEventsRemainStructurallyImmutable() {
+        assertThat(ScenarioEvent.class.isSealed()).isFalse();
+        assertThat(ScenarioEvent.class.isAssignableFrom(ClientScenarioEvent.class)).isTrue();
+        FRAMEWORK_EVENTS.forEach(eventType ->
+            assertClosedImmutableHierarchy(eventType, new HashSet<>())
+        );
         assertEvidenceSnapshotBoundary();
     }
 
     @Test
     void shouldNeverRetainThrowableInTheEventOrReadModelSurface() {
         Set<Class<?>> inspected = new HashSet<>();
-        assertNoThrowable(ScenarioEvent.class, inspected);
+        FRAMEWORK_EVENTS.forEach(eventType -> assertNoThrowable(eventType, inspected));
         assertThat(JournalEntry.class.getDeclaredFields())
             .noneMatch(field -> Throwable.class.isAssignableFrom(field.getType()));
         assertThat(ScenarioJournalSnapshot.class.getDeclaredFields())
@@ -122,4 +139,6 @@ class ScenarioEventTest {
                 assertThat(Map.class.isAssignableFrom(method.getReturnType())).isFalse();
             });
     }
+
+    private record ClientScenarioEvent(String value) implements ScenarioEvent {}
 }

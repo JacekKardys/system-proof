@@ -11,7 +11,7 @@ import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.journal.LogLevel;
 
 /** Owns component execution state, runtime attachment, operations, rollback, and cleanup. */
 final class ComponentRuntimeSupervisor {

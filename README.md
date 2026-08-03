@@ -256,7 +256,7 @@ metadata. Secrets use `Secret<T>` and are redacted from diagnostics.
 Every environment execution owns exactly one package-private append-only `ScenarioJournal`. It is
 the authoritative structured history and the only owner of sequence allocation, insertion order,
 diagnostic-time capture, and snapshot copying. There is no public mutable journal or generic
-`append(ScenarioEvent)` capability. The sealed event hierarchy contains immutable envelopes for:
+`append(ScenarioEvent)` capability. The framework event vocabulary contains immutable envelopes for:
 
 - framework environment, component, and runtime-connection lifecycle transitions, failures, and
   diagnostics;
@@ -274,10 +274,10 @@ session direction, creates the complete `InteractionRef`, and returns that refer
 The caller cannot supply a connection, session, ordinal, interaction reference, component, or
 arbitrary event.
 
-`ScenarioEvent` is a public sealed inspectable vocabulary. Its public record constructors create
-detached values but cannot publish them into an environment. Before 1.0, adding a new permitted
-event is an explicit compatibility change for callers using exhaustive pattern switches. The
-framework retains control of both permitted implementations and the environment-owned append path.
+`ScenarioEvent` is a public open inspection contract. Framework releases can add immutable facts
+without breaking exhaustive client switches over a sealed root. Public record constructors and
+client implementations create detached values but cannot publish them into an environment; the
+environment-owned append path remains closed.
 
 `Environment.proofSubjects()` is the only public correlation facade. It allocates an opaque
 `ProofSubjectRef`, arms it with a namespaced/versioned `CorrelationKey` containing only defensively
