@@ -167,6 +167,13 @@ class InteractionGatewayTest {
         IOException cleanupFailure = new IOException(
             "cleanup-secret at 127.0.0.1:42140"
         );
+        IOException socketCleanupFailure = new IOException(
+            "socket-cleanup-secret at 127.0.0.1:52140"
+        );
+        ControlledCloseSocket socket = ControlledCloseSocket.failingWith(
+            socketCleanupFailure
+        );
+        listener.accept(socket);
         listener.failOnClose(cleanupFailure);
         RoutedEnvironment environment = observedEnvironment(
             ObservationRequirement.REQUIRED,
@@ -176,20 +183,25 @@ class InteractionGatewayTest {
         environment.start();
         assertThat(observationStatus(environment, ObservationRequirement.REQUIRED))
             .isEqualTo(EffectiveObservationStatus.ACTIVE);
-        listener.awaitAcceptCalls(1);
+        socket.awaitSetupEntered();
+        listener.awaitAcceptCalls(2);
         listener.fail(listenerFailure);
         awaitObservationStatus(
             environment,
             ObservationRequirement.REQUIRED,
             EffectiveObservationStatus.FAILED
         );
+        socket.releaseSetup();
+        socket.awaitCloseEntered();
 
         Throwable thrown = catchThrowable(environment::close);
 
         assertThat(thrown)
             .isInstanceOf(IllegalStateException.class)
             .hasCause(listenerFailure);
-        assertThat(listenerFailure.getSuppressed()).containsExactly(cleanupFailure);
+        assertThat(listenerFailure.getSuppressed())
+            .containsExactly(cleanupFailure, socketCleanupFailure);
+        assertThat(socket.closeCalls()).isEqualTo(1);
         assertThat(observationStatus(environment, ObservationRequirement.REQUIRED))
             .isEqualTo(EffectiveObservationStatus.FAILED);
         assertThat(environment.runtimeConnections())
@@ -214,18 +226,22 @@ class InteractionGatewayTest {
                 .doesNotContain(
                     "listener-secret",
                     "cleanup-secret",
+                    "socket-cleanup-secret",
                     "127.0.0.1",
                     "32140",
-                    "42140"
+                    "42140",
+                    "52140"
                 ));
         assertThat(environment.diagnostics().content())
             .contains("Route cleanup failed for connection '")
             .doesNotContain(
                 "listener-secret",
                 "cleanup-secret",
+                "socket-cleanup-secret",
                 "127.0.0.1",
                 "32140",
-                "42140"
+                "42140",
+                "52140"
             );
         environment.close();
         assertThat(listener.closeCalls()).isEqualTo(1);

@@ -68,6 +68,134 @@ class GatewayRouteLifecycleTest {
     }
 
     @Test
+    void shouldRetainSessionLocalSocketFailureUntilRouteCleanup() throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32047);
+        IOException listenerFailure = new IOException("accept loop terminated");
+        IOException socketFailure = new IOException("session socket cleanup failed");
+        ControlledCloseSocket socket = ControlledCloseSocket.failingWith(socketFailure);
+        listener.accept(socket);
+        GatewayRoute<LengthPrefixedProtocolAdapter.FrameEvidence> route = route(
+            ObservationRequirement.REQUIRED,
+            listener,
+            new InetSocketAddress("127.0.0.1", 1)
+        );
+
+        route.start();
+        socket.awaitSetupEntered();
+        listener.awaitAcceptCalls(2);
+        listener.fail(listenerFailure);
+        awaitStatus(route, EffectiveObservationStatus.FAILED);
+        socket.releaseSetup();
+        socket.awaitCloseEntered();
+
+        Throwable thrown = catchThrowable(route::close);
+
+        assertThat(thrown).isSameAs(listenerFailure);
+        assertThat(thrown.getSuppressed()).containsExactly(socketFailure);
+        assertThat(socket.closeCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldOrderSessionLocalSocketFailuresByRegistrationSequence() throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32048);
+        IOException listenerFailure = new IOException("accept loop terminated");
+        IOException firstSocketFailure = new IOException("first socket cleanup failed");
+        IOException secondSocketFailure = new IOException("second socket cleanup failed");
+        ControlledCloseSocket firstSocket =
+            ControlledCloseSocket.failingWith(firstSocketFailure);
+        ControlledCloseSocket secondSocket =
+            ControlledCloseSocket.failingWith(secondSocketFailure);
+        listener.accept(firstSocket);
+        listener.accept(secondSocket);
+        GatewayRoute<LengthPrefixedProtocolAdapter.FrameEvidence> route = route(
+            ObservationRequirement.REQUIRED,
+            listener,
+            new InetSocketAddress("127.0.0.1", 1)
+        );
+
+        route.start();
+        firstSocket.awaitSetupEntered();
+        secondSocket.awaitSetupEntered();
+        listener.awaitAcceptCalls(3);
+        listener.fail(listenerFailure);
+        awaitStatus(route, EffectiveObservationStatus.FAILED);
+        secondSocket.releaseSetup();
+        secondSocket.awaitCloseEntered();
+        firstSocket.releaseSetup();
+        firstSocket.awaitCloseEntered();
+
+        Throwable thrown = catchThrowable(route::close);
+
+        assertThat(thrown).isSameAs(listenerFailure);
+        assertThat(thrown.getSuppressed())
+            .containsExactly(firstSocketFailure, secondSocketFailure);
+        assertThat(firstSocket.closeCalls()).isEqualTo(1);
+        assertThat(secondSocket.closeCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldFinishConcurrentSessionSocketCleanupExactlyOnceBeforeRouteCloseReturns()
+        throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32049);
+        IOException listenerFailure = new IOException("accept loop terminated");
+        IOException socketFailure = new IOException("racing socket cleanup failed");
+        ControlledCloseSocket socket = ControlledCloseSocket.blockedClose(socketFailure);
+        listener.accept(socket);
+        GatewayRoute<LengthPrefixedProtocolAdapter.FrameEvidence> route = route(
+            ObservationRequirement.REQUIRED,
+            listener,
+            new InetSocketAddress("127.0.0.1", 1)
+        );
+
+        route.start();
+        socket.awaitSetupEntered();
+        listener.awaitAcceptCalls(2);
+        listener.fail(listenerFailure);
+        awaitStatus(route, EffectiveObservationStatus.FAILED);
+        socket.releaseSetup();
+        socket.awaitCloseEntered();
+
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<Throwable> close = executor.submit(() -> catchThrowable(route::close));
+            listener.awaitCloseEntered();
+            assertThat(close.isDone()).isFalse();
+            socket.releaseClose();
+
+            Throwable thrown = close.get(5, TimeUnit.SECONDS);
+            assertThat(thrown).isSameAs(listenerFailure);
+            assertThat(thrown.getSuppressed()).containsExactly(socketFailure);
+            Throwable[] suppressedAfterFirstClose = thrown.getSuppressed();
+
+            route.close();
+
+            assertThat(socket.closeCalls()).isEqualTo(1);
+            assertThat(thrown.getSuppressed()).containsExactly(suppressedAfterFirstClose);
+        }
+    }
+
+    @Test
+    void shouldKeepHealthySessionLocalSocketCleanupBestEffort() throws Exception {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32050);
+        IOException socketFailure = new IOException("healthy session socket cleanup failed");
+        ControlledCloseSocket socket = ControlledCloseSocket.failingWith(socketFailure);
+        listener.accept(socket);
+        GatewayRoute<LengthPrefixedProtocolAdapter.FrameEvidence> route = route(
+            ObservationRequirement.REQUIRED,
+            listener,
+            new InetSocketAddress("127.0.0.1", 1)
+        );
+
+        route.start();
+        socket.awaitSetupEntered();
+        socket.releaseSetup();
+        socket.awaitCloseEntered();
+
+        assertThat(catchThrowable(route::close)).isNull();
+        assertThat(socket.closeCalls()).isEqualTo(1);
+        assertThat(route.observationStatus()).isEqualTo(EffectiveObservationStatus.INACTIVE);
+    }
+
+    @Test
     void shouldDegradeOptionalObservationAndKeepItDegradedAfterClose() throws Exception {
         ControllableGatewayListener listener = ControllableGatewayListener.scripted(32041);
         IOException listenerFailure = new IOException("optional listener failed");

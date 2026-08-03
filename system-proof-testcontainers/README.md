@@ -44,7 +44,10 @@ for the later connection-owned cleanup, whose failures are
 suppressed without replacing it. Normal shutdown records its expected transition before closing
 the listener and changes a healthy `ACTIVE` route to `INACTIVE`. Sessions established before a
 listener failure remain route-owned and may finish normally; the failed listener accepts no new
-sessions, and the eventual route close still releases every remaining socket and task.
+sessions, and the eventual route close still releases every remaining socket and task. A socket
+close failure observed by a finishing session is buffered by the route; after session tasks stop,
+the sole route close appends all socket failures to the listener cause in socket-registration
+order. Session cleanup never mutates the shared listener cause directly.
 
 For every observed physical socket pair the gateway opens one core `InteractionSession` and one
 adapter `ProtocolSession`. The two flow directions have independent `ProtocolStream` state, bounded

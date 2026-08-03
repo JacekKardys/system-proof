@@ -7,10 +7,12 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -62,6 +64,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
     private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentHashMap<Socket, SocketResource> sockets = new ConcurrentHashMap<>();
     private final AtomicLong socketSequence = new AtomicLong();
+    private final SocketCleanupFailures socketCleanupFailures =
+        new SocketCleanupFailures();
     private final AtomicReference<RouteState> state;
 
     private GatewayRoute(
@@ -227,32 +231,39 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             return;
         }
 
-        Throwable failure = closing.terminalCause();
-        failure = closeResource(listener, failure);
+        Throwable listenerCleanupFailure = closeResource(listener);
         List<SocketResource> activeSockets = sockets.values().stream()
             .sorted(Comparator.comparingLong(SocketResource::sequence))
             .toList();
         for (SocketResource socket : activeSockets) {
-            failure = closeSocket(socket, failure);
+            recordRouteSocketCloseFailure(socket);
         }
+        List<Throwable> executorCleanupFailures = new ArrayList<>(2);
         try {
             tasks.shutdownNow();
         } catch (RuntimeException | Error shutdownFailure) {
-            failure = accumulate(failure, shutdownFailure);
+            executorCleanupFailures.add(shutdownFailure);
         }
         try {
             if (!tasks.awaitTermination(shutdownTimeoutMillis, TimeUnit.MILLISECONDS)) {
-                failure = accumulate(
-                    failure,
-                    new IllegalStateException(
-                        "InteractionGateway route for connection '" + connectionId
-                            + "' did not terminate"
+                executorCleanupFailures.add(new IllegalStateException(
+                    "InteractionGateway route for connection '" + connectionId
+                        + "' did not terminate"
                     )
                 );
             }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            failure = accumulate(failure, interrupted);
+            executorCleanupFailures.add(interrupted);
+        }
+
+        Throwable failure = closing.terminalCause();
+        failure = accumulate(failure, listenerCleanupFailure);
+        for (Throwable socketCleanupFailure : socketCleanupFailures.snapshot()) {
+            failure = accumulate(failure, socketCleanupFailure);
+        }
+        for (Throwable executorCleanupFailure : executorCleanupFailures) {
+            failure = accumulate(failure, executorCleanupFailure);
         }
         completeCleanup();
         if (failure != null) {
@@ -487,20 +498,20 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
 
     private boolean register(Socket socket) {
         Objects.requireNonNull(socket, "socket must not be null");
-        if (!resourcesOpen()) {
-            closeUntrackedQuietly(socket);
-            return false;
-        }
         SocketResource resource = new SocketResource(
             socket,
             socketSequence.getAndIncrement()
         );
+        if (!resourcesOpen()) {
+            closeSessionSocket(resource);
+            return false;
+        }
         SocketResource previous = sockets.putIfAbsent(socket, resource);
         if (previous != null) {
             throw new IllegalStateException("Gateway socket was registered more than once");
         }
         if (!resourcesOpen()) {
-            closeSocket(resource, null);
+            closeSessionSocket(resource);
             return false;
         }
         return true;
@@ -511,14 +522,14 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         if (resource == null) {
             return;
         }
-        closeSocket(resource, null);
+        closeSessionSocket(resource);
     }
 
-    private static void closeUntrackedQuietly(Socket socket) {
-        try {
-            socket.close();
-        } catch (IOException ignored) {
-            // The socket is already unavailable; route cleanup reports listener-level failures.
+    private void closeSessionSocket(SocketResource resource) {
+        Throwable closeFailure = closeSocket(resource);
+        RouteState current = state.get();
+        if (closeFailure != null && current.terminalCause() != null) {
+            socketCleanupFailures.record(resource.sequence(), closeFailure);
         }
     }
 
@@ -871,20 +882,27 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         return value;
     }
 
-    private Throwable closeSocket(SocketResource resource, Throwable failure) {
-        if (!resource.claimClose()) {
-            return failure;
+    private void recordRouteSocketCloseFailure(SocketResource resource) {
+        Throwable closeFailure = closeSocket(resource);
+        if (closeFailure != null) {
+            socketCleanupFailures.record(resource.sequence(), closeFailure);
         }
-        sockets.remove(resource.socket(), resource);
-        return closeResource(resource.socket(), failure);
     }
 
-    private static Throwable closeResource(AutoCloseable resource, Throwable failure) {
+    private Throwable closeSocket(SocketResource resource) {
+        if (!resource.claimClose()) {
+            return null;
+        }
+        sockets.remove(resource.socket(), resource);
+        return closeResource(resource.socket());
+    }
+
+    private static Throwable closeResource(AutoCloseable resource) {
         try {
             resource.close();
-            return failure;
+            return null;
         } catch (Exception | Error closeFailure) {
-            return accumulate(failure, closeFailure);
+            return closeFailure;
         }
     }
 
@@ -1015,6 +1033,26 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
 
         private boolean claimClose() {
             return closeClaimed.compareAndSet(false, true);
+        }
+    }
+
+    private static final class SocketCleanupFailures {
+        private final TreeMap<Long, Throwable> failuresBySequence = new TreeMap<>();
+
+        private synchronized void record(long sequence, Throwable failure) {
+            Throwable previous = failuresBySequence.putIfAbsent(
+                sequence,
+                Objects.requireNonNull(failure, "failure must not be null")
+            );
+            if (previous != null && previous != failure) {
+                throw new IllegalStateException(
+                    "Gateway socket cleanup recorded more than one failure"
+                );
+            }
+        }
+
+        private synchronized List<Throwable> snapshot() {
+            return List.copyOf(failuresBySequence.values());
         }
     }
 

@@ -18,7 +18,7 @@ final class ControllableGatewayListener implements GatewayListener {
     private final int delegatedAccepts;
     private final int scriptedPort;
     private final boolean blockClose;
-    private final BlockingQueue<FailureSignal> failures = new LinkedBlockingQueue<>();
+    private final BlockingQueue<AcceptSignal> accepts = new LinkedBlockingQueue<>();
     private final AtomicInteger acceptCalls = new AtomicInteger();
     private final AtomicInteger closeCalls = new AtomicInteger();
     private final CountDownLatch closeEntered = new CountDownLatch(1);
@@ -56,8 +56,12 @@ final class ControllableGatewayListener implements GatewayListener {
 
     FailureSignal fail(Throwable failure) {
         FailureSignal signal = new FailureSignal(failure);
-        failures.add(signal);
+        accepts.add(signal);
         return signal;
+    }
+
+    void accept(Socket socket) {
+        accepts.add(new SocketSignal(socket));
     }
 
     void failOnClose(IOException failure) {
@@ -91,17 +95,21 @@ final class ControllableGatewayListener implements GatewayListener {
             return delegate.accept();
         }
 
-        FailureSignal signal;
+        AcceptSignal signal;
         try {
-            signal = failures.take();
+            signal = accepts.take();
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             SocketException failure = new SocketException("Scripted listener was interrupted");
             failure.initCause(interrupted);
             throw failure;
         }
-        signal.delivered.countDown();
-        throwFailure(signal.failure);
+        signal.delivered().countDown();
+        if (signal instanceof SocketSignal accepted) {
+            return accepted.socket;
+        }
+        FailureSignal failed = (FailureSignal) signal;
+        throwFailure(failed.failure);
         throw new AssertionError("Unreachable listener failure branch");
     }
 
@@ -130,7 +138,7 @@ final class ControllableGatewayListener implements GatewayListener {
                 }
             }
         }
-        failures.offer(new FailureSignal(new SocketException("Listener closed by route")));
+        accepts.offer(new FailureSignal(new SocketException("Listener closed by route")));
         if (failure != null) {
             throw failure;
         }
@@ -176,7 +184,25 @@ final class ControllableGatewayListener implements GatewayListener {
         }
     }
 
-    static final class FailureSignal {
+    private sealed interface AcceptSignal permits SocketSignal, FailureSignal {
+        CountDownLatch delivered();
+    }
+
+    private static final class SocketSignal implements AcceptSignal {
+        private final Socket socket;
+        private final CountDownLatch delivered = new CountDownLatch(1);
+
+        private SocketSignal(Socket socket) {
+            this.socket = Objects.requireNonNull(socket, "socket must not be null");
+        }
+
+        @Override
+        public CountDownLatch delivered() {
+            return delivered;
+        }
+    }
+
+    static final class FailureSignal implements AcceptSignal {
         private final Throwable failure;
         private final CountDownLatch delivered = new CountDownLatch(1);
 
@@ -186,6 +212,11 @@ final class ControllableGatewayListener implements GatewayListener {
 
         void awaitDelivery() {
             await(delivered, "Listener did not deliver the scripted failure");
+        }
+
+        @Override
+        public CountDownLatch delivered() {
+            return delivered;
         }
     }
 }
