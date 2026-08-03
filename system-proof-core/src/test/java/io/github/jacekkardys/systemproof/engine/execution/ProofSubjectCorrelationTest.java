@@ -22,7 +22,7 @@ import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
+import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
@@ -31,7 +31,6 @@ import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
@@ -335,7 +334,9 @@ class ProofSubjectCorrelationTest {
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("Evidence schema mismatch");
 
-        String diagnostics = fixture.eventLog.snapshot().content();
+        String diagnostics = new JournalRenderer()
+            .render(fixture.journal.snapshot())
+            .content();
         assertThat(key.toString())
             .contains(KEY_SCHEMA.toString())
             .doesNotContain(Arrays.toString(originalDigest), "raw-phone-number");
@@ -523,7 +524,7 @@ class ProofSubjectCorrelationTest {
 
     private static Fixture fixture() {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
-        EnvironmentEventLog eventLog = new EnvironmentEventLog(
+        EnvironmentEventPublisher eventLog = new EnvironmentEventPublisher(
             journal,
             EnvironmentLogging.defaults()
         );
@@ -698,7 +699,7 @@ class ProofSubjectCorrelationTest {
     private record Fixture(
         ProofSubjectRegistry registry,
         ScenarioJournal journal,
-        EnvironmentEventLog eventLog
+        EnvironmentEventPublisher eventLog
     ) {
         private List<CorrelationCandidateEvent> correlationEvents() {
             return journal.snapshot().entries().stream()

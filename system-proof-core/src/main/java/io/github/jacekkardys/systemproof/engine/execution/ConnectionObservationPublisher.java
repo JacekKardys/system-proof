@@ -3,7 +3,6 @@ package io.github.jacekkardys.systemproof.engine.execution;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
@@ -14,17 +13,17 @@ import io.github.jacekkardys.systemproof.model.topology.ConnectionRef;
 /** Environment-owned implementation of one connection-scoped observation capability. */
 final class ConnectionObservationPublisher implements ConnectionObservations {
     private final ConnectionRef connection;
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
     private final ProofSubjectRegistry proofSubjects;
     private long nextSessionValue = SessionId.FIRST_VALUE;
 
     ConnectionObservationPublisher(
         ConnectionRef connection,
-        EnvironmentEventLog eventLog,
+        EnvironmentEventPublisher events,
         ProofSubjectRegistry proofSubjects
     ) {
         this.connection = Objects.requireNonNull(connection, "connection must not be null");
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+        this.events = Objects.requireNonNull(events, "events must not be null");
         this.proofSubjects = Objects.requireNonNull(
             proofSubjects,
             "proofSubjects must not be null"
@@ -121,7 +120,7 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
                 : nextOrdinal + 1L;
             InteractionRef interactionRef =
                 new InteractionRef(sessionId, direction, ordinal);
-            eventLog.interaction(connection, interactionRef, snapshot);
+            events.interaction(connection, interactionRef, snapshot);
             lastObservedOrdinal = ordinal;
             return interactionRef;
         }

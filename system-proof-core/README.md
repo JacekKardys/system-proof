@@ -31,9 +31,10 @@ Public contracts:
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
 - `configuration.EnvironmentConfiguration` and `Secret<T>`: immutable external values and redacted
   secrets.
-- `ScenarioJournal`, its sealed core-owned `ScenarioEvent` envelopes, `EvidenceCodec<T>`,
-  `EvidenceSnapshot`, and immutable journal snapshots: the single authoritative structured
-  scenario history and external typed-evidence copy boundary.
+- sealed core-owned `ScenarioEvent` envelopes, `JournalEntry`, `JournalSequence`,
+  `ScenarioJournalSnapshot`, `JournalRenderer`, `EvidenceCodec<T>`, and `EvidenceSnapshot`:
+  detached inspection/rendering contracts and the external typed-evidence copy boundary. Mutable
+  journal storage is not public.
 - `ConnectionObservations`, `InteractionSession`, `SessionId`, `FlowDirection`, and
   `InteractionRef`: protocol-neutral, connection-bound traffic identity and contribution boundary.
 - `ProofSubjects`, `ProofSubjectRef`, `CorrelationKey`, `CorrelationContribution<T>`, and
@@ -142,7 +143,7 @@ invalidates direct targets before closing the provider. Route cleanup failure ma
 connection terminally `FAILED` without preventing remaining provider cleanup.
 
 Route preparation and cleanup exceptions remain unchanged for the caller, including suppressed
-failure ordering. Before those failures enter `ScenarioJournal`, their endpoint-bearing messages are
+failure ordering. Before those failures enter the environment journal, their endpoint-bearing messages are
 replaced with safe metadata containing the failure type, route stage, and structured connection
 identity. Connection, component, and environment rendering therefore share the same redacted
 details without creating a second history.
@@ -187,8 +188,9 @@ connection-bound `SessionId`, direction-local ordinal, and complete `Interaction
 Every physical session receives a new connection-local session value. Ordinals begin at one and
 increase independently for `CONSUMER_TO_PROVIDER` and `PROVIDER_TO_CONSUMER` within each session.
 Identity allocation and submission to the journal are serialized per session direction.
-`ScenarioJournal.append()` separately serializes storage through its journal-wide synchronization
-boundary. The resulting global journal sequence remains storage/rendering order only, not causal
+The package-private environment journal separately serializes sequence allocation and insertion
+through one synchronization boundary. The resulting global journal sequence remains
+storage/rendering order only, not causal
 order. Values from different connections, sessions, or directions are not comparable evidence of
 ordering or causality. Explicit causal relations are outside this layer.
 
@@ -233,14 +235,29 @@ connection, session, flow, ordinal, interaction reference, schema identity, and 
 never renders the payload or calls an arbitrary payload `toString()`.
 
 Component and connection contributions are deliberately separate. `DriverContext` does not expose
-`ScenarioJournal`; its `JournalContributions` sink contains only component-owned checkpoint and
+mutable journal storage; its `JournalContributions` sink contains only component-owned checkpoint and
 disruption operations and cannot publish traffic. A component-scoped context resolves only
-required ports owned by that component. Route providers receive neither `ScenarioJournal` nor
-runtime connection mutators. All observations still append to the same environment-owned
-`ScenarioJournal`; proof-subject creation, arming, and non-idempotent correlation publications use
-additional core-owned immutable envelopes in that same history. The runtime keeps only a
+required ports owned by that component. Route providers receive neither mutable journal storage nor
+runtime connection mutators. All observations still append to the same environment-owned history;
+proof-subject creation, arming, and non-idempotent correlation publications use additional
+core-owned immutable envelopes in that same history. The runtime keeps only a
 thread-safe current-cardinality index, not a second event history. Journal sequence, diagnostic
 time, wall-clock time, rendered order, sleeps, and unrelated stream ordinals never infer
 correlation or causality.
+
+The environment execution owns one package-private mutable `ScenarioJournal`. Its append method is
+package-private and only `EnvironmentEventPublisher` receives it. The publisher constructs narrow
+framework facts, validates contribution scope, applies identity-based route-failure redaction, and
+appends exactly once at the existing pipeline point. `JournalSlf4jEmitter` consumes the returned
+immutable stored entry only after append, owns logging thresholds, and treats `OFF` as no emission
+rather than no history. Neither collaborator owns a second event list.
+
+`ScenarioEvent` remains a public sealed inspection vocabulary; public record constructors create
+detached values but cannot append them to a runtime. Before 1.0, every new permitted variant is an
+explicit compatibility change for exhaustive pattern matching. `Environment.journalSnapshot()` is
+the supported authoritative read path. `JournalRenderer` consumes only detached snapshots, handles
+every permitted event explicitly, supports full and structured component filtering, repeats the
+same prefix across multiline messages, and appends into one `StringBuilder` so construction is
+linear in total output size.
 
 The module contains no JUnit, Testcontainers, Docker image, or wait strategy dependency.

@@ -7,9 +7,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 
 class SharedDriverResourcesTest {
     @Test
@@ -20,7 +18,7 @@ class SharedDriverResourcesTest {
             DriverResourceKey.resourceKey("first", RecordingResource.class);
         DriverResourceKey<RecordingResource> secondKey =
             DriverResourceKey.resourceKey("second", RecordingResource.class);
-        SharedDriverResources resources = new SharedDriverResources(new EnvironmentEventLog(
+        SharedDriverResources resources = new SharedDriverResources(new EnvironmentEventPublisher(
             new ScenarioJournal(),
             EnvironmentLogging.defaults()
         ));

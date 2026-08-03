@@ -3,8 +3,7 @@ package io.github.jacekkardys.systemproof.engine.execution;
 import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.api.EnvironmentLogging;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
+import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.environment.EnvironmentTopology;
 
@@ -35,19 +34,24 @@ final class EnvironmentRuntimeFactory {
         routing = Objects.requireNonNull(routing, "routing must not be null");
 
         ScenarioJournal journal = new ScenarioJournal();
-        EnvironmentEventLog eventLog = new EnvironmentEventLog(journal, logging);
-        ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(eventLog);
+        JournalRenderer renderer = new JournalRenderer();
+        EnvironmentEventPublisher events = new EnvironmentEventPublisher(
+            journal,
+            new FailureRedactor(),
+            new JournalSlf4jEmitter(logging, renderer)
+        );
+        ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);
         RuntimeConnectionRegistry connections = new RuntimeConnectionRegistry(
             topology.connections(),
-            eventLog,
+            events,
             routing,
             proofSubjects
         );
         RuntimeBindings bindings = new RuntimeBindings(connections);
-        RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, eventLog);
-        EnvironmentLifecycle lifecycle = new EnvironmentLifecycle(eventLog);
+        RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, renderer);
+        EnvironmentLifecycle lifecycle = new EnvironmentLifecycle(events);
         ComponentRuntimeSupervisor componentSupervisor =
-            new ComponentRuntimeSupervisor(plan, bindings, diagnostics, eventLog);
+            new ComponentRuntimeSupervisor(plan, bindings, diagnostics, events);
         EnvironmentInspector inspector = new EnvironmentInspector(
             lifecycle,
             componentSupervisor,
@@ -61,7 +65,7 @@ final class EnvironmentRuntimeFactory {
             componentSupervisor,
             connections,
             proofSubjects,
-            eventLog,
+            events,
             inspector
         );
 

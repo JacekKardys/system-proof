@@ -11,7 +11,6 @@ import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentEventLog;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
@@ -21,22 +20,22 @@ final class ProofSubjectRegistry implements ProofSubjects {
     private static final long FIRST_SUBJECT_VALUE = 1L;
 
     private final Object owner = new Object();
-    private final EnvironmentEventLog eventLog;
+    private final EnvironmentEventPublisher events;
     private final Map<ProofSubjectRef, SubjectState> subjects = new HashMap<>();
     private final Map<CorrelationKey, Set<ProofSubjectRef>> subjectsByKey =
         new HashMap<>();
     private long nextSubjectValue = FIRST_SUBJECT_VALUE;
     private boolean acceptingPublications = true;
 
-    ProofSubjectRegistry(EnvironmentEventLog eventLog) {
-        this.eventLog = Objects.requireNonNull(eventLog, "eventLog must not be null");
+    ProofSubjectRegistry(EnvironmentEventPublisher events) {
+        this.events = Objects.requireNonNull(events, "events must not be null");
     }
 
     @Override
     public synchronized ProofSubjectRef create() {
         requireAccepting("create proof subjects");
         ProofSubjectRef subject = createReference();
-        eventLog.proofSubjectCreated(subject);
+        events.proofSubjectCreated(subject);
         subjects.put(subject, new SubjectState());
         return subject;
     }
@@ -52,7 +51,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
 
         Set<ProofSubjectRef> existingSubjects = subjectsByKey.get(key);
         boolean sharedKey = existingSubjects != null && !existingSubjects.isEmpty();
-        eventLog.proofSubjectArmed(subject, key, sharedKey);
+        events.proofSubjectArmed(subject, key, sharedKey);
 
         Resolution initial = sharedKey ? Ambiguous.INSTANCE : Missing.INSTANCE;
         subjectState.resolutions.put(key, initial);
@@ -118,7 +117,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
             subjectsByKey.getOrDefault(key, Set.of());
 
         if (armedSubjects.isEmpty()) {
-            eventLog.correlationCandidate(
+            events.correlationCandidate(
                 Optional.empty(),
                 key,
                 interactionRef,
@@ -128,7 +127,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
             return;
         }
         if (armedSubjects.size() > 1) {
-            eventLog.correlationCandidate(
+            events.correlationCandidate(
                 Optional.empty(),
                 key,
                 interactionRef,
@@ -152,7 +151,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
         CorrelationCardinality cardinality = current == Missing.INSTANCE
             ? CorrelationCardinality.UNIQUE
             : CorrelationCardinality.AMBIGUOUS;
-        eventLog.correlationCandidate(
+        events.correlationCandidate(
             Optional.of(subject),
             key,
             interactionRef,

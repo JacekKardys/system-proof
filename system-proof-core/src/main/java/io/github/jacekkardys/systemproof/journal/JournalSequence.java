@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.journal;
 import java.util.Objects;
 
 /**
- * A one-based storage position assigned inside one {@link ScenarioJournal}.
+ * A one-based storage position assigned inside one environment-owned scenario journal.
  *
  * <p>This value exists only for uniqueness, snapshot storage order, and deterministic rendering.
  * It is not a timestamp, a distributed sequence, an evidence position, or proof of causality or
@@ -14,7 +14,12 @@ public final class JournalSequence {
 
     private final long value;
 
-    JournalSequence(long value) {
+    /**
+     * Creates a detached read-model value.
+     *
+     * <p>Constructing this value does not publish an event or affect an environment execution.
+     */
+    public JournalSequence(long value) {
         if (value < FIRST_VALUE) {
             throw new IllegalArgumentException(
                 "journalSequence must be at least " + FIRST_VALUE

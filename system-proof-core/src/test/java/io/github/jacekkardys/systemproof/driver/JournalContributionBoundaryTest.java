@@ -16,7 +16,6 @@ import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.model.component.Component;
 import io.github.jacekkardys.systemproof.model.component.ComponentId;
@@ -83,7 +82,7 @@ class JournalContributionBoundaryTest {
             .isFalse();
         assertThat(DriverContext.class.getMethods())
             .extracting(Method::getReturnType)
-            .doesNotContain(ScenarioJournal.class);
+            .doesNotContain(ScenarioEvent.class);
         assertThat(JournalContributions.class.getMethods())
             .extracting(Method::getName)
             .containsExactlyInAnyOrder(
@@ -97,8 +96,7 @@ class JournalContributionBoundaryTest {
                     .doesNotContain(
                         Component.class,
                         ComponentId.class,
-                        ScenarioEvent.class,
-                        ScenarioJournal.class
+                        ScenarioEvent.class
                     );
             });
     }

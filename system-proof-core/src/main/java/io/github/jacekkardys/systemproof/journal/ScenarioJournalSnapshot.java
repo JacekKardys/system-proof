@@ -13,7 +13,12 @@ import java.util.Objects;
 public final class ScenarioJournalSnapshot {
     private final List<JournalEntry> entries;
 
-    ScenarioJournalSnapshot(List<JournalEntry> entries) {
+    /**
+     * Creates a detached immutable read-model snapshot from the supplied entries.
+     *
+     * <p>Constructing a snapshot does not create or mutate an environment-owned history.
+     */
+    public ScenarioJournalSnapshot(List<JournalEntry> entries) {
         Objects.requireNonNull(entries, "entries must not be null");
         if (entries.stream().anyMatch(Objects::isNull)) {
             throw new NullPointerException("entries must not contain null");

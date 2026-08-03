@@ -3,7 +3,6 @@ package io.github.jacekkardys.systemproof.engine.execution;
 import java.util.List;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
-import io.github.jacekkardys.systemproof.journal.ScenarioJournal;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.model.runtime.RuntimeConnectionSnapshot;
 import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
