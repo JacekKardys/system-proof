@@ -7,10 +7,11 @@ import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 
 /**
- * Engine-owned typed access to endpoints published by one component runtime.
+ * Environment-execution-owned typed access to endpoints published by one component runtime.
  *
  * <p>The type is public only so {@code ComponentRuntime} can transfer bindings across the package
- * boundary. Its constructor and all endpoint lookup operations remain runtime-internal.
+ * boundary. Its constructor and all endpoint lookup operations remain internal to environment
+ * execution.
  */
 public final class RuntimeEndpointBindings {
     private final Map<ProvidedPort<?>, EndpointBinding<?>> bindings = new IdentityHashMap<>();
@@ -20,7 +21,7 @@ public final class RuntimeEndpointBindings {
     /**
      * Accepts one typed binding from {@code ComponentRuntime}.
      *
-     * <p>Callers outside the engine cannot construct the receiving boundary.
+     * <p>Callers outside environment execution cannot construct the receiving boundary.
      */
     public <T> void publish(ProvidedPort<T> port, EndpointBinding<T> binding) {
         Objects.requireNonNull(port, "port must not be null");

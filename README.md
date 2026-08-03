@@ -274,10 +274,10 @@ session direction, creates the complete `InteractionRef`, and returns that refer
 The caller cannot supply a connection, session, ordinal, interaction reference, component, or
 arbitrary event.
 
-`ScenarioEvent` is a public open inspection contract. Framework releases can add immutable facts
-without breaking exhaustive client switches over a sealed root. Public record constructors and
-client implementations create detached values but cannot publish them into an environment; the
-environment-owned append path remains closed.
+`ScenarioEvent` is a public open inspection contract. Client switches over it must include a
+default branch, so future framework event additions do not invalidate those switches. Public record
+constructors and client implementations create detached values but cannot publish them into an
+environment; the environment-owned append path remains closed.
 
 `Environment.proofSubjects()` is the only public correlation facade. It allocates an opaque
 `ProofSubjectRef`, arms it with a namespaced/versioned `CorrelationKey` containing only defensively

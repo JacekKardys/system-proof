@@ -42,10 +42,10 @@ complete history with one `StringBuilder`. An unknown event uses a type-only fal
 inspect or render its payload. Its complexity is linear in the total number of generated
 characters.
 
-`ScenarioEvent` is a public open inspection contract so adding a framework fact does not break
-client source through an exhaustive switch over a sealed root. Implementing it grants no append,
-publication, contribution, or environment injection capability. Public framework record
-constructors and client implementations create detached values only.
+`ScenarioEvent` is a public open inspection contract. Client switches over it must include a
+default branch, so adding a framework fact does not invalidate those switches. Implementing the
+contract grants no append, publication, contribution, or environment injection capability. Public
+framework record constructors and client implementations create detached values only.
 `Environment.journalSnapshot()` is the authoritative supported read path; constructing a detached
 read-model value does not publish it into an execution.
 
