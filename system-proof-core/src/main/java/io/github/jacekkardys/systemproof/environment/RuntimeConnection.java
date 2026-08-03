@@ -18,7 +18,10 @@ import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnap
  * Authoritative runtime materialization of one validated logical connection.
  *
  * <p>Only the environment-owned registry can mutate lifecycle state or bind direct and consumer
- * targets. Public callers can inspect immutable metadata and detached snapshots only.
+ * targets. A prepared route remains transaction-owned until an installation commits it here;
+ * normal shutdown then closes the runtime-owned route, captures its final dynamic observation
+ * status while retaining the reference, and only then discards it. Public callers can inspect
+ * immutable metadata and detached snapshots only.
  */
 final class RuntimeConnection<C> {
     private final Connection<C> declaration;
@@ -32,7 +35,7 @@ final class RuntimeConnection<C> {
     private EffectiveObservationStatus observationStatus;
     private EndpointBinding<C> directTarget;
     private EndpointBinding<C> consumerTarget;
-    private ConnectionRoute<C> route;
+    private RouteOwnership<C> routeOwnership;
     private boolean directTargetWasBound;
 
     RuntimeConnection(
@@ -184,23 +187,69 @@ final class RuntimeConnection<C> {
         return new PreparedTargets<>(ownership);
     }
 
-    synchronized void validateCanBind(PreparedTargets<C> prepared) {
+    synchronized void validateCanInstall(PreparedTargets<C> prepared) {
         validateCanBindDirectTarget();
         if (Objects.requireNonNull(prepared, "prepared must not be null").connection() != this) {
             throw new IllegalArgumentException(
                 "Prepared targets do not belong to connection '" + id() + "'"
             );
         }
+        prepared.requireTransactionOwner();
     }
 
-    synchronized void bindTargets(PreparedTargets<C> prepared) {
-        validateCanBind(prepared);
+    synchronized Installation<C> prepareInstallation(PreparedTargets<C> prepared) {
+        validateCanInstall(prepared);
+        EndpointBinding<C> preparedConsumerTarget = validateTarget(
+            routing.consumerTarget(prepared.route()),
+            "consumerTarget"
+        );
+        EffectiveObservationStatus initialObservationStatus = routing.observationStatus(
+            prepared.route()
+        );
+        validateObservationStatus(initialObservationStatus);
+        return new Installation<>(
+            prepared,
+            preparedConsumerTarget,
+            initialObservationStatus
+        );
+    }
+
+    synchronized void bindTargets(Installation<C> installation) {
+        installation = Objects.requireNonNull(installation, "installation must not be null");
+        PreparedTargets<C> prepared = installation.prepared();
+        validateCanInstall(prepared);
+        routeOwnership = prepared.ownership();
         directTarget = prepared.directTarget();
-        consumerTarget = routing.consumerTarget(prepared.route());
-        route = prepared.route();
-        observationStatus = routing.observationStatus(route);
+        consumerTarget = installation.consumerTarget();
+        observationStatus = installation.initialObservationStatus();
+        prepared.transferToRuntime();
         directTargetWasBound = true;
         transition(ConnectionState.RUNNING);
+    }
+
+    synchronized void rollbackTargets(PreparedTargets<C> prepared) throws Exception {
+        Objects.requireNonNull(prepared, "prepared must not be null");
+        if (prepared.connection() != this) {
+            throw new IllegalArgumentException(
+                "Prepared targets do not belong to connection '" + id() + "'"
+            );
+        }
+        if (routeOwnership == prepared.ownership()) {
+            prepared.reclaimForRollback();
+            directTarget = null;
+            consumerTarget = null;
+            routeOwnership = null;
+            directTargetWasBound = false;
+            observationStatus = initialObservationStatus();
+            if (state == ConnectionState.RUNNING) {
+                state = ConnectionState.STARTING;
+            } else if (state != ConnectionState.STARTING) {
+                throw new IllegalStateException(
+                    "Connection '" + id() + "' cannot roll back targets from state " + state
+                );
+            }
+        }
+        prepared.closeTransactionRoute();
     }
 
     synchronized void beginStopping() {
@@ -219,8 +268,28 @@ final class RuntimeConnection<C> {
                 "Connection '" + id() + "' cannot close its route from state " + state
             );
         }
-        if (route != null) {
-            routing.close(route);
+        if (routeOwnership == null || routeOwnership.closed()) {
+            return;
+        }
+        Throwable cleanupFailure = null;
+        try {
+            routeOwnership.closeRuntimeRoute(this);
+        } catch (Exception | Error failure) {
+            cleanupFailure = failure;
+        }
+        try {
+            observationStatus = routing.observationStatus(routeOwnership.route());
+        } catch (RuntimeException | Error failure) {
+            cleanupFailure = EnvironmentRuntimeFailures.accumulate(
+                cleanupFailure,
+                failure
+            );
+        }
+        if (cleanupFailure instanceof Exception exception) {
+            throw exception;
+        }
+        if (cleanupFailure instanceof Error error) {
+            throw error;
         }
     }
 
@@ -232,7 +301,7 @@ final class RuntimeConnection<C> {
         }
         directTarget = null;
         observationStatus = stoppedObservationStatus();
-        route = null;
+        routeOwnership = null;
     }
 
     synchronized void completeStopping() {
@@ -254,12 +323,15 @@ final class RuntimeConnection<C> {
     }
 
     synchronized void fail() {
+        if (routeOwnership != null && !routeOwnership.closed()) {
+            throw new IllegalStateException(
+                "Connection '" + id() + "' cannot fail while owning an active route"
+            );
+        }
         directTarget = null;
         consumerTarget = null;
-        route = null;
-        observationStatus = observationRequirement == ObservationRequirement.DISABLED
-            ? EffectiveObservationStatus.DISABLED
-            : EffectiveObservationStatus.FAILED;
+        routeOwnership = null;
+        observationStatus = failedObservationStatus();
         transition(ConnectionState.FAILED);
     }
 
@@ -308,8 +380,8 @@ final class RuntimeConnection<C> {
     }
 
     private EffectiveObservationStatus currentObservationStatus() {
-        if (route != null) {
-            observationStatus = routing.observationStatus(route);
+        if (routeOwnership != null && !routeOwnership.closed()) {
+            observationStatus = routing.observationStatus(routeOwnership.route());
         }
         return observationStatus;
     }
@@ -348,11 +420,22 @@ final class RuntimeConnection<C> {
     }
 
     private EffectiveObservationStatus stoppedObservationStatus() {
-        EffectiveObservationStatus effectiveStatus = currentObservationStatus();
-        if (effectiveStatus == EffectiveObservationStatus.ACTIVE) {
+        if (observationStatus == EffectiveObservationStatus.ACTIVE) {
             return EffectiveObservationStatus.INACTIVE;
         }
-        return effectiveStatus;
+        return observationStatus;
+    }
+
+    private EffectiveObservationStatus initialObservationStatus() {
+        return observationRequirement == ObservationRequirement.DISABLED
+            ? EffectiveObservationStatus.DISABLED
+            : EffectiveObservationStatus.PENDING;
+    }
+
+    private EffectiveObservationStatus failedObservationStatus() {
+        return observationRequirement == ObservationRequirement.DISABLED
+            ? EffectiveObservationStatus.DISABLED
+            : EffectiveObservationStatus.FAILED;
     }
 
     private void transition(ConnectionState next) {
@@ -363,9 +446,10 @@ final class RuntimeConnection<C> {
             );
         }
         if (next == ConnectionState.RUNNING
-            && (directTarget == null || consumerTarget == null)) {
+            && (directTarget == null || consumerTarget == null || routeOwnership == null)) {
             throw new IllegalStateException(
-                "Connection '" + id() + "' cannot run without direct and consumer targets"
+                "Connection '" + id()
+                    + "' cannot run without direct target, consumer target, and route ownership"
             );
         }
         if (next == ConnectionState.STOPPING && consumerTarget != null) {
@@ -374,9 +458,9 @@ final class RuntimeConnection<C> {
             );
         }
         if (next == ConnectionState.STOPPED
-            && (directTarget != null || consumerTarget != null)) {
+            && (directTarget != null || consumerTarget != null || routeOwnership != null)) {
             throw new IllegalStateException(
-                "Connection '" + id() + "' cannot stop with available targets"
+                "Connection '" + id() + "' cannot stop with available targets or route ownership"
             );
         }
         state = next;
@@ -402,28 +486,122 @@ final class RuntimeConnection<C> {
         };
     }
 
-    record RouteOwnership<C>(
-        RuntimeConnection<C> connection,
-        EndpointBinding<C> directTarget,
-        ConnectionRoute<C> route
-    ) {
-        RouteOwnership {
-            connection = Objects.requireNonNull(connection, "connection must not be null");
-            directTarget = Objects.requireNonNull(
+    /** Tracks the single cleanup owner from route acquisition through terminal close. */
+    static final class RouteOwnership<C> {
+        private final RuntimeConnection<C> connection;
+        private final EndpointBinding<C> directTarget;
+        private final ConnectionRoute<C> route;
+        private Owner owner = Owner.TRANSACTION;
+
+        RouteOwnership(
+            RuntimeConnection<C> connection,
+            EndpointBinding<C> directTarget,
+            ConnectionRoute<C> route
+        ) {
+            this.connection = Objects.requireNonNull(
+                connection,
+                "connection must not be null"
+            );
+            this.directTarget = Objects.requireNonNull(
                 directTarget,
                 "directTarget must not be null"
             );
-            route = Objects.requireNonNull(route, "route must not be null");
+            this.route = Objects.requireNonNull(route, "route must not be null");
         }
 
-        void closeRoute() throws Exception {
+        RuntimeConnection<C> connection() {
+            return connection;
+        }
+
+        EndpointBinding<C> directTarget() {
+            return directTarget;
+        }
+
+        ConnectionRoute<C> route() {
+            return route;
+        }
+
+        synchronized void requireTransactionOwner() {
+            if (owner != Owner.TRANSACTION) {
+                throw new IllegalStateException(
+                    "Route for connection '" + connection.id()
+                        + "' is not owned by an installation transaction"
+                );
+            }
+        }
+
+        synchronized void transferToRuntime(RuntimeConnection<C> expectedConnection) {
+            requireConnection(expectedConnection);
+            requireTransactionOwner();
+            owner = Owner.RUNTIME;
+        }
+
+        synchronized void reclaimForRollback(RuntimeConnection<C> expectedConnection) {
+            requireConnection(expectedConnection);
+            if (owner == Owner.RUNTIME) {
+                owner = Owner.TRANSACTION;
+                return;
+            }
+            requireTransactionOwner();
+        }
+
+        synchronized void closeTransactionRoute() throws Exception {
+            if (owner == Owner.CLOSED) {
+                return;
+            }
+            requireTransactionOwner();
+            owner = Owner.CLOSED;
             connection.routing.close(route);
+        }
+
+        synchronized void closeRuntimeRoute(RuntimeConnection<C> expectedConnection)
+            throws Exception {
+            requireConnection(expectedConnection);
+            if (owner == Owner.CLOSED) {
+                return;
+            }
+            if (owner != Owner.RUNTIME) {
+                throw new IllegalStateException(
+                    "Route for connection '" + connection.id() + "' is not runtime-owned"
+                );
+            }
+            owner = Owner.CLOSED;
+            connection.routing.close(route);
+        }
+
+        synchronized boolean closed() {
+            return owner == Owner.CLOSED;
+        }
+
+        private void requireConnection(RuntimeConnection<C> expectedConnection) {
+            if (connection != expectedConnection) {
+                throw new IllegalArgumentException(
+                    "Route ownership does not belong to connection '"
+                        + expectedConnection.id() + "'"
+                );
+            }
+        }
+
+        private enum Owner {
+            TRANSACTION,
+            RUNTIME,
+            CLOSED
         }
     }
 
-    record PreparedTargets<C>(RouteOwnership<C> ownership) {
-        PreparedTargets {
-            ownership = Objects.requireNonNull(ownership, "ownership must not be null");
+    /** Transaction-owned route awaiting materialization and an explicit runtime transfer. */
+    static final class PreparedTargets<C> {
+        private final RouteOwnership<C> ownership;
+
+        PreparedTargets(RouteOwnership<C> ownership) {
+            this.ownership = Objects.requireNonNull(
+                ownership,
+                "ownership must not be null"
+            );
+        }
+
+        RouteOwnership<C> ownership() {
+            return ownership;
         }
 
         RuntimeConnection<C> connection() {
@@ -438,8 +616,47 @@ final class RuntimeConnection<C> {
             return ownership.route();
         }
 
-        void closeRoute() throws Exception {
-            ownership.closeRoute();
+        void requireTransactionOwner() {
+            ownership.requireTransactionOwner();
+        }
+
+        void transferToRuntime() {
+            ownership.transferToRuntime(connection());
+        }
+
+        void reclaimForRollback() {
+            ownership.reclaimForRollback(connection());
+        }
+
+        void rollbackRoute() throws Exception {
+            connection().rollbackTargets(this);
+        }
+
+        void closeTransactionRoute() throws Exception {
+            ownership.closeTransactionRoute();
+        }
+    }
+
+    /** Fully materialized values whose commit performs no extension SPI calls. */
+    record Installation<C>(
+        PreparedTargets<C> prepared,
+        EndpointBinding<C> consumerTarget,
+        EffectiveObservationStatus initialObservationStatus
+    ) {
+        Installation {
+            prepared = Objects.requireNonNull(prepared, "prepared must not be null");
+            consumerTarget = Objects.requireNonNull(
+                consumerTarget,
+                "consumerTarget must not be null"
+            );
+            initialObservationStatus = Objects.requireNonNull(
+                initialObservationStatus,
+                "initialObservationStatus must not be null"
+            );
+        }
+
+        RuntimeConnection<C> connection() {
+            return prepared.connection();
         }
     }
 }

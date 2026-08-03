@@ -5,9 +5,11 @@ import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 
 /**
- * Typed effective target and optional connection-owned resource prepared for one consumer.
+ * Typed effective target and optional framework-owned resource prepared for one consumer.
  *
- * <p>Endpoint values and the owned resource remain runtime-internal after construction.
+ * <p>Endpoint values and the owned resource remain runtime-internal after construction. Once the
+ * provider returns this route, installation rollback or the committed runtime connection closes
+ * it exactly once; a cleanup exception does not make the resource eligible for an implicit retry.
  */
 public final class ConnectionRoute<C> {
     private final EndpointBinding<C> consumerTarget;
