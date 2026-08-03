@@ -60,9 +60,10 @@ storage, redaction state, SLF4J emission, and cleanup accumulation. Public read 
 those concerns.
 
 `EnvironmentTopology.of(...)` is the single owner of full structural topology validation. It first
-copies component and connection declarations, validates those exact immutable snapshots, and only
-then builds read indexes. `EnvironmentBuilder` delegates to that boundary, while environment runtime
-assembly accepts the resulting valid type without repeating topology validation. Every supported
+copies component and connection declarations, validates complete component initialization and those
+exact immutable snapshots, atomically freezes component port declarations, and only then builds read
+indexes. `EnvironmentBuilder` delegates to that boundary, while environment runtime assembly accepts
+the resulting valid type without repeating topology validation. Every supported
 `EnvironmentTopology` instance is structurally validated before it can reach environment execution.
 
 ## Dependency direction

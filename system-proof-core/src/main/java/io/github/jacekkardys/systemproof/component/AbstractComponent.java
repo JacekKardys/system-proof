@@ -18,19 +18,24 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
     private Class<O> operationsType;
     private ComponentDriver<C, O> driver;
     private final List<PortRef> ports = new ArrayList<>();
+    private boolean initialized;
+    private boolean portDeclarationsFrozen;
 
     /** Constructor used by declarative component materialization. */
     protected AbstractComponent() {}
 
     /**
      * Low-level constructor for programmatic component models.
-     * Supplied values are assumed to have been validated by the caller.
+     * Supplied values and ports remain construction state until {@code EnvironmentTopology.of(...)}
+     * validates the complete declaration and freezes its port set. Incomplete values are rejected at
+     * that boundary before environment execution.
      */
     protected AbstractComponent(ComponentId id, C configuration, Class<O> operationsType, ComponentDriver<C, O> driver) {
         this.id = id;
         this.configuration = configuration;
-        this.operationsType = operationsType == Void.class ? null : operationsType;
+        this.operationsType = operationsType;
         this.driver = driver;
+        initialized = true;
     }
 
     @Override
@@ -58,7 +63,7 @@ public abstract class AbstractComponent<C extends RuntimeConfig, O> implements C
     }
 
     public final O castOperations(Object operations) {
-        if (operationsType == null) {
+        if (operationsType == Void.class) {
             throw new IllegalStateException(
                 "Component '" + id + "' (type=" + type() + ") declares no runtime operations"
             );

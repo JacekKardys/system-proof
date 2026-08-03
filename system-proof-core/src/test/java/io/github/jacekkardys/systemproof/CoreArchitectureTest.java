@@ -30,6 +30,7 @@ import io.github.jacekkardys.systemproof.configuration.ConfigurationValues;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.environment.ComponentLifecycleException;
+import io.github.jacekkardys.systemproof.environment.ComponentPortFactory;
 import io.github.jacekkardys.systemproof.environment.ConnectionRoute;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouteContext;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
@@ -425,6 +426,15 @@ class CoreArchitectureTest {
                 "id():component.ComponentId",
                 "ports():java.util.List",
                 "type():component.ComponentType"
+            );
+        assertThat(methodKeys(ComponentPortFactory.class))
+            .containsExactly(
+                "provides(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.ProvidedPort",
+                "requires(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.RequiredPort",
+                "requiresAtStartup(component.AbstractComponent,java.lang.String,topology.Contract,"
+                    + "topology.InteractionSpec,topology.ProtocolSpec):topology.RequiredPort"
             );
         assertThat(methodKeys(ComponentRuntime.class))
             .containsExactly(

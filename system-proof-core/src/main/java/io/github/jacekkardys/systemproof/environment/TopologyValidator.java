@@ -23,6 +23,16 @@ final class TopologyValidator {
     private TopologyValidator() {}
 
     static void validate(List<AbstractComponent<?, ?>> components, List<ConnectionRef> connections) {
+        synchronized (ComponentInitializer.class) {
+            validateStableDeclarations(components, connections);
+            components.forEach(ComponentInitializer::freezePortDeclarations);
+        }
+    }
+
+    private static void validateStableDeclarations(
+        List<AbstractComponent<?, ?>> components,
+        List<ConnectionRef> connections
+    ) {
         if (components.isEmpty()) {
             throw new IllegalArgumentException("Environment must contain at least one component");
         }
@@ -31,6 +41,7 @@ final class TopologyValidator {
         Set<PortRef> registeredPorts = identitySet();
         for (AbstractComponent<?, ?> component : components) {
             Objects.requireNonNull(component, "component must not be null");
+            ComponentInitializer.validateInitialized(component);
             if (!ids.add(component.id())) {
                 throw new IllegalArgumentException("Duplicate component ID '" + component.id() + "'");
             }
