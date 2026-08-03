@@ -20,6 +20,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * zero-argument {@link EnvironmentDefinition} method returning that exact type. The definition may
  * create a subtype, but the selected type remains the injection contract. The annotated test and
  * its per-test lifecycle methods may declare one parameter of the selected environment type.
+ *
+ * <p>This annotation is a complete JUnit test template. It owns exactly one invocation and replaces
+ * a separate {@code @Test} annotation. Combining it with another direct or meta-annotated
+ * {@link TestTemplate}, including {@code @ParameterizedTest} or {@code @RepeatedTest}, is not
+ * supported and fails before the environment is created. Define separate {@code @SystemProof}
+ * methods when the same scenario must be exercised with different inputs.
  */
 @Retention(RUNTIME)
 @Target(METHOD)
