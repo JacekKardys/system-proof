@@ -1,5 +1,6 @@
 /**
- * Defines immutable interaction identity and evidence plus forwarding-decision contracts.
+ * Defines immutable observation policy/status, interaction identity, evidence, and
+ * forwarding-decision contracts.
  *
  * <p>These contracts are independent of journal storage. A journal records observation values but
  * does not own their schemas, session identities, or stream ordinals. Connection-scoped

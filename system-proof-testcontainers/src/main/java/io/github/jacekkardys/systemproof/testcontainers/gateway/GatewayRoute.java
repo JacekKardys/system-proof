@@ -24,17 +24,17 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
-import io.github.jacekkardys.systemproof.engine.execution.CorrelationContribution;
+import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.engine.execution.ConnectionObservations;
-import io.github.jacekkardys.systemproof.engine.execution.InteractionSession;
-import io.github.jacekkardys.systemproof.engine.execution.ObservationStatusProvider;
+import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
+import io.github.jacekkardys.systemproof.environment.InteractionSession;
+import io.github.jacekkardys.systemproof.environment.ObservationStatusProvider;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
-import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 
 /** One connection-owned listener, its active socket pairs, and bounded directional pipelines. */
 final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider {

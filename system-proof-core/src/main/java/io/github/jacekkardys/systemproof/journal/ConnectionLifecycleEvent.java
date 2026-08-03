@@ -1,9 +1,9 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionDescriptor;
-import io.github.jacekkardys.systemproof.model.runtime.ConnectionState;
-import io.github.jacekkardys.systemproof.model.runtime.RoutingMode;
+import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
+import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
+import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 
 /** Immutable semantic record of one runtime connection lifecycle state. */
 public record ConnectionLifecycleEvent(

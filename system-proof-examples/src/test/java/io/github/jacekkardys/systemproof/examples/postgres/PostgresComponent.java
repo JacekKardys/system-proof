@@ -1,11 +1,11 @@
 package io.github.jacekkardys.systemproof.examples.postgres;
 
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.communication.Communication;
-import io.github.jacekkardys.systemproof.model.topology.PortContract;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
-import io.github.jacekkardys.systemproof.model.component.SystemComponent;
-import io.github.jacekkardys.systemproof.model.endpoint.JdbcEndpoint;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.communication.Communication;
+import io.github.jacekkardys.systemproof.topology.PortContract;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.component.SystemComponent;
+import io.github.jacekkardys.systemproof.endpoint.JdbcEndpoint;
 
 @SystemComponent(type = "postgres", driver = PostgresTestcontainersDriver.class)
 final class PostgresComponent

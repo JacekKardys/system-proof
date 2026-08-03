@@ -6,11 +6,10 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.construction.EnvironmentBuilder;
+import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
-import io.github.jacekkardys.systemproof.model.component.AbstractComponent;
-import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
-import io.github.jacekkardys.systemproof.model.component.ComponentType;
+import io.github.jacekkardys.systemproof.component.AbstractComponent;
+import io.github.jacekkardys.systemproof.component.ComponentType;
 
 class ConfigurationValidatorTest {
     private static final ComponentDriver<TestConfiguration, Void> UNUSED =

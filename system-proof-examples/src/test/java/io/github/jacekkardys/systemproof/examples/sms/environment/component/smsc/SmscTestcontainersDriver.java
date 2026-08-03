@@ -10,7 +10,7 @@ import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Driver;
-import io.github.jacekkardys.systemproof.model.endpoint.SmppEndpoint;
+import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;

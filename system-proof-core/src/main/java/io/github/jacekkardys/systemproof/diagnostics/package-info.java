@@ -1,5 +1,5 @@
 /**
- * Defines immutable rendered diagnostics and stateless journal rendering.
+ * Defines logging configuration, immutable rendered diagnostics, and stateless journal rendering.
  *
  * <p>Renderers consume detached journal entries and snapshots, never mutable storage. They own no
  * event history and have no append path. Full-history rendering is linear in total generated output

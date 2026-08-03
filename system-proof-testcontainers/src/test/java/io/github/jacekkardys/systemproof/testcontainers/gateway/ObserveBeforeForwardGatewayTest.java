@@ -26,22 +26,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import io.github.jacekkardys.systemproof.engine.execution.ConnectionObservations;
+import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
 import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.engine.execution.CorrelationContribution;
+import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
-import io.github.jacekkardys.systemproof.engine.execution.InteractionSession;
+import io.github.jacekkardys.systemproof.environment.InteractionSession;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.SessionId;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
-import io.github.jacekkardys.systemproof.model.runtime.EffectiveObservationStatus;
-import io.github.jacekkardys.systemproof.model.runtime.ObservationRequirement;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 
 class ObserveBeforeForwardGatewayTest {
     private static final Duration TIMEOUT = Duration.ofSeconds(2);

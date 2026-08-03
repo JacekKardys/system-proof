@@ -45,9 +45,10 @@ Before 1.0, adding a permitted variant is an explicit compatibility change for e
 switches. `Environment.journalSnapshot()` is the authoritative supported read path; constructing a
 detached read-model value does not publish it into an execution.
 
-Dependencies point from `engine.execution` to `diagnostics`, `journal`, `proof`, `observation`, and
-stable model values. `diagnostics` depends on journal read models. `journal` depends only on stable
-model, observation, and proof values. Neither `journal` nor `diagnostics` depends on execution.
+Dependencies point from `environment` to `diagnostics`, `journal`, `proof`, `observation`, and the
+stable component, topology, endpoint, configuration, and environment-state contracts.
+`diagnostics` depends on journal read models. `journal` depends only on stable domain/read values,
+observation, and proof. Neither `journal` nor `diagnostics` depends on mutable execution types.
 
 ## Consequences
 

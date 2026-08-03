@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointAddress;
+import io.github.jacekkardys.systemproof.endpoint.EndpointAddress;
 /** Maps one Testcontainers address to the value declared by an endpoint contract. */
 @FunctionalInterface
 public interface RuntimeEndpointFactory<T> {

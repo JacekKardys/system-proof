@@ -116,8 +116,8 @@ public interface SmscConfig extends ComponentConfig<SmscConfig.Driver> {
 ```
 
 Environment assembly, its immutable topology result, and typed facade creation are exposed from
-`io.github.jacekkardys.systemproof.construction`; the runtime facade and topology live in
-`model.environment`, while external configuration snapshots live in `configuration`.
+`io.github.jacekkardys.systemproof.environment`; the runtime facade and topology live in
+`environment`, while external configuration snapshots live in `configuration`.
 
 Every configuration method retains its `@ConfigurationSource` and validation annotations. The
 environment builder binds both interfaces from one immutable `EnvironmentConfiguration`, constructs
@@ -161,35 +161,15 @@ that facade's constructor.
 
 ## Core package boundaries
 
-- `model.*` contains immutable topology, component, endpoint, and runtime snapshots.
-- `observation` contains stable evidence schemas/snapshots, interaction identity, and
-  forwarding-decision contracts.
-- `proof` contains stable proof-subject, correlation-key, cardinality, and result contracts. It
-  depends on observation values, never the reverse.
-- `journal` contains the closed event vocabulary and detached immutable journal read models; it
-  consumes observation and proof values without defining them.
-- `diagnostics` contains `JournalRenderer` and rendered runtime diagnostics without depending on
-  execution implementations.
-- `engine.execution` contains the public environment facade and the runtime-coupled route-provider
-  and connection-observation SPI. Its package-private implementation owns lifecycle, component
-  bindings, route selection and preparation, connection materialization, the one mutable journal,
-  event publication, route-failure redaction, SLF4J emission, proof indexing, and cleanup for one
-  execution.
+The canonical package map, supported API/SPI whitelists, read-model definition, Java-public
+technical exceptions, mutable-state ownership, sealed-hierarchy policy, and pre-1.0 compatibility
+policy are in [Package and API architecture](docs/architecture/package-api-architecture.md).
 
-The allowed dependency direction is from execution toward stable contracts: `engine.execution`
-may depend on `diagnostics`, `journal`, `proof`, `observation`, and `model.*`; `diagnostics` may
-depend on journal and stable values; `journal` may depend on proof, observation, and model values;
-and `proof` may depend on `observation`. None of those packages depends back on execution.
-External route providers depend only on the deliberate public SPI in `engine.execution` and its
-stable value contracts.
-
-Mutable environment, component, connection, route, journal-storage, redaction, and proof-index state
-remains in `engine.execution`; `journal` owns only immutable vocabulary and read contracts. Route
-selection and preparation
-stay package-private because they require runtime-owned endpoint bindings. A selected provider sees
-the direct binding only through its one `ConnectionRouteContext`; runtime snapshots and the public
-environment facade never expose provider endpoint lookup or endpoint values, which may contain
-credentials, aliases, or other secrets.
+Core packages are domain-owned. Mutable assembly and execution remain package-private in
+`environment`; detached lifecycle/connection inspection lives in `environment.state`; `journal`
+contains immutable vocabulary/read models; and `diagnostics` renders those models without owning a
+second history. Route selection, provider endpoint lookup, proof-subject allocation, journal append,
+redaction, logging emission, and cleanup are not public API.
 
 ## Runtime model
 
@@ -222,7 +202,7 @@ provider target, and effective consumer target. A provider still publishes one t
 Consumer resolution follows the required port to its `RuntimeConnection` and returns only the
 consumer target's internal typed endpoint; it never resolves independently through the provider
 runtime. `ComponentRuntime` exposes no public provider-binding lookup; it can only transfer
-published bindings into an engine-owned boundary that external callers cannot construct.
+published bindings into an environment-owned boundary that external callers cannot construct.
 
 The complete `EndpointBinding<C>` retains both the internal endpoint used for component-to-component
 communication and the external test-host endpoint used by JVM gateway routing. Endpoint values

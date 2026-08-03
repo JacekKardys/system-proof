@@ -3,9 +3,9 @@ package io.github.jacekkardys.systemproof.driver;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.engine.execution.RuntimeEndpointBindings;
-import io.github.jacekkardys.systemproof.model.endpoint.EndpointBinding;
-import io.github.jacekkardys.systemproof.model.topology.ProvidedPort;
+import io.github.jacekkardys.systemproof.environment.RuntimeEndpointBindings;
+import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
+import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 
 /** Driver result owned by the environment runtime for one running component. */
 public final class ComponentRuntime<O> implements AutoCloseable {
@@ -30,7 +30,7 @@ public final class ComponentRuntime<O> implements AutoCloseable {
     }
 
     /**
-     * Transfers published bindings into an engine-owned access boundary.
+     * Transfers published bindings into an environment-owned access boundary.
      *
      * <p>The boundary cannot be constructed outside the runtime engine and exposes no public
      * endpoint lookup. Component drivers can publish endpoints but cannot retrieve them here.

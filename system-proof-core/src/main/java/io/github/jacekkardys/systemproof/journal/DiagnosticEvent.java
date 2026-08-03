@@ -1,9 +1,9 @@
 package io.github.jacekkardys.systemproof.journal;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.model.component.ComponentId;
-import io.github.jacekkardys.systemproof.model.topology.ConnectionId;
-import io.github.jacekkardys.systemproof.model.logging.LogLevel;
+import io.github.jacekkardys.systemproof.component.ComponentId;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
 
 /** Free-form diagnostic text with a structured subject and severity. */
 public record DiagnosticEvent(

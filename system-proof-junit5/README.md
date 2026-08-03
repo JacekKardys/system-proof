@@ -10,9 +10,9 @@ Public API:
   zero-argument factory on that concrete facade.
 
 Everything under `io.github.jacekkardys.systemproof.junit.internal` is implementation detail and is
-not a supported extension API. The `internal.spi` package contains direct JUnit extension entry
-points; `internal.execution` contains the collaborators modeling invocation, validation,
-diagnostics, metadata, and failure behavior.
+not a supported extension API. The three Java-public classes in that package are named by
+`@SystemProof` and must be reflectively constructible by JUnit. All invocation, validation,
+diagnostics, metadata, shared-state, and failure collaborators are package-private.
 
 Validation is split by contract rather than by JUnit callback:
 
@@ -22,7 +22,8 @@ Validation is split by contract rather than by JUnit callback:
 - `EnvironmentParameterValidator` validates that test and per-test lifecycle methods declare at
   most one `Environment` parameter and that it has the exact configured facade type.
 
-Both validators use the same package-private named-rule model. `EnvironmentFactory` invokes only a
+Both validators use the same package-private named-rule model. `EnvironmentDefinitionResolver`
+invokes only a
 validated definition, prepares reflective access, and adapts invocation failures; JUnit SPI
 callbacks remain orchestration-only.
 

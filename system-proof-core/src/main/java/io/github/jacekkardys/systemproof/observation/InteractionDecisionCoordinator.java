@@ -1,6 +1,5 @@
 package io.github.jacekkardys.systemproof.observation;
 
-import io.github.jacekkardys.systemproof.observation.InteractionRef;
 
 /**
  * Environment-scoped decision boundary invoked after evidence has been recorded.

@@ -10,14 +10,14 @@ import org.testcontainers.containers.output.OutputFrame;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.driver.JournalContributions;
-import io.github.jacekkardys.systemproof.model.component.Component;
-import io.github.jacekkardys.systemproof.model.component.ComponentId;
-import io.github.jacekkardys.systemproof.model.component.ComponentState;
-import io.github.jacekkardys.systemproof.model.component.ComponentType;
-import io.github.jacekkardys.systemproof.model.logging.LogLevel;
-import io.github.jacekkardys.systemproof.model.topology.PortRef;
-import io.github.jacekkardys.systemproof.model.topology.RequiredPort;
-import io.github.jacekkardys.systemproof.model.component.RuntimeConfig;
+import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.component.ComponentId;
+import io.github.jacekkardys.systemproof.component.ComponentState;
+import io.github.jacekkardys.systemproof.component.ComponentType;
+import io.github.jacekkardys.systemproof.diagnostics.LogLevel;
+import io.github.jacekkardys.systemproof.topology.PortRef;
+import io.github.jacekkardys.systemproof.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 class ContainerLogConsumerTest {
     private static final ComponentType TYPE = ComponentType.of("container");
