@@ -41,6 +41,34 @@ For each `@SystemProof` method, the System Proof JUnit extensions:
 5. captures retained diagnostics before cleanup when the test fails;
 6. closes it after success or failure and writes the captured failure artifact.
 
+`@SystemProof` is a complete JUnit test-template declaration. It owns exactly one invocation and
+does not need `@Test`:
+
+```java
+@SystemProof(ExampleEnvironment.class)
+void verifiesBehavior(ExampleEnvironment environment) {
+    // The environment is running here.
+}
+```
+
+Combining `@SystemProof` with another direct or meta-annotated `@TestTemplate` declaration is not
+supported. This includes `@ParameterizedTest`, `@RepeatedTest`, direct `@TestTemplate`, and custom
+test-template annotations. The combination fails with an `ExtensionConfigurationException` before
+JUnit creates an invocation and before System Proof creates or starts an environment:
+
+```java
+@SystemProof(ExampleEnvironment.class)
+@ParameterizedTest
+@ValueSource(strings = {"first", "second"})
+void verifiesBehavior(String input, ExampleEnvironment environment) {
+    // Unsupported: two annotations define test-template invocations.
+}
+```
+
+Parameterized System Proof tests are deliberately outside the current contract. For different
+input values, define separate `@SystemProof` methods. This fail-fast rule is a stabilization
+boundary, not an incidental limitation of provider registration order.
+
 Reflection is confined to this JUnit boundary. The module has no Testcontainers dependency.
 
 `@SystemProof` also accepts optional `title` and `description` values. They are published as
