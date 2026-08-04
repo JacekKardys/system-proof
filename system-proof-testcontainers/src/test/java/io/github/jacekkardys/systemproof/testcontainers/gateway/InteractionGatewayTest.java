@@ -29,6 +29,7 @@ import java.net.SocketException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -43,6 +44,7 @@ import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
+import io.github.jacekkardys.systemproof.environment.ConnectionRouteProvider;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.environment.EnvironmentStartException;
@@ -61,9 +63,14 @@ import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.topology.InteractionSpec;
 import io.github.jacekkardys.systemproof.topology.ProtocolSpec;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Prerequisite;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
@@ -124,6 +131,119 @@ class InteractionGatewayTest {
     }
 
     @Test
+    void shouldRejectWrongProtocolAdapterBeforeRoutePreparation() {
+        LengthPrefixedProtocolAdapter delegate = new LengthPrefixedProtocolAdapter();
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> wrongProtocol =
+            new ProtocolAdapter<>() {
+                @Override
+                public Optional<ProtocolObservationContract> observationContract() {
+                    ProtocolObservationContract declared = delegate.observationContract()
+                        .orElseThrow();
+                    return Optional.of(new ProtocolObservationContract(
+                        "smpp",
+                        "smpp",
+                        declared.endpointType(),
+                        declared.evidenceSchema(),
+                        declared.nativeFlowReferenceSchema(),
+                        declared.capabilities(),
+                        declared.prerequisites(),
+                        declared.unsupportedModes()
+                    ));
+                }
+
+                @Override
+                public io.github.jacekkardys.systemproof.observation.EvidenceCodec<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > evidenceCodec() {
+                    return delegate.evidenceCodec();
+                }
+
+                @Override
+                public ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence>
+                    openSession(ProtocolLimits limits) {
+                    throw new AssertionError("An incompatible adapter must not open a session");
+                }
+            };
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32142),
+            wrongProtocol
+        );
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause())
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                "Protocol adapter is incompatible with connection '"
+                    + environment.connections().getFirst().id()
+                    + "': protocol mismatch"
+            );
+    }
+
+    @Test
+    void shouldConsumeEveryRequiredObservationProfileFieldBeforeTraffic() {
+        EvidenceSchemaId otherSchema = new EvidenceSchemaId(
+            "system-proof-test",
+            "other-frame",
+            1
+        );
+        Set<Capability> baseCapabilities = Set.of(
+            Capability.CORRELATION_CONTRIBUTIONS,
+            Capability.SEMANTIC_CONTROL
+        );
+
+        assertRequiredProfileRejected(
+            requiredLengthProfile(otherSchema, baseCapabilities, Set.of(), Set.of()),
+            "required evidence schema"
+        );
+        assertRequiredProfileRejected(
+            new RequiredObservationProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                Optional.of(otherSchema),
+                baseCapabilities,
+                Set.of(),
+                Set.of()
+            ),
+            "required native-flow schema"
+        );
+        assertRequiredProfileRejected(
+            requiredLengthProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                Set.of(
+                    Capability.CORRELATION_CONTRIBUTIONS,
+                    Capability.SEMANTIC_CONTROL,
+                    Capability.DURABLE_SUCCESS
+                ),
+                Set.of(Prerequisite.EXACT_SESSION_DURABILITY),
+                Set.of()
+            ),
+            "required capabilities"
+        );
+        assertRequiredProfileRejected(
+            requiredLengthProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                baseCapabilities,
+                Set.of(Prerequisite.EXACT_SESSION_DURABILITY),
+                Set.of()
+            ),
+            "required prerequisites"
+        );
+        assertRequiredProfileRejected(
+            requiredLengthProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                baseCapabilities,
+                Set.of(),
+                Set.of(Feature.ENCRYPTED_TRANSPORT)
+            ),
+            "required protocol features"
+        );
+    }
+
+    @Test
     void shouldExposeProductionArmReachReleaseWorkflowWithJournaledZeroByteHold()
         throws Exception {
         List<InetSocketAddress> listenerAddresses = new ArrayList<>();
@@ -145,7 +265,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("semantic-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -355,7 +475,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("teardown-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -443,7 +563,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("cleanup-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -491,7 +611,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("timeout-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -572,7 +692,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "required-route",
@@ -793,7 +913,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "correlation-route",
@@ -1192,7 +1312,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "subject-hold-route",
@@ -1297,6 +1417,32 @@ class InteractionGatewayTest {
         ObservationRequirement requirement,
         ControllableGatewayListener listener
     ) {
+        return observedEnvironment(
+            requirement,
+            listener,
+            new LengthPrefixedProtocolAdapter()
+        );
+    }
+
+    private static RoutedEnvironment observedEnvironment(
+        ObservationRequirement requirement,
+        ControllableGatewayListener listener,
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter
+    ) {
+        return observedEnvironment(
+            requirement,
+            listener,
+            adapter,
+            requiredLengthProfile()
+        );
+    }
+
+    private static RoutedEnvironment observedEnvironment(
+        ObservationRequirement requirement,
+        ControllableGatewayListener listener,
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter,
+        RequiredObservationProfile requiredObservationProfile
+    ) {
         AtomicInteger openedListeners = new AtomicInteger();
         InteractionGateway gateway = new InteractionGateway(
             port -> {},
@@ -1318,14 +1464,14 @@ class InteractionGatewayTest {
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
-        ConnectionRouting routing = ConnectionRouting.routed(
-            COMMAND,
-            requirement,
-            gateway.tcp(
+        ConnectionRouteProvider<CommandEndpoint> observedRoute = gateway.tcp(
                 commandAdapter("observed-route", new ArrayList<>(), new ArrayList<>()),
-                new LengthPrefixedProtocolAdapter(),
+                adapter,
                 new ProtocolLimits(128, 256)
-            )
+        );
+        ConnectionRouting routing = (requirement == ObservationRequirement.REQUIRED
+            ? ConnectionRouting.routed(COMMAND, requiredObservationProfile, observedRoute)
+            : ConnectionRouting.routed(COMMAND, requirement, observedRoute)
         ).withRoute(
             SESSION,
             gateway.tcp(sessionAdapter(
@@ -1358,6 +1504,58 @@ class InteractionGatewayTest {
             LengthPrefixedProtocolAdapter.CODEC,
             ignored -> true
         );
+    }
+
+    private static RequiredObservationProfile requiredLengthProfile() {
+        return requiredLengthProfile(
+            LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of(),
+            Set.of()
+        );
+    }
+
+    private static RequiredObservationProfile requiredLengthProfile(
+        EvidenceSchemaId evidenceSchema,
+        Set<Capability> capabilities,
+        Set<Prerequisite> prerequisites,
+        Set<Feature> requiredFeatures
+    ) {
+        return new RequiredObservationProfile(
+            evidenceSchema,
+            Optional.of(LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC.schemaId()),
+            capabilities,
+            prerequisites,
+            requiredFeatures
+        );
+    }
+
+    private static void assertRequiredProfileRejected(
+        RequiredObservationProfile requiredObservationProfile,
+        String mismatch
+    ) {
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32143),
+            new LengthPrefixedProtocolAdapter(),
+            requiredObservationProfile
+        );
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause())
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                "Protocol adapter is incompatible with connection '"
+                    + environment.connections().getFirst().id()
+                    + "': " + mismatch + " mismatch"
+            );
     }
 
     private static void awaitObservationStatus(
@@ -1567,7 +1765,7 @@ class InteractionGatewayTest {
         }
     }
 
-    private record CommandEndpoint(String host, int port) {}
+    record CommandEndpoint(String host, int port) {}
 
     private record SessionEndpoint(
         String host,

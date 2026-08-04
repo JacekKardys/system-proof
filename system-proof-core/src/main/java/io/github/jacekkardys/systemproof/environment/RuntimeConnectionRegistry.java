@@ -125,7 +125,8 @@ final class RuntimeConnectionRegistry {
         );
         catalog.all().forEach(connection -> controlCapabilities.register(
             connection.id(),
-            connection::semanticControlAvailability
+            connection::semanticControlAvailability,
+            connection.requiredObservationProfile()
         ));
         catalog.all().forEach(this::recordLifecycle);
     }

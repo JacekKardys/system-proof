@@ -175,6 +175,58 @@ final class ProofSubjectRegistry implements ProofSubjects {
         requireSubject(subject);
     }
 
+    synchronized void validateSubjectFlow(
+        ProofSubjectRef subject,
+        CorrelationKey key
+    ) {
+        SubjectState state = requireSubject(subject);
+        key = Objects.requireNonNull(key, "key must not be null");
+        if (!state.resolutions.containsKey(key)) {
+            throw new IllegalArgumentException(
+                "Correlation key schema '" + key.schema()
+                    + "' is not armed for proof subject '" + subject + "'"
+            );
+        }
+    }
+
+    synchronized Optional<EvidenceSnapshot> soleUniqueNativeReference(
+        ProofSubjectRef subject,
+        CorrelationKey key
+    ) {
+        SubjectState selected = requireSubject(subject);
+        Resolution resolution = selected.resolutions.get(
+            Objects.requireNonNull(key, "key must not be null")
+        );
+        if (!(resolution instanceof Unique selectedUnique)) {
+            return Optional.empty();
+        }
+        for (Map.Entry<ProofSubjectRef, SubjectState> entry : subjects.entrySet()) {
+            if (entry.getKey().equals(subject)) {
+                continue;
+            }
+            boolean sameNativeReference = entry.getValue().resolutions.values().stream()
+                .filter(Unique.class::isInstance)
+                .map(Unique.class::cast)
+                .anyMatch(unique -> unique.nativeReference.equals(
+                    selectedUnique.nativeReference
+                ));
+            if (sameNativeReference) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(selectedUnique.nativeReference);
+    }
+
+    synchronized boolean isSoleUniqueNativeReference(
+        ProofSubjectRef subject,
+        CorrelationKey key,
+        EvidenceSnapshot expected
+    ) {
+        return soleUniqueNativeReference(subject, key).filter(
+            Objects.requireNonNull(expected, "expected must not be null")::equals
+        ).isPresent();
+    }
+
     synchronized boolean isSoleUniqueSubjectFor(
         ProofSubjectRef subject,
         InteractionRef interactionRef

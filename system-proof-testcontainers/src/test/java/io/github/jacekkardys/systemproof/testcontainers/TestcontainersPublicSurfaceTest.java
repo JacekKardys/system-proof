@@ -41,6 +41,7 @@ class TestcontainersPublicSurfaceTest {
         component.TestcontainersDriver
         gateway.ProtocolAdapter
         gateway.ProtocolAdapterException
+        gateway.ProtocolObservationContract
         gateway.ProtocolSession
         gateway.ProtocolStream
         gateway.TcpEndpointAdapter$AddressReplacement

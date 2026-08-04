@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,6 +28,8 @@ import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
@@ -74,6 +78,34 @@ class SemanticControlCoordinatorTest {
         );
         SemanticHold hold = available.coordinator.arm(selector("target"), MAXIMUM_HOLD);
         assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldRejectSelectorSchemasOutsideRequiredConnectionProfile() {
+        Fixture fixture = fixture();
+        assertThatThrownBy(() -> fixture.coordinator.arm(
+            SemanticHoldSelector.matching(
+                CONNECTION,
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                OTHER_CODEC,
+                evidence -> true
+            ),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("evidence schema does not match");
+
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(1);
+        fixture.proofSubjects.arm(subject, key);
+        assertThatThrownBy(() -> fixture.coordinator.arm(
+            selector("target").forSubject(subject).through(
+                key,
+                OTHER_CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("native-flow schema does not match");
     }
 
     @Test
@@ -279,7 +311,8 @@ class SemanticControlCoordinatorTest {
             new SemanticControlCapabilityRegistry();
         capabilities.register(
             CONNECTION,
-            () -> SemanticControlCapabilityRegistry.Availability.DECLARED
+            () -> SemanticControlCapabilityRegistry.Availability.DECLARED,
+            Optional.of(requiredObservationProfile())
         );
         ImmediateTimeoutScheduler scheduler = new ImmediateTimeoutScheduler();
         SemanticControlCoordinator coordinator = new SemanticControlCoordinator(
@@ -519,6 +552,146 @@ class SemanticControlCoordinatorTest {
     }
 
     @Test
+    void shouldReachPreArmedSubjectHoldThroughNativeFlowReference() throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(1);
+        fixture.proofSubjects.arm(subject, key);
+        SemanticHold hold = fixture.coordinator.arm(
+            SemanticHoldSelector.matching(
+                CONNECTION,
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                CODEC,
+                evidence -> evidence.startsWith("commit:")
+            ).forSubject(subject).through(
+                key,
+                CODEC,
+                evidence -> evidence.substring("commit:".length())
+            ),
+            MAXIMUM_HOLD
+        );
+
+        assertImmediate(fixture.coordinator.permit(interaction("commit:other", 1)));
+        fixture.proofSubjects.publish(
+            interactionRef(2),
+            CorrelationContribution.capture(key, CODEC, "selected")
+        );
+        assertImmediate(fixture.coordinator.permit(interaction("commit:other", 3)));
+
+        ForwardingPermit permit = fixture.coordinator.permit(
+            interaction("commit:selected", 4)
+        );
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(hold.cancel()).isTrue();
+        assertThat(permit.awaitDecision()).isEqualTo(
+            ForwardingDecision.CLOSE_SESSION
+        );
+    }
+
+    @Test
+    void shouldKeepNativeFlowReferenceIsolatedAcrossSubjects() throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef selected = fixture.proofSubjects.create();
+        ProofSubjectRef unrelated = fixture.proofSubjects.create();
+        CorrelationKey selectedKey = correlationKey(1);
+        CorrelationKey unrelatedKey = correlationKey(2);
+        fixture.proofSubjects.arm(selected, selectedKey);
+        fixture.proofSubjects.arm(unrelated, unrelatedKey);
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("shared").forSubject(selected).through(
+                selectedKey,
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(1),
+            CorrelationContribution.capture(selectedKey, CODEC, "shared")
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(2),
+            CorrelationContribution.capture(unrelatedKey, CODEC, "shared")
+        );
+
+        assertImmediate(fixture.coordinator.permit(interaction("shared", 3)));
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldSelectDifferentNativeFlowsForDifferentSubjects() throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef leftSubject = fixture.proofSubjects.create();
+        ProofSubjectRef rightSubject = fixture.proofSubjects.create();
+        CorrelationKey leftKey = correlationKey(1);
+        CorrelationKey rightKey = correlationKey(2);
+        fixture.proofSubjects.arm(leftSubject, leftKey);
+        fixture.proofSubjects.arm(rightSubject, rightKey);
+        SemanticHold left = fixture.coordinator.arm(
+            selector("left").forSubject(leftSubject).through(
+                leftKey,
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        );
+        SemanticHold right = fixture.coordinator.arm(
+            selector("right").forSubject(rightSubject).through(
+                rightKey,
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(1),
+            CorrelationContribution.capture(leftKey, CODEC, "left")
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(2),
+            CorrelationContribution.capture(rightKey, CODEC, "right")
+        );
+
+        ForwardingPermit leftPermit = fixture.coordinator.permit(
+            interaction("left", 3)
+        );
+        assertThat(left.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(right.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(left.cancel()).isTrue();
+        assertThat(leftPermit.awaitDecision()).isEqualTo(
+            ForwardingDecision.CLOSE_SESSION
+        );
+
+        ForwardingPermit rightPermit = fixture.coordinator.permit(
+            interaction("right", 4)
+        );
+        assertThat(right.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(right.cancel()).isTrue();
+        assertThat(rightPermit.awaitDecision()).isEqualTo(
+            ForwardingDecision.CLOSE_SESSION
+        );
+    }
+
+    @Test
+    void shouldRequireNativeFlowKeyToBeArmedForSelectedSubject() {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+
+        assertThatThrownBy(() -> fixture.coordinator.arm(
+            selector("target").forSubject(subject).through(
+                correlationKey(1),
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("is not armed for proof subject");
+    }
+
+    @Test
     void shouldNotReachSubjectBoundHoldForInteractionUniqueToTwoSubjects()
         throws Exception {
         Fixture fixture = fixture();
@@ -601,7 +774,8 @@ class SemanticControlCoordinatorTest {
             new SemanticControlCapabilityRegistry();
         capabilities.register(
             CONNECTION,
-            () -> availability
+            () -> availability,
+            Optional.of(requiredObservationProfile())
         );
         return new Fixture(
             new SemanticControlCoordinator(
@@ -618,6 +792,19 @@ class SemanticControlCoordinatorTest {
 
     private static SemanticHoldSelector<String> selector(String expected) {
         return selector(CONNECTION, expected);
+    }
+
+    private static RequiredObservationProfile requiredObservationProfile() {
+        return new RequiredObservationProfile(
+            CODEC.schemaId(),
+            Optional.of(CODEC.schemaId()),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of(),
+            Set.of()
+        );
     }
 
     private static SemanticHoldSelector<String> selector(

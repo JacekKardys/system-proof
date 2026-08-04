@@ -26,8 +26,9 @@ Public contracts:
   `ConnectionRoute<C>`: typed runtime selection, orthogonal observation policy, connection-scoped
   observation access, and a connection-owned effective endpoint/resource seam without topology
   proxy DSL.
-- `ObservationRequirement`, `EffectiveObservationStatus`, `InteractionDecisionCoordinator`, and
-  `ForwardingDecision`: explicit observation intent, immutable effective state, and one
+- `ObservationRequirement`, `RequiredObservationProfile`, `EffectiveObservationStatus`,
+  `InteractionDecisionCoordinator`, and `ForwardingDecision`: explicit observation intent,
+  scenario-owned schema/capability requirements, immutable effective state, and one
   environment-scoped decision boundary.
 - `ComponentDriver<C, O>`, `ComponentBoundDriver<C, O, T>`, component-scoped `DriverContext`,
   restricted `JournalContributions`, and `ComponentRuntime<O>`: runtime materialization SPI.
@@ -131,8 +132,9 @@ closeable resources, Testcontainers objects, mapped ports, aliases, or credentia
 connection-specific rules take precedence, and unmatched connections remain `DIRECT`. This keeps
 distinct contracts using the same Java class separate. The provider is invoked once per
 `RuntimeConnection`, receives one immutable context containing its stable descriptor, typed direct
-binding, `ObservationRequirement`, exact connection-scoped observation capability, and the one
-environment-scoped `InteractionDecisionCoordinator`, and returns a typed consumer binding plus an
+binding, `ObservationRequirement`, exact connection-scoped observation capability, optional
+scenario-owned `RequiredObservationProfile`, and the environment-scoped
+`InteractionDecisionCoordinator`, then returns a typed consumer binding plus an
 optional connection-owned resource. The context exposes no journal, mutable runtime state,
 topology mutation, socket, or container details. The sole unchecked conversion is confined to the
 private contract-and-connection-validated routing boundary.
@@ -154,6 +156,10 @@ details without creating a second history.
 `ConnectionRouting` keeps `RoutingMode` at `DIRECT | ROUTED` and attaches the separate
 `ObservationRequirement.DISABLED | OPTIONAL | REQUIRED` to a route rule. A route must report a
 compatible `EffectiveObservationStatus`; required observation cannot bind a transparent route.
+The required-profile routing overloads bind protocol-neutral evidence and native-reference schema
+IDs, capabilities, prerequisites, and required transport features to the exact selected
+`ConnectionId`. A provider consumes that profile during route preparation; core contains no
+adapter-specific reference type.
 Observation is `PENDING` before route preparation and `INACTIVE` after clean shutdown of a formerly
 active route. Snapshots expose this state without exposing transport internals. The environment
 constructs one thread-safe coordinator shared by all route contexts; its current serialized

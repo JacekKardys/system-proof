@@ -499,7 +499,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
                 "Protocol adapter returned null evidence codec"
             );
             protocolSession = Objects.requireNonNull(
-                protocolAdapter.openSession(protocolLimits),
+                protocolAdapter.openSession(connectionId, protocolLimits),
                 "Protocol adapter returned null protocol session"
             );
         } catch (RuntimeException | Error failure) {
