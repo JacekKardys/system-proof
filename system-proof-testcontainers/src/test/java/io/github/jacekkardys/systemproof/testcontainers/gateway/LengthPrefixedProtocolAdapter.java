@@ -5,8 +5,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
@@ -35,17 +37,32 @@ final class LengthPrefixedProtocolAdapter
         );
 
     private final boolean publishesCorrelations;
+    private final List<CorrelationKey> fixedCorrelationKeys;
 
     LengthPrefixedProtocolAdapter() {
-        this(false);
+        this(false, List.of());
     }
 
-    private LengthPrefixedProtocolAdapter(boolean publishesCorrelations) {
+    private LengthPrefixedProtocolAdapter(
+        boolean publishesCorrelations,
+        List<CorrelationKey> fixedCorrelationKeys
+    ) {
         this.publishesCorrelations = publishesCorrelations;
+        this.fixedCorrelationKeys = List.copyOf(fixedCorrelationKeys);
     }
 
     static LengthPrefixedProtocolAdapter correlating() {
-        return new LengthPrefixedProtocolAdapter(true);
+        return new LengthPrefixedProtocolAdapter(true, List.of());
+    }
+
+    static LengthPrefixedProtocolAdapter correlating(
+        CorrelationKey first,
+        CorrelationKey... additional
+    ) {
+        List<CorrelationKey> keys = new ArrayList<>();
+        keys.add(Objects.requireNonNull(first, "first must not be null"));
+        keys.addAll(List.of(additional));
+        return new LengthPrefixedProtocolAdapter(true, keys);
     }
 
     @Override
@@ -55,7 +72,12 @@ final class LengthPrefixedProtocolAdapter
 
     @Override
     public ProtocolSession<FrameEvidence> openSession(ProtocolLimits limits) {
-        return direction -> new Decoder(direction, limits, publishesCorrelations);
+        return direction -> new Decoder(
+            direction,
+            limits,
+            publishesCorrelations,
+            fixedCorrelationKeys
+        );
     }
 
     static byte[] frame(String payload) {
@@ -100,15 +122,18 @@ final class LengthPrefixedProtocolAdapter
         private final FlowDirection direction;
         private final ProtocolLimits limits;
         private final boolean publishesCorrelations;
+        private final List<CorrelationKey> fixedCorrelationKeys;
 
         private Decoder(
             FlowDirection direction,
             ProtocolLimits limits,
-            boolean publishesCorrelations
+            boolean publishesCorrelations,
+            List<CorrelationKey> fixedCorrelationKeys
         ) {
             this.direction = direction;
             this.limits = limits;
             this.publishesCorrelations = publishesCorrelations;
+            this.fixedCorrelationKeys = fixedCorrelationKeys;
         }
 
         @Override
@@ -144,20 +169,25 @@ final class LengthPrefixedProtocolAdapter
                     evidence
                 ));
             }
-            CorrelationContribution<FrameNativeReference> correlation =
-                CorrelationContribution.capture(
-                    correlationKey(payload),
+            FrameNativeReference nativeReference = new FrameNativeReference(
+                direction,
+                payloadBytes,
+                payloadSha256
+            );
+            List<CorrelationKey> keys = fixedCorrelationKeys.isEmpty()
+                ? List.of(correlationKey(payload))
+                : fixedCorrelationKeys;
+            List<CorrelationContribution<?>> correlations = keys.stream()
+                .<CorrelationContribution<?>>map(key -> CorrelationContribution.capture(
+                    key,
                     NATIVE_REFERENCE_CODEC,
-                    new FrameNativeReference(
-                        direction,
-                        payloadBytes,
-                        payloadSha256
-                    )
-                );
+                    nativeReference
+                ))
+                .toList();
             return ProtocolDecodeResult.complete(new ProtocolUnit<>(
                 originalBytes,
                 evidence,
-                List.of(correlation)
+                correlations
             ));
         }
 

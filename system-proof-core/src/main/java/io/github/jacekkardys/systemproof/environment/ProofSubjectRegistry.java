@@ -175,19 +175,30 @@ final class ProofSubjectRegistry implements ProofSubjects {
         requireSubject(subject);
     }
 
-    synchronized boolean isUniquelyCorrelated(
+    synchronized boolean isSoleUniqueSubjectFor(
         ProofSubjectRef subject,
         InteractionRef interactionRef
     ) {
-        SubjectState state = requireSubject(subject);
+        requireSubject(subject);
         InteractionRef candidate = Objects.requireNonNull(
             interactionRef,
             "interactionRef must not be null"
         );
-        return state.resolutions.values().stream()
-            .filter(Unique.class::isInstance)
-            .map(Unique.class::cast)
-            .anyMatch(unique -> unique.interactionRef.equals(candidate));
+        boolean selectedSubjectFound = false;
+        for (Map.Entry<ProofSubjectRef, SubjectState> entry : subjects.entrySet()) {
+            boolean subjectMatches = entry.getValue().resolutions.values().stream()
+                .filter(Unique.class::isInstance)
+                .map(Unique.class::cast)
+                .anyMatch(unique -> unique.interactionRef.equals(candidate));
+            if (!subjectMatches) {
+                continue;
+            }
+            if (!entry.getKey().equals(subject)) {
+                return false;
+            }
+            selectedSubjectFound = true;
+        }
+        return selectedSubjectFound;
     }
 
     private ProofSubjectRef createReference() {

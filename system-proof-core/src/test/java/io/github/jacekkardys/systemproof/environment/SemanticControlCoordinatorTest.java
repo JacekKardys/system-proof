@@ -519,6 +519,36 @@ class SemanticControlCoordinatorTest {
     }
 
     @Test
+    void shouldNotReachSubjectBoundHoldForInteractionUniqueToTwoSubjects()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef leftSubject = fixture.proofSubjects.create();
+        ProofSubjectRef rightSubject = fixture.proofSubjects.create();
+        CorrelationKey leftKey = correlationKey(1);
+        CorrelationKey rightKey = correlationKey(2);
+        fixture.proofSubjects.arm(leftSubject, leftKey);
+        fixture.proofSubjects.arm(rightSubject, rightKey);
+        SemanticHold left = fixture.coordinator.arm(
+            selector("shared-evidence").forSubject(leftSubject),
+            MAXIMUM_HOLD
+        );
+        RecordedInteraction shared = interaction("shared-evidence", 1);
+        fixture.proofSubjects.publish(
+            shared.interactionRef(),
+            CorrelationContribution.capture(leftKey, CODEC, "left-native")
+        );
+        fixture.proofSubjects.publish(
+            shared.interactionRef(),
+            CorrelationContribution.capture(rightKey, CODEC, "right-native")
+        );
+
+        assertImmediate(fixture.coordinator.permit(shared));
+
+        assertThat(left.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(left.cancel()).isTrue();
+    }
+
+    @Test
     void shouldCancelArmedAndHeldControlsOnTeardownButNotRevokeWonRelease()
         throws Exception {
         Fixture fixture = fixture();

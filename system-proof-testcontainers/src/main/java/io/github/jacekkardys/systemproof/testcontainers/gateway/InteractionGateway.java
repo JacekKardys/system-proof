@@ -33,18 +33,39 @@ public final class InteractionGateway {
 
     private final HostPortExposure hostPortExposure;
     private final GatewayListenerFactory listenerFactory;
+    private final ForwardingOutputDecorator forwardingOutputs;
 
     public InteractionGateway() {
-        this(Testcontainers::exposeHostPorts, ServerSocketGatewayListener::open);
+        this(
+            Testcontainers::exposeHostPorts,
+            ServerSocketGatewayListener::open,
+            ForwardingOutputDecorator.passthrough()
+        );
     }
 
     InteractionGateway(HostPortExposure hostPortExposure) {
-        this(hostPortExposure, ServerSocketGatewayListener::open);
+        this(
+            hostPortExposure,
+            ServerSocketGatewayListener::open,
+            ForwardingOutputDecorator.passthrough()
+        );
     }
 
     InteractionGateway(
         HostPortExposure hostPortExposure,
         GatewayListenerFactory listenerFactory
+    ) {
+        this(
+            hostPortExposure,
+            listenerFactory,
+            ForwardingOutputDecorator.passthrough()
+        );
+    }
+
+    InteractionGateway(
+        HostPortExposure hostPortExposure,
+        GatewayListenerFactory listenerFactory,
+        ForwardingOutputDecorator forwardingOutputs
     ) {
         this.hostPortExposure = Objects.requireNonNull(
             hostPortExposure,
@@ -53,6 +74,10 @@ public final class InteractionGateway {
         this.listenerFactory = Objects.requireNonNull(
             listenerFactory,
             "listenerFactory must not be null"
+        );
+        this.forwardingOutputs = Objects.requireNonNull(
+            forwardingOutputs,
+            "forwardingOutputs must not be null"
         );
     }
 
@@ -120,7 +145,8 @@ public final class InteractionGateway {
             context.coordinator(),
             effectiveProtocolAdapter,
             effectiveProtocolLimits,
-            listenerFactory
+            listenerFactory,
+            forwardingOutputs
         );
         try {
             route.start();

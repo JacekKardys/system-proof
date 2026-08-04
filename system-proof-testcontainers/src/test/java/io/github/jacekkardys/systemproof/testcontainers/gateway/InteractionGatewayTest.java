@@ -19,6 +19,7 @@ import java.io.DataInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -69,6 +70,7 @@ import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.configuration.Secret;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
+import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
 import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
@@ -204,6 +206,131 @@ class InteractionGatewayTest {
         } finally {
             environment.close();
         }
+    }
+
+    @Test
+    void shouldKeepTwoSubjectBoundHoldsIsolatedThroughTheGateway() throws Exception {
+        SubjectGatewayFixture fixture = subjectGateway(
+            new InteractionGateway(port -> {}),
+            LengthPrefixedProtocolAdapter.correlating()
+        );
+        String leftPayload = "gateway-left-subject";
+        ProofSubjectRef leftSubject = fixture.environment().proofSubjects().create();
+        ProofSubjectRef rightSubject = fixture.environment().proofSubjects().create();
+        fixture.environment().proofSubjects().arm(
+            leftSubject,
+            LengthPrefixedProtocolAdapter.correlationKey(leftPayload)
+        );
+        fixture.environment().proofSubjects().arm(
+            rightSubject,
+            LengthPrefixedProtocolAdapter.correlationKey("gateway-right-subject")
+        );
+        SemanticHold left = fixture.environment().controls().arm(
+            semanticSelector(fixture.connectionId()).forSubject(leftSubject),
+            Duration.ofSeconds(5)
+        );
+        SemanticHold right = fixture.environment().controls().arm(
+            semanticSelector(fixture.connectionId()).forSubject(rightSubject),
+            Duration.ofSeconds(5)
+        );
+
+        try {
+            fixture.environment().start();
+            try (Socket socket = connect(fixture.listenerAddresses().getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(leftPayload)
+                );
+                socket.getOutputStream().flush();
+
+                assertThat(left.reached().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isNotNull();
+                assertThat(left.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+                assertThat(right.state()).isEqualTo(SemanticHoldState.ARMED);
+                fixture.frameServer().get().assertNoBytes();
+
+                assertThat(left.release().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isNull();
+                assertThat(fixture.frameServer().get().awaitPayload())
+                    .isEqualTo(leftPayload.getBytes(UTF_8));
+                assertThat(right.state()).isEqualTo(SemanticHoldState.ARMED);
+                assertThat(right.cancel()).isTrue();
+            }
+        } finally {
+            fixture.environment().close();
+        }
+    }
+
+    @Test
+    void shouldNotReachSubjectBoundHoldForCrossCorrelatedGatewayInteraction()
+        throws Exception {
+        CorrelationKey leftKey = LengthPrefixedProtocolAdapter.correlationKey(
+            "cross-left-key"
+        );
+        CorrelationKey rightKey = LengthPrefixedProtocolAdapter.correlationKey(
+            "cross-right-key"
+        );
+        SubjectGatewayFixture fixture = subjectGateway(
+            new InteractionGateway(port -> {}),
+            LengthPrefixedProtocolAdapter.correlating(leftKey, rightKey)
+        );
+        ProofSubjectRef leftSubject = fixture.environment().proofSubjects().create();
+        ProofSubjectRef rightSubject = fixture.environment().proofSubjects().create();
+        fixture.environment().proofSubjects().arm(leftSubject, leftKey);
+        fixture.environment().proofSubjects().arm(rightSubject, rightKey);
+        SemanticHold left = fixture.environment().controls().arm(
+            semanticSelector(fixture.connectionId()).forSubject(leftSubject),
+            Duration.ofSeconds(5)
+        );
+        String payload = "one-interaction-two-subjects";
+
+        try {
+            fixture.environment().start();
+            try (Socket socket = connect(fixture.listenerAddresses().getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(payload)
+                );
+                socket.getOutputStream().flush();
+
+                assertThat(fixture.frameServer().get().awaitPayload())
+                    .isEqualTo(payload.getBytes(UTF_8));
+                CorrelationResult<?> leftCorrelation = fixture.environment()
+                    .proofSubjects()
+                    .correlation(
+                        leftSubject,
+                        leftKey,
+                        LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC
+                    );
+                CorrelationResult<?> rightCorrelation = fixture.environment()
+                    .proofSubjects()
+                    .correlation(
+                        rightSubject,
+                        rightKey,
+                        LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC
+                    );
+                assertThat(leftCorrelation).isInstanceOf(CorrelationResult.Unique.class);
+                assertThat(rightCorrelation).isInstanceOf(CorrelationResult.Unique.class);
+                assertThat(((CorrelationResult.Unique<?>) leftCorrelation).interactionRef())
+                    .isEqualTo(
+                        ((CorrelationResult.Unique<?>) rightCorrelation).interactionRef()
+                    );
+                assertThat(left.state()).isEqualTo(SemanticHoldState.ARMED);
+                assertThat(left.cancel()).isTrue();
+            }
+        } finally {
+            fixture.environment().close();
+        }
+    }
+
+    @Test
+    void shouldFailReleasedHoldOnFullGatewayWriteFailureWithoutRetry()
+        throws Exception {
+        assertFullGatewayForwardingFailure(ForwardingFailurePoint.WRITE);
+    }
+
+    @Test
+    void shouldFailReleasedHoldOnFullGatewayFlushFailureWithoutRetry()
+        throws Exception {
+        assertFullGatewayForwardingFailure(ForwardingFailurePoint.FLUSH);
     }
 
     @Test
@@ -1043,6 +1170,129 @@ class InteractionGatewayTest {
         return routedEnvironment(builder, routing);
     }
 
+    private static SubjectGatewayFixture subjectGateway(
+        InteractionGateway gateway,
+        LengthPrefixedProtocolAdapter protocolAdapter
+    ) {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter(
+                    "subject-hold-route",
+                    listenerAddresses,
+                    new ArrayList<>()
+                ),
+                protocolAdapter,
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "subject-session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        return new SubjectGatewayFixture(
+            routedEnvironment(builder, routing),
+            listenerAddresses,
+            frameServer,
+            ConnectionId.between(client.command, server.command)
+        );
+    }
+
+    private static void assertFullGatewayForwardingFailure(
+        ForwardingFailurePoint failurePoint
+    ) throws Exception {
+        AtomicReference<FailingForwardingOutput> failingOutput = new AtomicReference<>();
+        InteractionGateway gateway = new InteractionGateway(
+            port -> {},
+            ServerSocketGatewayListener::open,
+            (direction, destination) -> {
+                if (direction != FlowDirection.CONSUMER_TO_PROVIDER) {
+                    return destination;
+                }
+                FailingForwardingOutput output = new FailingForwardingOutput(
+                    destination,
+                    failurePoint
+                );
+                if (!failingOutput.compareAndSet(null, output)) {
+                    throw new AssertionError("Consumer forwarding output was decorated twice");
+                }
+                return output;
+            }
+        );
+        SubjectGatewayFixture fixture = subjectGateway(
+            gateway,
+            new LengthPrefixedProtocolAdapter()
+        );
+        String payload = "full-gateway-" + failurePoint.name().toLowerCase();
+        SemanticHold hold = fixture.environment().controls().arm(
+            SemanticHoldSelector.matching(
+                fixture.connectionId(),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadSha256().equals(
+                    LengthPrefixedProtocolAdapter.sha256(payload.getBytes(UTF_8))
+                )
+            ),
+            Duration.ofSeconds(5)
+        );
+
+        try {
+            fixture.environment().start();
+            try (Socket socket = connect(fixture.listenerAddresses().getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(payload)
+                );
+                socket.getOutputStream().flush();
+                hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                fixture.frameServer().get().assertNoBytes();
+
+                var release = hold.release();
+
+                assertThat(hold.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(SemanticHoldState.FAILED);
+                assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+                assertThat(hold.state()).isEqualTo(SemanticHoldState.FAILED);
+                assertPeerClosed(socket);
+                FailingForwardingOutput output = failingOutput.get();
+                assertThat(output).isNotNull();
+                assertThat(output.writeAttempts()).isEqualTo(1);
+                assertThat(output.flushAttempts()).isEqualTo(
+                    failurePoint == ForwardingFailurePoint.WRITE ? 0 : 1
+                );
+                assertThat(fixture.environment().journalSnapshot().entries().stream()
+                    .map(entry -> entry.event())
+                    .filter(SemanticHoldEvent.class::isInstance)
+                    .map(SemanticHoldEvent.class::cast)
+                    .filter(event -> event.state() == SemanticHoldState.FAILED))
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.failure())
+                        .contains(SemanticHoldFailure.WRITE_FAILURE));
+            }
+        } finally {
+            fixture.environment().close();
+        }
+    }
+
     private static RoutedEnvironment observedEnvironment(
         ObservationRequirement requirement,
         ControllableGatewayListener listener
@@ -1330,6 +1580,13 @@ class InteractionGatewayTest {
         SessionEndpoint session
     ) {}
 
+    private record SubjectGatewayFixture(
+        RoutedEnvironment environment,
+        List<InetSocketAddress> listenerAddresses,
+        AtomicReference<FrameServer> frameServer,
+        ConnectionId connectionId
+    ) {}
+
     private record EmptyConfig() implements RuntimeConfig {}
 
     private enum Invocation implements InteractionSpec {
@@ -1542,6 +1799,57 @@ class InteractionGatewayTest {
             allowRead.countDown();
             listener.close();
             tasks.close();
+        }
+    }
+
+    private enum ForwardingFailurePoint {
+        WRITE,
+        FLUSH
+    }
+
+    private static final class FailingForwardingOutput extends OutputStream {
+        private final OutputStream delegate;
+        private final ForwardingFailurePoint failurePoint;
+        private final AtomicInteger writeAttempts = new AtomicInteger();
+        private final AtomicInteger flushAttempts = new AtomicInteger();
+
+        private FailingForwardingOutput(
+            OutputStream delegate,
+            ForwardingFailurePoint failurePoint
+        ) {
+            this.delegate = delegate;
+            this.failurePoint = failurePoint;
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            write(new byte[] {(byte) value});
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            writeAttempts.incrementAndGet();
+            if (failurePoint == ForwardingFailurePoint.WRITE) {
+                throw new IOException("Injected gateway write failure");
+            }
+            delegate.write(bytes, offset, length);
+        }
+
+        @Override
+        public void flush() throws IOException {
+            flushAttempts.incrementAndGet();
+            if (failurePoint == ForwardingFailurePoint.FLUSH) {
+                throw new IOException("Injected gateway flush failure");
+            }
+            delegate.flush();
+        }
+
+        private int writeAttempts() {
+            return writeAttempts.get();
+        }
+
+        private int flushAttempts() {
+            return flushAttempts.get();
         }
     }
 

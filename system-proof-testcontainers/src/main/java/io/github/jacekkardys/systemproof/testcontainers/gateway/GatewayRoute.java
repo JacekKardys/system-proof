@@ -65,6 +65,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
     private final ProtocolAdapter<E> protocolAdapter;
     private final ProtocolLimits protocolLimits;
     private final GatewayListener listener;
+    private final ForwardingOutputDecorator forwardingOutputs;
     private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
     private final ConcurrentHashMap<Socket, SocketResource> sockets = new ConcurrentHashMap<>();
     private final AtomicLong socketSequence = new AtomicLong();
@@ -83,7 +84,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
         ProtocolAdapter<E> protocolAdapter,
         ProtocolLimits protocolLimits,
         EffectiveObservationStatus initialObservationStatus,
-        GatewayListener listener
+        GatewayListener listener,
+        ForwardingOutputDecorator forwardingOutputs
     ) {
         this.connectionId = Objects.requireNonNull(
             connectionId,
@@ -110,6 +112,10 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
         this.protocolLimits = protocolLimits;
         state = new AtomicReference<>(RouteState.prepared(initialObservationStatus));
         this.listener = Objects.requireNonNull(listener, "listener must not be null");
+        this.forwardingOutputs = Objects.requireNonNull(
+            forwardingOutputs,
+            "forwardingOutputs must not be null"
+        );
     }
 
     static <E> GatewayRoute<E> open(
@@ -133,7 +139,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
             coordinator,
             protocolAdapter,
             protocolLimits,
-            ServerSocketGatewayListener::open
+            ServerSocketGatewayListener::open,
+            ForwardingOutputDecorator.passthrough()
         );
     }
 
@@ -148,6 +155,34 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
         ProtocolAdapter<E> protocolAdapter,
         ProtocolLimits protocolLimits,
         GatewayListenerFactory listenerFactory
+    ) {
+        return open(
+            connectionId,
+            target,
+            connectTimeout,
+            shutdownTimeout,
+            observationRequirement,
+            observations,
+            coordinator,
+            protocolAdapter,
+            protocolLimits,
+            listenerFactory,
+            ForwardingOutputDecorator.passthrough()
+        );
+    }
+
+    static <E> GatewayRoute<E> open(
+        ConnectionId connectionId,
+        InetSocketAddress target,
+        Duration connectTimeout,
+        Duration shutdownTimeout,
+        ObservationRequirement observationRequirement,
+        ConnectionObservations observations,
+        InteractionDecisionCoordinator coordinator,
+        ProtocolAdapter<E> protocolAdapter,
+        ProtocolLimits protocolLimits,
+        GatewayListenerFactory listenerFactory,
+        ForwardingOutputDecorator forwardingOutputs
     ) {
         EffectiveObservationStatus initialStatus = validateObservationConfiguration(
             observationRequirement,
@@ -174,7 +209,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
                 protocolAdapter,
                 protocolLimits,
                 initialStatus,
-                listener
+                listener,
+                forwardingOutputs
             );
         } catch (IOException | RuntimeException | Error failure) {
             if (listener != null) {
@@ -604,12 +640,16 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
             ProtocolStream<E> protocolStream
         ) {
             try {
+                OutputStream forwardingDestination = Objects.requireNonNull(
+                    forwardingOutputs.decorate(direction, destination.getOutputStream()),
+                    "Forwarding output decorator returned null"
+                );
                 if (protocolStream == null) {
-                    transfer(source.getInputStream(), destination.getOutputStream());
+                    transfer(source.getInputStream(), forwardingDestination);
                 } else {
                     observeBeforeForward(
                         source.getInputStream(),
-                        destination.getOutputStream(),
+                        forwardingDestination,
                         direction,
                         protocolStream
                     );

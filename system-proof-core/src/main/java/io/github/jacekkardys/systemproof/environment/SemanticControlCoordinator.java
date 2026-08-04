@@ -143,7 +143,7 @@ final class SemanticControlCoordinator
                 continue;
             }
             if (entry.proofSubject.isPresent()
-                && !proofSubjects.isUniquelyCorrelated(
+                && !proofSubjects.isSoleUniqueSubjectFor(
                     entry.proofSubject.orElseThrow(),
                     interaction.interactionRef()
                 )) {
