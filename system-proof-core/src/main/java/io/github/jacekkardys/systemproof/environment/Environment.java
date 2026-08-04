@@ -14,6 +14,7 @@ import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnap
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
+import io.github.jacekkardys.systemproof.control.SemanticControls;
 
 /** Small public facade over an immutable topology and one internal runtime execution. */
 public class Environment implements AutoCloseable {
@@ -85,6 +86,11 @@ public class Environment implements AutoCloseable {
     /** Returns this environment execution's narrow proof-subject correlation facade. */
     public final ProofSubjects proofSubjects() {
         return runtime.proofSubjects();
+    }
+
+    /** Returns this environment execution's one-shot semantic traffic-control facade. */
+    public final SemanticControls controls() {
+        return runtime.controls();
     }
 
     /** Captures detached immutable runtime-connection state in topology declaration order. */

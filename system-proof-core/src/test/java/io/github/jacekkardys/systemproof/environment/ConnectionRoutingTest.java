@@ -297,7 +297,7 @@ class ConnectionRoutingTest {
             () -> {
                 throw new AssertionError("Observation capability should not be used");
             },
-            interactionRef -> ForwardingDecision.FORWARD
+            new ImmediateForwardDecisionCoordinator()
         );
         connection.beginStartup();
         RuntimeConnection.RouteOwnership<C> ownership =

@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
+import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
@@ -33,6 +34,7 @@ import io.github.jacekkardys.systemproof.environment.ObservationStatusProvider;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
@@ -572,6 +574,10 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
         private final ProtocolStream<E> providerToConsumer;
         private final AtomicInteger openDirections = new AtomicInteger(2);
         private final AtomicBoolean sessionClosed = new AtomicBoolean();
+        private final AtomicReference<PermitUse> consumerToProviderPermit =
+            new AtomicReference<>();
+        private final AtomicReference<PermitUse> providerToConsumerPermit =
+            new AtomicReference<>();
 
         private Session(
             Socket downstream,
@@ -607,6 +613,9 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                     );
                 }
                 destination.shutdownOutput();
+            } catch (SessionTerminationException expected) {
+                close();
+                return;
             } catch (ProtocolAdapterException failure) {
                 failObservation();
                 if (!isCleanupClaimed() && !sessionClosed.get()) {
@@ -645,7 +654,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             OutputStream destination,
             FlowDirection direction,
             ProtocolStream<E> protocolStream
-        ) throws IOException, ProtocolAdapterException, ObservationPipelineException {
+        ) throws IOException, ProtocolAdapterException, ObservationPipelineException,
+            SessionTerminationException {
             PendingBytes pending = new PendingBytes(protocolLimits.maximumBufferedBytes());
             byte[] chunk = new byte[Math.min(
                 MAXIMUM_READ_CHUNK_BYTES,
@@ -687,7 +697,8 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             OutputStream destination,
             FlowDirection direction,
             ProtocolStream<E> protocolStream
-        ) throws IOException, ProtocolAdapterException, ObservationPipelineException {
+        ) throws IOException, ProtocolAdapterException, ObservationPipelineException,
+            SessionTerminationException {
             while (true) {
                 ProtocolDecodeResult<E> decoded;
                 try {
@@ -714,15 +725,16 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                 }
                 pending.removeExactPrefix(originalBytes);
 
-                InteractionRef interactionRef;
+                RecordedInteraction recorded;
                 try {
-                    interactionRef = Objects.requireNonNull(
-                        interactionSession.observe(direction, codec, unit.evidence()),
-                        "Interaction session returned null interaction reference"
+                    recorded = Objects.requireNonNull(
+                        interactionSession.record(direction, codec, unit.evidence()),
+                        "Interaction session returned null recorded interaction"
                     );
                 } catch (RuntimeException | Error failure) {
                     throw new ObservationPipelineException(FailureStage.RECORD, failure);
                 }
+                InteractionRef interactionRef = recorded.interactionRef();
 
                 try {
                     for (CorrelationContribution<?> contribution
@@ -736,33 +748,165 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
                     );
                 }
 
-                ForwardingDecision decision;
+                ForwardingPermit permit;
                 try {
-                    decision = Objects.requireNonNull(
-                        coordinator.decide(interactionRef),
-                        "Interaction coordinator returned null decision"
+                    permit = Objects.requireNonNull(
+                        coordinator.permit(recorded),
+                        "Interaction coordinator returned null forwarding permit"
                     );
                 } catch (RuntimeException | Error failure) {
                     throw new ObservationPipelineException(FailureStage.DECISION, failure);
                 }
+
+                PermitUse permitUse = registerPermit(direction, permit);
+                ForwardingDecision decision;
+                try {
+                    decision = permitUse.awaitDecision();
+                } catch (InterruptedException interrupted) {
+                    permitUse.abandonIfWaiting();
+                    Thread.currentThread().interrupt();
+                    clearPermit(direction, permitUse);
+                    throw new SessionTerminationException();
+                } catch (RuntimeException | Error failure) {
+                    permitUse.abandonIfWaiting();
+                    clearPermit(direction, permitUse);
+                    throw new ObservationPipelineException(FailureStage.DECISION, failure);
+                }
+                if (decision == ForwardingDecision.CLOSE_SESSION) {
+                    permitUse.completeWithoutWrite();
+                    clearPermit(direction, permitUse);
+                    throw new SessionTerminationException();
+                }
                 if (decision != ForwardingDecision.FORWARD) {
+                    permitUse.abandonIfWaiting();
+                    clearPermit(direction, permitUse);
                     throw new ObservationPipelineException(
                         FailureStage.DECISION,
                         new IllegalStateException("Unsupported forwarding decision")
                     );
                 }
-                destination.write(originalBytes);
-                destination.flush();
+                if (!permitUse.beginWrite()) {
+                    clearPermit(direction, permitUse);
+                    throw new SessionTerminationException();
+                }
+                try {
+                    ForwardingAttempt.writeAndFlush(
+                        destination,
+                        originalBytes,
+                        permitUse
+                    );
+                } catch (IOException writeFailure) {
+                    clearPermit(direction, permitUse);
+                    throw writeFailure;
+                } catch (RuntimeException | Error failure) {
+                    clearPermit(direction, permitUse);
+                    throw new ObservationPipelineException(FailureStage.DECISION, failure);
+                }
+                clearPermit(direction, permitUse);
             }
+        }
+
+        private PermitUse registerPermit(
+            FlowDirection direction,
+            ForwardingPermit permit
+        ) {
+            AtomicReference<PermitUse> slot = permitSlot(direction);
+            PermitUse use = new PermitUse(permit);
+            if (!slot.compareAndSet(null, use)) {
+                throw new IllegalStateException(
+                    "Directional pump already has an active forwarding permit"
+                );
+            }
+            if (sessionClosed.get()) {
+                use.abandonIfWaiting();
+            }
+            return use;
+        }
+
+        private void clearPermit(FlowDirection direction, PermitUse permit) {
+            permitSlot(direction).compareAndSet(permit, null);
+        }
+
+        private AtomicReference<PermitUse> permitSlot(FlowDirection direction) {
+            return direction == FlowDirection.CONSUMER_TO_PROVIDER
+                ? consumerToProviderPermit
+                : providerToConsumerPermit;
         }
 
         private void close() {
             if (!sessionClosed.compareAndSet(false, true)) {
                 return;
             }
+            abandonWaitingPermit(consumerToProviderPermit);
+            abandonWaitingPermit(providerToConsumerPermit);
             closeQuietly(downstream);
             closeQuietly(upstream);
         }
+
+        private void abandonWaitingPermit(AtomicReference<PermitUse> slot) {
+            PermitUse use = slot.get();
+            if (use != null) {
+                use.abandonIfWaiting();
+            }
+        }
+    }
+
+    private static final class PermitUse implements ForwardingAttempt.ResultReporter {
+        private final ForwardingPermit permit;
+        private final AtomicReference<PermitPhase> phase =
+            new AtomicReference<>(PermitPhase.WAITING);
+
+        private PermitUse(ForwardingPermit permit) {
+            this.permit = Objects.requireNonNull(permit, "permit must not be null");
+        }
+
+        private ForwardingDecision awaitDecision() throws InterruptedException {
+            return Objects.requireNonNull(
+                permit.awaitDecision(),
+                "Forwarding permit returned null decision"
+            );
+        }
+
+        private boolean beginWrite() {
+            return phase.compareAndSet(PermitPhase.WAITING, PermitPhase.WRITING);
+        }
+
+        private void completeWithoutWrite() {
+            phase.compareAndSet(PermitPhase.WAITING, PermitPhase.DONE);
+        }
+
+        @Override
+        public void forwarded() {
+            if (!phase.compareAndSet(PermitPhase.WRITING, PermitPhase.DONE)) {
+                throw new IllegalStateException(
+                    "Forwarding success was reported outside the write phase"
+                );
+            }
+            permit.forwarded();
+        }
+
+        @Override
+        public void writeFailed() {
+            if (!phase.compareAndSet(PermitPhase.WRITING, PermitPhase.DONE)) {
+                throw new IllegalStateException(
+                    "Write failure was reported outside the write phase"
+                );
+            }
+            permit.writeFailed();
+        }
+
+        private void abandonIfWaiting() {
+            if (phase.compareAndSet(PermitPhase.WAITING, PermitPhase.ABANDONED)) {
+                permit.abandoned();
+            }
+        }
+    }
+
+    private enum PermitPhase {
+        WAITING,
+        WRITING,
+        DONE,
+        ABANDONED
     }
 
     private static final class PendingBytes {
@@ -1071,4 +1215,6 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider 
             this.stage = Objects.requireNonNull(stage, "stage must not be null");
         }
     }
+
+    private static final class SessionTerminationException extends Exception {}
 }

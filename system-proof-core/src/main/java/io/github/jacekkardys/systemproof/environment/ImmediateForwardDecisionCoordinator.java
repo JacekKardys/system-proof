@@ -8,7 +8,7 @@ import io.github.jacekkardys.systemproof.observation.InteractionRef;
 /** Default serialized environment coordinator for the immediate-forward milestone. */
 final class ImmediateForwardDecisionCoordinator implements InteractionDecisionCoordinator {
     @Override
-    public synchronized ForwardingDecision decide(InteractionRef interactionRef) {
+    public ForwardingDecision decide(InteractionRef interactionRef) {
         Objects.requireNonNull(interactionRef, "interactionRef must not be null");
         return ForwardingDecision.FORWARD;
     }

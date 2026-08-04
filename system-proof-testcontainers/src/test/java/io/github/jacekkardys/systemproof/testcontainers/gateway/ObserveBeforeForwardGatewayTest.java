@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -22,8 +23,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
@@ -31,6 +35,7 @@ import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
+import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.environment.InteractionSession;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
@@ -38,6 +43,7 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
@@ -50,6 +56,191 @@ class ObserveBeforeForwardGatewayTest {
         ConnectionId.of("client[].api->server[].api");
     private static final ConnectionId SECOND_CONNECTION =
         ConnectionId.of("client[second].api->server[].api");
+
+    @Test
+    void shouldHoldOneCoalescedUnitWithZeroBytesAndPreserveDirectionalOrdering()
+        throws Exception {
+        RecordingObservations observations = new RecordingObservations(FIRST_CONNECTION);
+        ManualPermit held = new ManualPermit();
+        OrdinalHoldCoordinator coordinator = new OrdinalHoldCoordinator(2, held);
+        byte[] earlier = LengthPrefixedProtocolAdapter.frame("earlier");
+        byte[] target = LengthPrefixedProtocolAdapter.frame("target");
+        byte[] suffix = LengthPrefixedProtocolAdapter.frame("suffix");
+
+        try (RouteFixture fixture = RouteFixture.required(
+            FIRST_CONNECTION,
+            observations,
+            coordinator,
+            new LengthPrefixedProtocolAdapter(),
+            LIMITS
+        )) {
+            fixture.client().getOutputStream().write(concat(earlier, concat(target, suffix)));
+            fixture.client().getOutputStream().flush();
+
+            held.awaitReached();
+            assertThat(readExactly(fixture.targetPeer(), earlier.length)).isEqualTo(earlier);
+            assertNoVisibleBytes(fixture.targetPeer());
+
+            byte[] opposite = LengthPrefixedProtocolAdapter.frame("opposite");
+            fixture.targetPeer().getOutputStream().write(opposite);
+            fixture.targetPeer().getOutputStream().flush();
+            assertThat(readExactly(fixture.client(), opposite.length)).isEqualTo(opposite);
+
+            held.release();
+
+            assertThat(readExactly(fixture.targetPeer(), target.length + suffix.length))
+                .isEqualTo(concat(target, suffix));
+            held.awaitForwarded();
+            assertThat(held.forwardedCalls).hasValue(1);
+            assertThat(held.writeFailureCalls).hasValue(0);
+            assertThat(held.abandonmentCalls).hasValue(0);
+            assertThat(observations.events())
+                .extracting(event -> event.interactionRef().ordinal())
+                .containsExactly(1L, 2L, 1L, 3L);
+        }
+    }
+
+    @Test
+    void shouldKeepOtherSessionAndConnectionIndependentWhileOneSessionIsHeld()
+        throws Exception {
+        ManualPermit held = new ManualPermit();
+        RecordingObservations firstObservations = new RecordingObservations(FIRST_CONNECTION);
+        RecordingObservations secondObservations = new RecordingObservations(SECOND_CONNECTION);
+        byte[] selected = LengthPrefixedProtocolAdapter.frame("selected-session");
+        byte[] otherSession = LengthPrefixedProtocolAdapter.frame("other-session");
+        byte[] otherConnection = LengthPrefixedProtocolAdapter.frame("other-connection");
+
+        try (
+            RouteFixture first = RouteFixture.required(
+                FIRST_CONNECTION,
+                firstObservations,
+                new OneShotHoldCoordinator(held),
+                new LengthPrefixedProtocolAdapter(),
+                LIMITS
+            );
+            RouteFixture second = RouteFixture.required(
+                SECOND_CONNECTION,
+                secondObservations,
+                interaction -> ForwardingDecision.FORWARD,
+                new LengthPrefixedProtocolAdapter(),
+                LIMITS
+            );
+            ConnectedPair additional = first.connectAdditionalPair()
+        ) {
+            first.client().getOutputStream().write(selected);
+            first.client().getOutputStream().flush();
+            held.awaitReached();
+            assertNoVisibleBytes(first.targetPeer());
+
+            additional.client().getOutputStream().write(otherSession);
+            additional.client().getOutputStream().flush();
+            assertThat(readExactly(additional.targetPeer(), otherSession.length))
+                .isEqualTo(otherSession);
+
+            second.client().getOutputStream().write(otherConnection);
+            second.client().getOutputStream().flush();
+            assertThat(readExactly(second.targetPeer(), otherConnection.length))
+                .isEqualTo(otherConnection);
+
+            held.release();
+            assertThat(readExactly(first.targetPeer(), selected.length)).isEqualTo(selected);
+            held.awaitForwarded();
+        }
+    }
+
+    @Test
+    void shouldReachHoldOnlyAfterAFragmentedFrameBecomesACompleteUnit()
+        throws Exception {
+        RecordingObservations observations = new RecordingObservations(FIRST_CONNECTION);
+        ManualPermit held = new ManualPermit();
+        FragmentProbeAdapter adapter = new FragmentProbeAdapter();
+        byte[] selected = LengthPrefixedProtocolAdapter.frame("fragmented-selected");
+        int fragmentBytes = LengthPrefixedProtocolAdapter.HEADER_BYTES + 2;
+
+        try (RouteFixture fixture = RouteFixture.required(
+            FIRST_CONNECTION,
+            observations,
+            new OrdinalHoldCoordinator(1, held),
+            adapter,
+            LIMITS
+        )) {
+            fixture.client().getOutputStream().write(selected, 0, fragmentBytes);
+            fixture.client().getOutputStream().flush();
+            adapter.awaitIncompleteDecode();
+            assertThat(held.isReached()).isFalse();
+            assertNoVisibleBytes(fixture.targetPeer());
+
+            fixture.client().getOutputStream().write(
+                selected,
+                fragmentBytes,
+                selected.length - fragmentBytes
+            );
+            fixture.client().getOutputStream().flush();
+            held.awaitReached();
+            assertNoVisibleBytes(fixture.targetPeer());
+
+            held.release();
+            assertThat(readExactly(fixture.targetPeer(), selected.length)).isEqualTo(selected);
+            held.awaitForwarded();
+        }
+    }
+
+    @Test
+    void shouldCloseOnlyTheAffectedSessionWhenAReachedPermitDeniesForwarding()
+        throws Exception {
+        RecordingObservations observations = new RecordingObservations(FIRST_CONNECTION);
+        ManualPermit held = new ManualPermit();
+        OrdinalHoldCoordinator coordinator = new OrdinalHoldCoordinator(1, held);
+
+        try (RouteFixture fixture = RouteFixture.required(
+            FIRST_CONNECTION,
+            observations,
+            coordinator,
+            new LengthPrefixedProtocolAdapter(),
+            LIMITS
+        )) {
+            fixture.client().getOutputStream().write(
+                LengthPrefixedProtocolAdapter.frame("cancelled")
+            );
+            fixture.client().getOutputStream().flush();
+            held.awaitReached();
+            assertNoVisibleBytes(fixture.targetPeer());
+
+            held.deny();
+
+            assertNoForwardedBytesAfterClose(fixture.targetPeer());
+            assertThat(fixture.route().observationStatus())
+                .isEqualTo(EffectiveObservationStatus.ACTIVE);
+            assertThat(held.forwardedCalls).hasValue(0);
+            assertThat(held.writeFailureCalls).hasValue(0);
+        }
+    }
+
+    @Test
+    void shouldReportHeldPermitAbandonmentDuringRouteTeardown() throws Exception {
+        RecordingObservations observations = new RecordingObservations(FIRST_CONNECTION);
+        ManualPermit held = new ManualPermit();
+        try (RouteFixture fixture = RouteFixture.required(
+            FIRST_CONNECTION,
+            observations,
+            new OrdinalHoldCoordinator(1, held),
+            new LengthPrefixedProtocolAdapter(),
+            LIMITS
+        )) {
+            fixture.client().getOutputStream().write(
+                LengthPrefixedProtocolAdapter.frame("teardown")
+            );
+            fixture.client().getOutputStream().flush();
+            held.awaitReached();
+            assertNoVisibleBytes(fixture.targetPeer());
+
+            fixture.route().close();
+
+            held.awaitAbandoned();
+            assertThat(held.abandonmentCalls).hasValue(1);
+            assertThat(held.forwardedCalls).hasValue(0);
+        }
+    }
 
     @Test
     void shouldRecordAndDecideBeforeForwardingExactOrderedBytesInBothDirections()
@@ -430,7 +621,7 @@ class ObserveBeforeForwardGatewayTest {
         throws Exception {
         ConnectionObservations observationError = () -> new InteractionSession() {
             @Override
-            public <T> InteractionRef observe(
+            public <T> RecordedInteraction record(
                 FlowDirection direction,
                 EvidenceCodec<T> codec,
                 T evidence
@@ -799,15 +990,18 @@ class ObserveBeforeForwardGatewayTest {
                 new AtomicLong(InteractionRef.FIRST_ORDINAL);
 
             @Override
-            public <T> InteractionRef observe(
+            public <T> RecordedInteraction record(
                 FlowDirection direction,
                 EvidenceCodec<T> codec,
                 T evidence
             ) {
-                return new InteractionRef(
-                    new SessionId(FIRST_CONNECTION, SessionId.FIRST_VALUE),
-                    direction,
-                    ordinal.getAndIncrement()
+                return new RecordedInteraction(
+                    new InteractionRef(
+                        new SessionId(FIRST_CONNECTION, SessionId.FIRST_VALUE),
+                        direction,
+                        ordinal.getAndIncrement()
+                    ),
+                    EvidenceSnapshot.capture(codec, evidence)
                 );
             }
 
@@ -855,6 +1049,175 @@ class ObserveBeforeForwardGatewayTest {
         byte[] combined = Arrays.copyOf(first, first.length + second.length);
         System.arraycopy(second, 0, combined, first.length, second.length);
         return combined;
+    }
+
+    private static final class OrdinalHoldCoordinator
+        implements InteractionDecisionCoordinator {
+        private final long heldOrdinal;
+        private final ManualPermit held;
+
+        private OrdinalHoldCoordinator(long heldOrdinal, ManualPermit held) {
+            this.heldOrdinal = heldOrdinal;
+            this.held = held;
+        }
+
+        @Override
+        public ForwardingDecision decide(InteractionRef interactionRef) {
+            return ForwardingDecision.FORWARD;
+        }
+
+        @Override
+        public ForwardingPermit permit(RecordedInteraction interaction) {
+            if (interaction.interactionRef().direction()
+                == FlowDirection.CONSUMER_TO_PROVIDER
+                && interaction.interactionRef().ordinal() == heldOrdinal) {
+                held.reached.countDown();
+                return held;
+            }
+            return InteractionDecisionCoordinator.super.permit(interaction);
+        }
+    }
+
+    private static final class OneShotHoldCoordinator
+        implements InteractionDecisionCoordinator {
+        private final AtomicBoolean available = new AtomicBoolean(true);
+        private final ManualPermit held;
+
+        private OneShotHoldCoordinator(ManualPermit held) {
+            this.held = held;
+        }
+
+        @Override
+        public ForwardingDecision decide(InteractionRef interactionRef) {
+            return ForwardingDecision.FORWARD;
+        }
+
+        @Override
+        public ForwardingPermit permit(RecordedInteraction interaction) {
+            if (interaction.interactionRef().direction()
+                == FlowDirection.CONSUMER_TO_PROVIDER
+                && available.compareAndSet(true, false)) {
+                held.reached.countDown();
+                return held;
+            }
+            return InteractionDecisionCoordinator.super.permit(interaction);
+        }
+    }
+
+    private static final class FragmentProbeAdapter
+        implements ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> {
+        private final LengthPrefixedProtocolAdapter delegate =
+            new LengthPrefixedProtocolAdapter();
+        private final CountDownLatch incompleteDecode = new CountDownLatch(1);
+
+        @Override
+        public EvidenceCodec<LengthPrefixedProtocolAdapter.FrameEvidence> evidenceCodec() {
+            return delegate.evidenceCodec();
+        }
+
+        @Override
+        public ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence> openSession(
+            ProtocolLimits limits
+        ) {
+            ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence> session =
+                delegate.openSession(limits);
+            return direction -> {
+                ProtocolStream<LengthPrefixedProtocolAdapter.FrameEvidence> stream =
+                    session.openStream(direction);
+                return new ProtocolStream<>() {
+                    @Override
+                    public ProtocolDecodeResult<LengthPrefixedProtocolAdapter.FrameEvidence> decode(
+                        ByteBuffer bufferedBytes
+                    ) throws ProtocolAdapterException {
+                        ProtocolDecodeResult<LengthPrefixedProtocolAdapter.FrameEvidence> result =
+                            stream.decode(bufferedBytes);
+                        if (result instanceof ProtocolDecodeResult.NeedMoreData<?>) {
+                            incompleteDecode.countDown();
+                        }
+                        return result;
+                    }
+
+                    @Override
+                    public void endOfInput(ByteBuffer bufferedBytes)
+                        throws ProtocolAdapterException {
+                        stream.endOfInput(bufferedBytes);
+                    }
+                };
+            };
+        }
+
+        private void awaitIncompleteDecode() {
+            await(incompleteDecode, "fragment was not decoded as incomplete");
+        }
+    }
+
+    private static final class ManualPermit implements ForwardingPermit {
+        private final CompletableFuture<ForwardingDecision> decision =
+            new CompletableFuture<>();
+        private final CountDownLatch reached = new CountDownLatch(1);
+        private final CountDownLatch forwarded = new CountDownLatch(1);
+        private final CountDownLatch abandoned = new CountDownLatch(1);
+        private final AtomicInteger forwardedCalls = new AtomicInteger();
+        private final AtomicInteger writeFailureCalls = new AtomicInteger();
+        private final AtomicInteger abandonmentCalls = new AtomicInteger();
+
+        @Override
+        public ForwardingDecision awaitDecision() throws InterruptedException {
+            try {
+                return decision.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException timeout) {
+                throw new AssertionError("Forwarding permit was not completed", timeout);
+            } catch (ExecutionException failure) {
+                throw new AssertionError("Forwarding permit failed", failure.getCause());
+            }
+        }
+
+        @Override
+        public void forwarded() {
+            forwardedCalls.incrementAndGet();
+            forwarded.countDown();
+        }
+
+        @Override
+        public void writeFailed() {
+            writeFailureCalls.incrementAndGet();
+        }
+
+        @Override
+        public void abandoned() {
+            abandonmentCalls.incrementAndGet();
+            abandoned.countDown();
+        }
+
+        private void release() {
+            assertThat(decision.complete(ForwardingDecision.FORWARD)).isTrue();
+        }
+
+        private void deny() {
+            assertThat(decision.complete(ForwardingDecision.CLOSE_SESSION)).isTrue();
+        }
+
+        private void awaitReached() throws InterruptedException {
+            assertThat(reached.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+                .as("held permit was reached")
+                .isTrue();
+        }
+
+        private boolean isReached() {
+            return reached.getCount() == 0;
+        }
+
+        private void awaitForwarded() throws InterruptedException {
+            assertThat(forwarded.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+                .as("forwarding result was reported")
+                .isTrue();
+        }
+
+        private void awaitAbandoned() throws InterruptedException {
+            assertThat(abandoned.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS))
+                .as("session abandonment was reported")
+                .isTrue();
+        }
     }
 
     private static void await(CountDownLatch latch, String failureMessage) {
@@ -946,7 +1309,7 @@ class ObserveBeforeForwardGatewayTest {
             }
 
             @Override
-            public <T> InteractionRef observe(
+            public <T> RecordedInteraction record(
                 FlowDirection direction,
                 EvidenceCodec<T> codec,
                 T evidence
@@ -959,11 +1322,9 @@ class ObserveBeforeForwardGatewayTest {
                     direction,
                     ordinals.get(direction).getAndIncrement()
                 );
-                recordedEvents.add(new InteractionObservationEvent(
-                    interactionRef,
-                    EvidenceSnapshot.capture(codec, evidence)
-                ));
-                return interactionRef;
+                EvidenceSnapshot snapshot = EvidenceSnapshot.capture(codec, evidence);
+                recordedEvents.add(new InteractionObservationEvent(interactionRef, snapshot));
+                return new RecordedInteraction(interactionRef, snapshot);
             }
 
             @Override
@@ -1171,6 +1532,27 @@ class ObserveBeforeForwardGatewayTest {
             return targetPeer;
         }
 
+        private ConnectedPair connectAdditionalPair() throws IOException {
+            Socket additionalClient = new Socket();
+            try {
+                additionalClient.connect(
+                    new InetSocketAddress("127.0.0.1", route.listenerPort()),
+                    Math.toIntExact(TIMEOUT.toMillis())
+                );
+                additionalClient.setSoTimeout(Math.toIntExact(TIMEOUT.toMillis()));
+                Socket additionalTarget = targetListener.accept();
+                additionalTarget.setSoTimeout(Math.toIntExact(TIMEOUT.toMillis()));
+                return new ConnectedPair(additionalClient, additionalTarget);
+            } catch (IOException | RuntimeException failure) {
+                try {
+                    additionalClient.close();
+                } catch (IOException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
+        }
+
         private void reconnect() throws IOException {
             client.close();
             targetPeer.close();
@@ -1213,6 +1595,31 @@ class ObserveBeforeForwardGatewayTest {
                 }
                 first.addSuppressed(failure);
                 return first;
+            }
+        }
+    }
+
+    private record ConnectedPair(Socket client, Socket targetPeer)
+        implements AutoCloseable {
+        @Override
+        public void close() throws IOException {
+            IOException failure = null;
+            try {
+                client.close();
+            } catch (IOException closeFailure) {
+                failure = closeFailure;
+            }
+            try {
+                targetPeer.close();
+            } catch (IOException closeFailure) {
+                if (failure == null) {
+                    failure = closeFailure;
+                } else {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            if (failure != null) {
+                throw failure;
             }
         }
     }

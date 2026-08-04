@@ -40,6 +40,7 @@ duplicate models. Java-public internal types may change at any time.
 | `communication` | Declarative communication annotations and built-in protocol semantics. |
 | `component` | Component declarations, identities, and lifecycle values. |
 | `configuration` | Component and driver configuration contracts, providers, validation, and redacted secrets. |
+| `control` | Environment-scoped, protocol-neutral one-shot semantic traffic controls and their immutable state. |
 | `diagnostics` | Immutable rendered diagnostics and stateless journal rendering. |
 | `driver` | Supported component-driver extension SPI. |
 | `endpoint` | Immutable endpoint addresses, bindings, and protocol-specific endpoint values. |
@@ -77,12 +78,13 @@ and its rationale to change together.
 | `communication` | none |
 | `component` | `configuration`, `driver`, `topology` |
 | `configuration` | none |
+| `control` | `observation`, `proof`, `topology` |
 | `diagnostics` | `component`, `environment.state`, `journal`, `observation`, `proof`, `topology` |
 | `driver` | `component`, `configuration`, `endpoint`, `environment`, `journal`, `topology` |
 | `endpoint` | `configuration` |
-| `environment` | `communication`, `component`, `configuration`, `diagnostics`, `driver`, `endpoint`, `environment.state`, `journal`, `observation`, `proof`, `topology` |
+| `environment` | `communication`, `component`, `configuration`, `control`, `diagnostics`, `driver`, `endpoint`, `environment.state`, `journal`, `observation`, `proof`, `topology` |
 | `environment.state` | `observation`, `topology` |
-| `journal` | `component`, `environment.state`, `observation`, `proof`, `topology` |
+| `journal` | `component`, `control`, `environment.state`, `observation`, `proof`, `topology` |
 | `observation` | `topology` |
 | `proof` | `observation` |
 | `topology` | `component` |
@@ -127,6 +129,7 @@ whole.
 - Component declarations: `Component`, `SystemComponent`.
 - Configuration: `ConfigurationSource`, `EnvironmentConfiguration`, `EnvironmentVariable`,
   `Literal`, `Secret`.
+- Semantic controls: `SemanticControls`, `SemanticHold`, `SemanticHoldSelector`.
 - Diagnostics rendering: `JournalRenderer`.
 - Environment API: `Environment`, `EnvironmentBuilder`, `EnvironmentCreator`,
   `EnvironmentTopology`, `EnvironmentLogging`, `EnvironmentLoggingBuilder`, `ComponentPortFactory`,
@@ -147,7 +150,7 @@ whole.
 - Routing/session SPI: `ConnectionObservations`, `ConnectionRoute`, `ConnectionRouteContext`,
   `ConnectionRouteProvider`, `CorrelationContribution`, `InteractionSession`,
   `ObservationStatusProvider`.
-- Observation SPI: `EvidenceCodec`, `InteractionDecisionCoordinator`.
+- Observation SPI: `EvidenceCodec`, `ForwardingPermit`, `InteractionDecisionCoordinator`.
 
 Route selection, preparation, consumer-target access, observation-status extraction, and route
 cleanup are not SPI. They remain package-private execution mechanics.
@@ -160,11 +163,13 @@ cleanup are not SPI. They remain package-private execution mechanics.
 - Environment state: `EnvironmentState`, `ConnectionState`, `RoutingMode`,
   `RuntimeConnectionSnapshot`.
 - Diagnostics: `EnvironmentDiagnostics`.
+- Control: `SemanticHoldFailure`, `SemanticHoldRef`, `SemanticHoldState`.
 - Journal: `ScenarioEvent`, `FailureEvent`, every framework-owned event record and nested event enum,
   `FailureDetails`, `JournalEntry`, `JournalSequence`, `ScenarioJournalSnapshot`, `CheckpointId`,
   and `DisruptionId`.
 - Observation: `ObservationRequirement`, `EffectiveObservationStatus`, `EvidenceSchemaId`,
-  `EvidenceSnapshot`, `FlowDirection`, `ForwardingDecision`, `SessionId`, `InteractionRef`.
+  `EvidenceSnapshot`, `FlowDirection`, `ForwardingDecision`, `SessionId`, `InteractionRef`,
+  `RecordedInteraction`.
 - Proof: `ProofSubjectRef`, `CorrelationKeySchema`, `CorrelationKey`, `CorrelationCardinality`,
   `CorrelationResult` and nested `Missing`, `Unique`, and `Ambiguous` results.
 - Topology inspection: `CompatibilityResult`, `ConnectionDescriptor`, `ConnectionId`,

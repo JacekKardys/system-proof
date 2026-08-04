@@ -63,6 +63,9 @@ class CoreArchitectureTest {
         communication.Communication$Tcp
         component.Component
         component.SystemComponent
+        control.SemanticControls
+        control.SemanticHold
+        control.SemanticHoldSelector
         configuration.ConfigurationSource
         configuration.EnvironmentConfiguration
         configuration.EnvironmentVariable
@@ -116,6 +119,7 @@ class CoreArchitectureTest {
         environment.InteractionSession
         environment.ObservationStatusProvider
         observation.EvidenceCodec
+        observation.ForwardingPermit
         observation.InteractionDecisionCoordinator
         """);
 
@@ -123,6 +127,9 @@ class CoreArchitectureTest {
         component.ComponentId
         component.ComponentState
         component.ComponentType
+        control.SemanticHoldFailure
+        control.SemanticHoldRef
+        control.SemanticHoldState
         diagnostics.EnvironmentDiagnostics
         endpoint.AmqpEndpoint
         endpoint.EndpointAddress
@@ -165,6 +172,7 @@ class CoreArchitectureTest {
         journal.ProofSubjectCreatedEvent
         journal.ScenarioEvent
         journal.ScenarioJournalSnapshot
+        journal.SemanticHoldEvent
         observation.EffectiveObservationStatus
         observation.EvidenceSchemaId
         observation.EvidenceSnapshot
@@ -172,6 +180,7 @@ class CoreArchitectureTest {
         observation.ForwardingDecision
         observation.InteractionRef
         observation.ObservationRequirement
+        observation.RecordedInteraction
         observation.SessionId
         proof.CorrelationCardinality
         proof.CorrelationKey
@@ -203,6 +212,18 @@ class CoreArchitectureTest {
         component.ComponentState#STARTING:component.ComponentState
         component.ComponentState#STOPPED:component.ComponentState
         component.ComponentState#STOPPING:component.ComponentState
+        control.SemanticHoldFailure#AMBIGUOUS_MATCH:control.SemanticHoldFailure
+        control.SemanticHoldFailure#INTERNAL_FAILURE:control.SemanticHoldFailure
+        control.SemanticHoldFailure#SELECTOR_EVALUATION:control.SemanticHoldFailure
+        control.SemanticHoldFailure#SESSION_ABANDONED:control.SemanticHoldFailure
+        control.SemanticHoldFailure#WRITE_FAILURE:control.SemanticHoldFailure
+        control.SemanticHoldState#ARMED:control.SemanticHoldState
+        control.SemanticHoldState#CANCELLED:control.SemanticHoldState
+        control.SemanticHoldState#FAILED:control.SemanticHoldState
+        control.SemanticHoldState#FORWARDED:control.SemanticHoldState
+        control.SemanticHoldState#REACHED_HELD:control.SemanticHoldState
+        control.SemanticHoldState#RELEASING:control.SemanticHoldState
+        control.SemanticHoldState#TIMED_OUT:control.SemanticHoldState
         configuration.ConfigurationSource#UNSET:java.lang.String
         environment.state.ConnectionState#DECLARED:environment.state.ConnectionState
         environment.state.ConnectionState#FAILED:environment.state.ConnectionState
@@ -245,6 +266,7 @@ class CoreArchitectureTest {
         observation.FlowDirection#CONSUMER_TO_PROVIDER:observation.FlowDirection
         observation.FlowDirection#PROVIDER_TO_CONSUMER:observation.FlowDirection
         observation.ForwardingDecision#FORWARD:observation.ForwardingDecision
+        observation.ForwardingDecision#CLOSE_SESSION:observation.ForwardingDecision
         observation.InteractionRef#FIRST_ORDINAL:long
         observation.ObservationRequirement#DISABLED:observation.ObservationRequirement
         observation.ObservationRequirement#OPTIONAL:observation.ObservationRequirement
@@ -261,6 +283,9 @@ class CoreArchitectureTest {
         component -> configuration
         component -> driver
         component -> topology
+        control -> observation
+        control -> proof
+        control -> topology
         diagnostics -> component
         diagnostics -> environment.state
         diagnostics -> journal
@@ -277,6 +302,7 @@ class CoreArchitectureTest {
         environment -> communication
         environment -> component
         environment -> configuration
+        environment -> control
         environment -> diagnostics
         environment -> driver
         environment -> endpoint
@@ -288,6 +314,7 @@ class CoreArchitectureTest {
         environment.state -> observation
         environment.state -> topology
         journal -> component
+        journal -> control
         journal -> environment.state
         journal -> observation
         journal -> proof
@@ -349,6 +376,7 @@ class CoreArchitectureTest {
                 "communication",
                 "component",
                 "configuration",
+                "control",
                 "diagnostics",
                 "driver",
                 "endpoint",
@@ -606,6 +634,13 @@ class CoreArchitectureTest {
         assertThat(classFiles("observation"))
             .allSatisfy(path -> assertThat(readBytecode(path))
                 .doesNotContain(BASE_PATH + "proof/"));
+        assertThat(classFiles("control"))
+            .allSatisfy(path -> assertThat(readBytecode(path))
+                .doesNotContain(
+                    BASE_PATH + "environment/",
+                    "org/junit/",
+                    "org/testcontainers/"
+                ));
         assertThat(classFiles("proof"))
             .anySatisfy(path -> assertThat(readBytecode(path))
                 .contains(BASE_PATH + "observation/"));

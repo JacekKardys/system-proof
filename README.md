@@ -241,11 +241,59 @@ through a neutral adapter SPI. For every physical socket pair it opens exactly o
 `InteractionSession`, two independent directional protocol streams, and two bounded byte buffers.
 Each complete forwarding unit follows `frame -> record -> correlate -> decide -> forward`: typed
 evidence is copied into the scenario journal, immutable adapter-produced correlation contributions
-are published for the returned stable `InteractionRef`, and that reference reaches the shared
-coordinator only after its correlation result is visible. Only `FORWARD` writes the
-adapter-preserved original bytes. Units without correlation contributions retain the same path. No
-unit prefix is sent before that boundary. Complete coalesced units remain ordered; incomplete units
-remain buffered within explicit frame and aggregate limits.
+are published for the returned stable `InteractionRef`, and the captured interaction reaches the
+shared coordinator only after its correlation result is visible. A forwarding permit completes the
+decision handshake without moving original bytes, sockets, streams, or mutable buffers into core.
+Only an authorized `FORWARD` writes and flushes the adapter-preserved original bytes, exactly once;
+the gateway then reports success, write failure, or session abandonment. Units without correlation
+contributions retain the same path. No unit prefix is sent before that boundary. Complete coalesced
+units remain ordered; incomplete units remain buffered within explicit frame and aggregate limits.
+
+## Semantic hold and release
+
+A semantic hold is a deterministic decision at that observe-before-forward boundary. It is not a
+sleep, a transport outage, or a pause after forwarding. Arm the one-shot control before producing
+the stimulus, wait for its `reached` signal, make assertions while zero bytes of the selected unit
+have been sent downstream, and explicitly release it:
+
+```java
+SemanticHold hold = environment.controls().arm(
+    SemanticHoldSelector.matching(
+        connectionId,
+        FlowDirection.CONSUMER_TO_PROVIDER,
+        evidenceCodec,
+        evidence -> evidence.matchesExpectedValue()
+    ).forSubject(subject), // optional
+    Duration.ofSeconds(10)
+);
+
+produceStimulus();
+InteractionRef interaction = hold.reached().toCompletableFuture().join();
+assertDownstreamHasReceivedNoSelectedBytes(interaction);
+hold.release().toCompletableFuture().join();
+```
+
+The selector matches an exact `ConnectionId`, exact `FlowDirection`, evidence schema, typed value,
+and optionally one uniquely correlated `ProofSubjectRef`. Its codec and predicate run synchronously
+and therefore must be pure, fast, non-blocking, and side-effect free. A selector exception or
+overlapping matching holds fails closed; missing or ambiguous subject correlation does not match.
+
+The lifecycle is `ARMED -> REACHED_HELD -> RELEASING -> FORWARDED`, with `CANCELLED`, `TIMED_OUT`,
+and `FAILED` terminal alternatives. The hold duration begins at `REACHED_HELD`. Cancel, timeout, or
+environment teardown closes only the affected physical session without implicitly forwarding the
+retained unit or degrading an otherwise healthy route. `release()` completes only after the gateway
+reports the result of its single write/flush attempt. A transport failure is never retried and never
+produces a false `FORWARDED`, but it cannot prove that the remote endpoint received no partial bytes.
+
+One directional pump processes units sequentially, so later same-session, same-direction units
+cannot overtake a held unit. Opposite directions, other sessions, and other connections have their
+own tasks and continue independently. The pump performs no further socket reads while held; later
+traffic remains under TCP backpressure. The selected unit is at most `maximumFrameBytes`, and the
+already-read directional buffer is at most `maximumBufferedBytes`. Including the retained
+`ProtocolUnit` copy, the one write copy, and the fixed read chunk, the gateway-owned raw-byte storage
+is bounded per held direction by `maximumBufferedBytes + 2 * maximumFrameBytes +
+min(8192, maximumBufferedBytes)`, excluding array headers and typed adapter evidence. No unbounded
+hold queue is introduced.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
@@ -295,9 +343,10 @@ ambiguous. Missing or ambiguous cases never select the first, latest, earliest, 
 entry.
 
 The environment owns one thread-safe `InteractionDecisionCoordinator` shared by all route contexts.
-Its current serialized decision is immediate `FORWARD`. This is deliberately only the decision
-boundary: semantic holds, releases, predecessor guards, and causal proof remain outside this
-milestone.
+It performs exact semantic-hold matching and state transitions under a short serialized boundary;
+permit waits, public awaits, socket writes, flushes, and callbacks never hold that coordinator lock.
+Traffic that matches no armed hold receives an immediate forwarding permit. Predecessor guards and
+causal proof remain outside this milestone.
 
 Core invokes the codec synchronously, copies the encoded bytes into a private `EvidenceSnapshot`,
 and retains neither the source value, codec, nor codec-produced array. Typed inspection uses the

@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -66,6 +67,11 @@ import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.configuration.Secret;
+import io.github.jacekkardys.systemproof.control.SemanticHold;
+import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticHoldState;
+import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 class InteractionGatewayTest {
     private static final ComponentType CLIENT = ComponentType.of("gateway-client");
@@ -74,6 +80,253 @@ class InteractionGatewayTest {
         contract("command", CommandEndpoint.class);
     private static final Contract<SessionEndpoint> SESSION =
         contract("session", SessionEndpoint.class);
+
+    @Test
+    void shouldExposeProductionArmReachReleaseWorkflowWithJournaledZeroByteHold()
+        throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter("semantic-hold-route", listenerAddresses, new ArrayList<>()),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
+        String payload = "production-semantic-hold";
+        String payloadSha256 = LengthPrefixedProtocolAdapter.sha256(
+            payload.getBytes(UTF_8)
+        );
+        SemanticHold hold = environment.controls().arm(
+            SemanticHoldSelector.matching(
+                ConnectionId.between(client.command, server.command),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadBytes() == payload.getBytes(UTF_8).length
+                    && evidence.payloadSha256().equals(payloadSha256)
+            ),
+            Duration.ofSeconds(5)
+        );
+
+        try {
+            environment.start();
+            byte[] frame = LengthPrefixedProtocolAdapter.frame(payload);
+            try (Socket socket = connect(listenerAddresses.getFirst())) {
+                socket.getOutputStream().write(frame);
+                socket.getOutputStream().flush();
+
+                assertThat(hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isNotNull();
+                assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+                frameServer.get().assertNoBytes();
+
+                var release = hold.release();
+                assertThat(release.toCompletableFuture().get(5, TimeUnit.SECONDS)).isNull();
+                assertThat(frameServer.get().awaitPayload()).isEqualTo(payload.getBytes(UTF_8));
+            }
+
+            assertThat(environment.journalSnapshot().entries().stream()
+                .map(entry -> entry.event())
+                .filter(SemanticHoldEvent.class::isInstance)
+                .map(SemanticHoldEvent.class::cast)
+                .map(SemanticHoldEvent::state))
+                .containsExactly(
+                    SemanticHoldState.ARMED,
+                    SemanticHoldState.REACHED_HELD,
+                    SemanticHoldState.RELEASING,
+                    SemanticHoldState.FORWARDED
+                );
+        } finally {
+            environment.close();
+        }
+    }
+
+    @Test
+    void shouldCancelReachedHoldOnEnvironmentCloseWithoutForwardingOrRouteDegradation()
+        throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter("teardown-hold-route", listenerAddresses, new ArrayList<>()),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
+        String payload = "teardown-held-payload";
+        String payloadSha256 = LengthPrefixedProtocolAdapter.sha256(
+            payload.getBytes(UTF_8)
+        );
+        SemanticHold hold = environment.controls().arm(
+            SemanticHoldSelector.matching(
+                ConnectionId.between(client.command, server.command),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadSha256().equals(payloadSha256)
+            ),
+            Duration.ofSeconds(30)
+        );
+
+        environment.start();
+        try (Socket socket = connect(listenerAddresses.getFirst())) {
+            socket.getOutputStream().write(LengthPrefixedProtocolAdapter.frame(payload));
+            socket.getOutputStream().flush();
+            hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            frameServer.get().assertNoBytes();
+
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                var close = executor.submit(environment::close);
+                close.get(2, TimeUnit.SECONDS);
+            }
+
+            assertThat(hold.state()).isEqualTo(SemanticHoldState.CANCELLED);
+            assertThat(hold.release().toCompletableFuture()).isCompletedExceptionally();
+            assertThat(frameServer.get().hasPayload()).isFalse();
+            assertThat(environment.runtimeConnections())
+                .filteredOn(snapshot -> snapshot.observationRequirement()
+                    == ObservationRequirement.REQUIRED)
+                .singleElement()
+                .satisfies(snapshot -> {
+                    assertThat(snapshot.state()).isEqualTo(ConnectionState.STOPPED);
+                    assertThat(snapshot.effectiveObservationStatus())
+                        .isEqualTo(EffectiveObservationStatus.INACTIVE);
+                });
+        } finally {
+            environment.close();
+        }
+    }
+
+    @Test
+    void shouldTimeOutReachedHoldWithoutForwardingOrDegradingTheRoute()
+        throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter("timeout-hold-route", listenerAddresses, new ArrayList<>()),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
+        String payload = "timeout-held-payload";
+        String payloadSha256 = LengthPrefixedProtocolAdapter.sha256(
+            payload.getBytes(UTF_8)
+        );
+        SemanticHold hold = environment.controls().arm(
+            SemanticHoldSelector.matching(
+                ConnectionId.between(client.command, server.command),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadSha256().equals(payloadSha256)
+            ),
+            Duration.ofSeconds(1)
+        );
+
+        try {
+            environment.start();
+            try (Socket socket = connect(listenerAddresses.getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(payload)
+                );
+                socket.getOutputStream().flush();
+                hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                frameServer.get().assertNoBytes();
+
+                assertThat(hold.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(SemanticHoldState.TIMED_OUT);
+                assertPeerClosed(socket);
+                assertThat(hold.release().toCompletableFuture())
+                    .isCompletedExceptionally();
+                assertThat(frameServer.get().hasPayload()).isFalse();
+                assertThat(environment.runtimeConnections())
+                    .filteredOn(snapshot -> snapshot.observationRequirement()
+                        == ObservationRequirement.REQUIRED)
+                    .singleElement()
+                    .satisfies(snapshot -> {
+                        assertThat(snapshot.state()).isEqualTo(ConnectionState.RUNNING);
+                        assertThat(snapshot.effectiveObservationStatus())
+                            .isEqualTo(EffectiveObservationStatus.ACTIVE);
+                    });
+            }
+        } finally {
+            environment.close();
+        }
+    }
 
     @Test
     void shouldExposeActiveRequiredAndUnsupportedOptionalObservationStatuses()
@@ -1070,6 +1323,9 @@ class InteractionGatewayTest {
         private final ServerSocket listener;
         private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
         private final CountDownLatch received = new CountDownLatch(1);
+        private final CountDownLatch accepted = new CountDownLatch(1);
+        private final CountDownLatch allowRead = new CountDownLatch(1);
+        private final AtomicReference<Socket> connectedClient = new AtomicReference<>();
         private final AtomicReference<byte[]> payload = new AtomicReference<>();
         private final AtomicReference<Throwable> failure = new AtomicReference<>();
 
@@ -1097,6 +1353,7 @@ class InteractionGatewayTest {
         }
 
         private byte[] awaitPayload() {
+            allowRead.countDown();
             try {
                 if (!received.await(5, TimeUnit.SECONDS)) {
                     throw new AssertionError(
@@ -1119,11 +1376,34 @@ class InteractionGatewayTest {
             return payload.get().clone();
         }
 
+        private void assertNoBytes() throws Exception {
+            assertThat(accepted.await(5, TimeUnit.SECONDS))
+                .as("frame server accepted the gateway connection")
+                .isTrue();
+            Socket client = connectedClient.get();
+            client.setSoTimeout(150);
+            try {
+                assertThat(catchThrowable(() -> client.getInputStream().read()))
+                    .isInstanceOf(java.net.SocketTimeoutException.class);
+            } finally {
+                client.setSoTimeout(0);
+            }
+        }
+
+        private boolean hasPayload() {
+            return payload.get() != null;
+        }
+
         private void accept() {
             try (
                 Socket client = listener.accept();
                 DataInputStream input = new DataInputStream(client.getInputStream())
             ) {
+                connectedClient.set(client);
+                accepted.countDown();
+                if (!allowRead.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Frame server read was not released");
+                }
                 int payloadBytes = input.readInt();
                 byte[] receivedPayload = input.readNBytes(payloadBytes);
                 if (receivedPayload.length != payloadBytes) {
@@ -1141,6 +1421,7 @@ class InteractionGatewayTest {
 
         @Override
         public void close() throws Exception {
+            allowRead.countDown();
             listener.close();
             tasks.close();
         }

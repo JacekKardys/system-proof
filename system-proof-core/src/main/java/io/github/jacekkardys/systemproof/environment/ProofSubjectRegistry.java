@@ -170,6 +170,26 @@ final class ProofSubjectRegistry implements ProofSubjects {
         acceptingPublications = false;
     }
 
+    synchronized void validateSubject(ProofSubjectRef subject) {
+        requireAccepting("use proof subjects in semantic controls");
+        requireSubject(subject);
+    }
+
+    synchronized boolean isUniquelyCorrelated(
+        ProofSubjectRef subject,
+        InteractionRef interactionRef
+    ) {
+        SubjectState state = requireSubject(subject);
+        InteractionRef candidate = Objects.requireNonNull(
+            interactionRef,
+            "interactionRef must not be null"
+        );
+        return state.resolutions.values().stream()
+            .filter(Unique.class::isInstance)
+            .map(Unique.class::cast)
+            .anyMatch(unique -> unique.interactionRef.equals(candidate));
+    }
+
     private ProofSubjectRef createReference() {
         if (nextSubjectValue < FIRST_SUBJECT_VALUE) {
             throw new IllegalStateException(

@@ -86,7 +86,7 @@ final class RuntimeConnectionRegistry {
         );
     }
 
-    private RuntimeConnectionRegistry(
+    RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
         EnvironmentEventPublisher events,
         ConnectionRouting routing,

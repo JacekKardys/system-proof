@@ -18,6 +18,7 @@ import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
+import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
@@ -31,6 +32,12 @@ import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
+import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
+import io.github.jacekkardys.systemproof.control.SemanticHoldState;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
+import io.github.jacekkardys.systemproof.observation.FlowDirection;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /** Builds and publishes framework-owned facts through the single environment journal. */
 final class EnvironmentEventPublisher {
@@ -269,6 +276,34 @@ final class EnvironmentEventPublisher {
             cardinality == CorrelationCardinality.AMBIGUOUS
                 ? LogLevel.WARN
                 : LogLevel.INFO
+        );
+    }
+
+    void semanticHold(
+        SemanticHoldRef holdRef,
+        SemanticHoldState state,
+        ConnectionId connectionId,
+        FlowDirection direction,
+        EvidenceSchemaId evidenceSchema,
+        Optional<ProofSubjectRef> proofSubject,
+        Optional<InteractionRef> interactionRef,
+        Optional<SemanticHoldFailure> failure
+    ) {
+        LogLevel level = state == SemanticHoldState.FAILED
+            ? LogLevel.WARN
+            : LogLevel.INFO;
+        emitter.framework(
+            append(new SemanticHoldEvent(
+                holdRef,
+                state,
+                connectionId,
+                direction,
+                evidenceSchema,
+                proofSubject,
+                interactionRef,
+                failure
+            )),
+            level
         );
     }
 

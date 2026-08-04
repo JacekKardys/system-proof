@@ -22,8 +22,10 @@ import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
 import io.github.jacekkardys.systemproof.environment.InteractionSession;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
@@ -380,15 +382,18 @@ class GatewayRouteLifecycleTest {
             }
             return new InteractionSession() {
                 @Override
-                public <T> InteractionRef observe(
+                public <T> RecordedInteraction record(
                     FlowDirection direction,
                     EvidenceCodec<T> codec,
                     T evidence
                 ) {
-                    return new InteractionRef(
-                        sessionId,
-                        direction,
-                        ordinals.get(direction).getAndIncrement()
+                    return new RecordedInteraction(
+                        new InteractionRef(
+                            sessionId,
+                            direction,
+                            ordinals.get(direction).getAndIncrement()
+                        ),
+                        EvidenceSnapshot.capture(codec, evidence)
                     );
                 }
             };

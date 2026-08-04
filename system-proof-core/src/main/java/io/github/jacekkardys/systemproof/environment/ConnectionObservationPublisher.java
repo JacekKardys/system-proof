@@ -8,6 +8,7 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.SessionId;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
 import io.github.jacekkardys.systemproof.topology.ConnectionRef;
 
 /** Environment-owned implementation of one connection-scoped observation capability. */
@@ -64,6 +65,15 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
             EvidenceCodec<T> codec,
             T evidence
         ) {
+            return record(direction, codec, evidence).interactionRef();
+        }
+
+        @Override
+        public <T> RecordedInteraction record(
+            FlowDirection direction,
+            EvidenceCodec<T> codec,
+            T evidence
+        ) {
             Objects.requireNonNull(direction, "direction must not be null");
             return streams.get(direction).observe(codec, evidence);
         }
@@ -103,7 +113,7 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
             this.direction = direction;
         }
 
-        private synchronized <T> InteractionRef observe(
+        private synchronized <T> RecordedInteraction observe(
             EvidenceCodec<T> codec,
             T evidence
         ) {
@@ -122,7 +132,7 @@ final class ConnectionObservationPublisher implements ConnectionObservations {
                 new InteractionRef(sessionId, direction, ordinal);
             events.interaction(connection, interactionRef, snapshot);
             lastObservedOrdinal = ordinal;
-            return interactionRef;
+            return new RecordedInteraction(interactionRef, snapshot);
         }
 
         private synchronized boolean wasObserved(long ordinal) {
