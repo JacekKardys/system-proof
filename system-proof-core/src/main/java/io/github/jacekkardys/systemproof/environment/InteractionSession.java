@@ -3,6 +3,7 @@ package io.github.jacekkardys.systemproof.environment;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
 
 /**
  * Restricted observation capability for one physical transport session.
@@ -12,7 +13,23 @@ import io.github.jacekkardys.systemproof.observation.InteractionRef;
  * evidence, appends the event, and returns the assigned reference.
  */
 public interface InteractionSession {
-    <T> InteractionRef observe(
+    /** Records once and returns only the assigned identity to legacy observation callers. */
+    default <T> InteractionRef observe(
+        FlowDirection direction,
+        EvidenceCodec<T> codec,
+        T evidence
+    ) {
+        return record(direction, codec, evidence).interactionRef();
+    }
+
+    /**
+     * Records evidence and returns the captured read-only interaction model used by the decision
+     * handshake.
+     *
+     * <p>The implementation must capture evidence exactly once and use that same immutable snapshot
+     * for journal publication and the returned model.
+     */
+    <T> RecordedInteraction record(
         FlowDirection direction,
         EvidenceCodec<T> codec,
         T evidence

@@ -23,6 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
@@ -68,6 +70,28 @@ class ConnectionObservationBoundaryTest {
             new byte[32]
         );
         AtomicReference<InteractionRef> observed = new AtomicReference<>();
+        AtomicInteger observationEncodes = new AtomicInteger();
+        EvidenceCodec<MutableInteractionEvidence> observationCodec =
+            new EvidenceCodec<>() {
+                private final EvidenceCodec<MutableInteractionEvidence> delegate =
+                    MutableInteractionEvidence.codec();
+
+                @Override
+                public EvidenceSchemaId schemaId() {
+                    return delegate.schemaId();
+                }
+
+                @Override
+                public byte[] encode(MutableInteractionEvidence evidence) {
+                    observationEncodes.incrementAndGet();
+                    return delegate.encode(evidence);
+                }
+
+                @Override
+                public MutableInteractionEvidence decode(byte[] encodedEvidence) {
+                    return delegate.decode(encodedEvidence);
+                }
+            };
         RoutedEnvironment environment = routedEnvironment(
             new EnvironmentBuilder()
                 .components(client, server)
@@ -93,7 +117,7 @@ class ConnectionObservationBoundaryTest {
 
                 InteractionRef interactionRef = session.observe(
                     FlowDirection.CONSUMER_TO_PROVIDER,
-                    MutableInteractionEvidence.codec(),
+                    observationCodec,
                     evidence("observed")
                 );
                 session.correlate(interactionRef, contribution);
@@ -106,6 +130,8 @@ class ConnectionObservationBoundaryTest {
 
         try {
             environment.start();
+
+            assertThat(observationEncodes).hasValue(1);
 
             assertThat(environment.proofSubjects().correlation(
                 subject,

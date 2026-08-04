@@ -21,6 +21,7 @@ import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
+import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
@@ -137,6 +138,10 @@ public final class JournalRenderer {
                 correlationLabels(candidate),
                 correlationMessage(candidate)
             );
+            case SemanticHoldEvent hold -> new RenderedEvent(
+                semanticHoldLabels(hold),
+                semanticHoldMessage(hold)
+            );
             case CheckpointEvent checkpoint -> new RenderedEvent(
                 "[CHECKPOINT] [" + checkpoint.observingComponentId() + "] ["
                     + checkpoint.checkpointId().value() + "]",
@@ -177,6 +182,7 @@ public final class JournalRenderer {
             case ProofSubjectCreatedEvent created -> false;
             case ProofSubjectArmedEvent armed -> false;
             case CorrelationCandidateEvent candidate -> false;
+            case SemanticHoldEvent hold -> false;
             case EnvironmentLifecycleEvent lifecycle -> false;
             case FailureEvent.EnvironmentStartup failure -> false;
             case FailureEvent.DriverResourceCleanup failure -> false;
@@ -244,6 +250,29 @@ public final class JournalRenderer {
             + ":v" + schemaId.version()
             + " encodedBytes=" + candidate.nativeReference().encodedSize()
             + " cardinality=" + candidate.cardinality();
+    }
+
+    private static String semanticHoldLabels(SemanticHoldEvent hold) {
+        return "[SEMANTIC-HOLD]"
+            + " [ref=" + hold.holdRef() + "]"
+            + " [connection=" + hold.connectionId() + "]"
+            + " [flow=" + hold.direction() + "]"
+            + hold.proofSubject()
+                .map(subject -> " [subject=" + subject + "]")
+                .orElse("");
+    }
+
+    private static String semanticHoldMessage(SemanticHoldEvent hold) {
+        EvidenceSchemaId schema = hold.evidenceSchema();
+        return "Semantic hold state=" + hold.state()
+            + " evidenceSchema=" + schema.namespace() + ":" + schema.name()
+            + ":v" + schema.version()
+            + hold.interactionRef()
+                .map(interaction -> " interaction=" + interaction)
+                .orElse("")
+            + hold.failure()
+                .map(failure -> " failure=" + failure)
+                .orElse("");
     }
 
     private static String environmentLifecycleMessage(EnvironmentState state) {

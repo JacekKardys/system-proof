@@ -11,17 +11,20 @@ import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
+import io.github.jacekkardys.systemproof.control.SemanticControls;
 
 /** Thread-safe internal facade over one environment execution. */
 final class EnvironmentRuntime {
     private final EnvironmentExecution execution;
     private final ComponentRuntimeSupervisor components;
     private final EnvironmentInspector inspector;
+    private final SemanticControls controls;
 
     private EnvironmentRuntime(EnvironmentRuntimeFactory.Assembly assembly) {
         this.execution = assembly.execution();
         this.components = assembly.components();
         this.inspector = assembly.inspector();
+        controls = assembly.controls();
     }
 
     static EnvironmentRuntime of(
@@ -69,6 +72,10 @@ final class EnvironmentRuntime {
 
     synchronized ProofSubjects proofSubjects() {
         return inspector.proofSubjects();
+    }
+
+    synchronized SemanticControls controls() {
+        return controls;
     }
 
     synchronized List<RuntimeConnectionSnapshot> connectionSnapshots() {

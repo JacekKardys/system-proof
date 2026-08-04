@@ -9,6 +9,7 @@ final class EnvironmentExecution {
     private final EnvironmentLifecycle lifecycle;
     private final ComponentRuntimeSupervisor components;
     private final RuntimeConnectionRegistry connections;
+    private final SemanticControlCoordinator controls;
     private final ProofSubjectRegistry proofSubjects;
     private final EnvironmentEventPublisher events;
     private final EnvironmentInspector inspector;
@@ -17,6 +18,7 @@ final class EnvironmentExecution {
         EnvironmentLifecycle lifecycle,
         ComponentRuntimeSupervisor components,
         RuntimeConnectionRegistry connections,
+        SemanticControlCoordinator controls,
         ProofSubjectRegistry proofSubjects,
         EnvironmentEventPublisher events,
         EnvironmentInspector inspector
@@ -24,6 +26,7 @@ final class EnvironmentExecution {
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle must not be null");
         this.components = Objects.requireNonNull(components, "components must not be null");
         this.connections = Objects.requireNonNull(connections, "connections must not be null");
+        this.controls = Objects.requireNonNull(controls, "controls must not be null");
         this.proofSubjects = Objects.requireNonNull(
             proofSubjects,
             "proofSubjects must not be null"
@@ -68,7 +71,11 @@ final class EnvironmentExecution {
     }
 
     private void closeDeclaredExecution() {
-        Throwable failure = attempt(connections::stopRemaining);
+        Throwable failure = completeControls();
+        failure = EnvironmentRuntimeFailures.accumulate(
+            failure,
+            attempt(connections::stopRemaining)
+        );
         failure = EnvironmentRuntimeFailures.accumulate(
             failure,
             completeProofExecution()
@@ -91,7 +98,11 @@ final class EnvironmentExecution {
     }
 
     private Throwable cleanup() {
-        Throwable firstFailure = attempt(components::stopStartedComponents);
+        Throwable firstFailure = completeControls();
+        firstFailure = EnvironmentRuntimeFailures.accumulate(
+            firstFailure,
+            attempt(components::stopStartedComponents)
+        );
         firstFailure = EnvironmentRuntimeFailures.accumulate(
             firstFailure,
             attempt(connections::stopRemaining)
@@ -109,6 +120,15 @@ final class EnvironmentExecution {
     private Throwable completeProofExecution() {
         try {
             proofSubjects.completeExecution();
+            return null;
+        } catch (RuntimeException | Error failure) {
+            return failure;
+        }
+    }
+
+    private Throwable completeControls() {
+        try {
+            controls.completeExecution();
             return null;
         } catch (RuntimeException | Error failure) {
             return failure;

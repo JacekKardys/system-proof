@@ -16,6 +16,7 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
 
 class ScenarioEventTest {
     private static final Set<Class<? extends ScenarioEvent>> FRAMEWORK_EVENTS = Set.of(
@@ -28,6 +29,7 @@ class ScenarioEventTest {
         ProofSubjectCreatedEvent.class,
         ProofSubjectArmedEvent.class,
         CorrelationCandidateEvent.class,
+        SemanticHoldEvent.class,
         CheckpointEvent.class,
         DisruptionLifecycleEvent.class
     );
@@ -106,7 +108,7 @@ class ScenarioEventTest {
             assertEvidenceSnapshotBoundary();
             return;
         }
-        if (valueType == ProofSubjectRef.class) {
+        if (valueType == ProofSubjectRef.class || valueType == SemanticHoldRef.class) {
             assertThat(valueType.isInterface()).isTrue();
             assertThat(valueType.getDeclaredMethods()).isEmpty();
             return;

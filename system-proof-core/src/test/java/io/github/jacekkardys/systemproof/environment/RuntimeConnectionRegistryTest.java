@@ -10,6 +10,7 @@ import static io.github.jacekkardys.systemproof.topology.Contract.contract;
 import static io.github.jacekkardys.systemproof.endpoint.EndpointBinding.binding;
 
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,6 +25,10 @@ import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.ComponentId;
@@ -47,6 +52,23 @@ class RuntimeConnectionRegistryTest {
     private static final ComponentType CLIENT = ComponentType.of("client");
     private static final ComponentType SERVER = ComponentType.of("server");
     private static final Contract<String> API = contract("api", String.class);
+    private static final EvidenceCodec<String> TEST_EVIDENCE_CODEC =
+        new EvidenceCodec<>() {
+            @Override
+            public EvidenceSchemaId schemaId() {
+                return new EvidenceSchemaId("test", "registry", 1);
+            }
+
+            @Override
+            public byte[] encode(String evidence) {
+                return evidence.getBytes(StandardCharsets.UTF_8);
+            }
+
+            @Override
+            public String decode(byte[] encodedEvidence) {
+                return new String(encodedEvidence, StandardCharsets.UTF_8);
+            }
+        };
     private static final ComponentDriver<EmptyConfig, Void> UNUSED = (component, context) -> {
         throw new AssertionError("Driver should not run");
     };
@@ -142,7 +164,8 @@ class RuntimeConnectionRegistryTest {
     }
 
     @Test
-    void shouldShareOneEnvironmentCoordinatorAcrossAllConnectionRouteContexts() {
+    void shouldShareOneEnvironmentCoordinatorAcrossAllConnectionRouteContexts()
+        throws InterruptedException {
         Client first = new Client("coordinator-first");
         Client second = new Client("coordinator-second");
         Server server = new Server();
@@ -170,11 +193,15 @@ class RuntimeConnectionRegistryTest {
 
         assertThat(coordinators).hasSize(2);
         assertThat(coordinators.get(0)).isSameAs(coordinators.get(1));
-        assertThat(coordinators.getFirst().decide(new InteractionRef(
+        InteractionRef interactionRef = new InteractionRef(
             new SessionId(firstDeclaration.id(), 1L),
             FlowDirection.CONSUMER_TO_PROVIDER,
             1L
-        ))).isEqualTo(ForwardingDecision.FORWARD);
+        );
+        assertThat(coordinators.getFirst().permit(new RecordedInteraction(
+            interactionRef,
+            EvidenceSnapshot.capture(TEST_EVIDENCE_CODEC, "recorded")
+        )).awaitDecision()).isEqualTo(ForwardingDecision.FORWARD);
     }
 
     @Test
@@ -883,7 +910,7 @@ class RuntimeConnectionRegistryTest {
                 eventLog,
                 proofSubjects
             ),
-            interactionRef -> ForwardingDecision.FORWARD
+            new ImmediateForwardDecisionCoordinator()
         );
     }
 

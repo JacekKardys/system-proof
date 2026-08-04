@@ -39,11 +39,20 @@ final class EnvironmentRuntimeFactory {
             new JournalSlf4jEmitter(logging, renderer)
         );
         ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);
+        SemanticControlCapabilityRegistry controlCapabilities =
+            new SemanticControlCapabilityRegistry();
+        SemanticControlCoordinator controls = new SemanticControlCoordinator(
+            events,
+            proofSubjects,
+            controlCapabilities
+        );
         RuntimeConnectionRegistry connections = new RuntimeConnectionRegistry(
             topology.connections(),
             events,
             routing,
-            proofSubjects
+            controls,
+            proofSubjects,
+            controlCapabilities
         );
         RuntimeBindings bindings = new RuntimeBindings(connections);
         RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, renderer);
@@ -62,6 +71,7 @@ final class EnvironmentRuntimeFactory {
             lifecycle,
             componentSupervisor,
             connections,
+            controls,
             proofSubjects,
             events,
             inspector
@@ -70,19 +80,22 @@ final class EnvironmentRuntimeFactory {
         return new Assembly(
             execution,
             componentSupervisor,
-            inspector
+            inspector,
+            controls
         );
     }
 
     record Assembly(
         EnvironmentExecution execution,
         ComponentRuntimeSupervisor components,
-        EnvironmentInspector inspector
+        EnvironmentInspector inspector,
+        SemanticControlCoordinator controls
     ) {
         Assembly {
             Objects.requireNonNull(execution, "execution must not be null");
             Objects.requireNonNull(components, "components must not be null");
             Objects.requireNonNull(inspector, "inspector must not be null");
+            Objects.requireNonNull(controls, "controls must not be null");
         }
     }
 }

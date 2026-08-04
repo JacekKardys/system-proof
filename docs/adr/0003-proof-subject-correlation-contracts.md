@@ -140,8 +140,10 @@ For each correlated complete unit the gateway executes:
 frame complete unit
 -> record typed evidence and obtain InteractionRef
 -> publish all typed correlation contributions through the same InteractionSession
--> invoke InteractionDecisionCoordinator.decide(InteractionRef)
+-> invoke InteractionDecisionCoordinator.permit(RecordedInteraction)
+-> await forwarding authorization
 -> forward exact original bytes
+-> report forwarded, write-failed, or abandoned completion
 ```
 
 `InteractionSession` validates that correlation refers to a previously recorded interaction from

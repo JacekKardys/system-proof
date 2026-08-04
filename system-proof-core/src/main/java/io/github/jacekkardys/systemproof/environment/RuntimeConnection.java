@@ -183,7 +183,11 @@ final class RuntimeConnection<C> {
             );
         }
         validateTarget(routing.consumerTarget(ownership.route()), "consumerTarget");
-        validateObservationStatus(routing.observationStatus(ownership.route()));
+        EffectiveObservationStatus initialStatus = routing.observationStatus(
+            ownership.route()
+        );
+        validateObservationStatus(initialStatus);
+        validateSemanticControlCapability(ownership.route(), initialStatus);
         return new PreparedTargets<>(ownership);
     }
 
@@ -207,6 +211,7 @@ final class RuntimeConnection<C> {
             prepared.route()
         );
         validateObservationStatus(initialObservationStatus);
+        validateSemanticControlCapability(prepared.route(), initialObservationStatus);
         return new Installation<>(
             prepared,
             preparedConsumerTarget,
@@ -369,6 +374,24 @@ final class RuntimeConnection<C> {
         return consumerTarget;
     }
 
+    synchronized SemanticControlCapabilityRegistry.Availability
+        semanticControlAvailability() {
+        if (!routing.semanticControlsDeclared()) {
+            return SemanticControlCapabilityRegistry.Availability.UNSUPPORTED;
+        }
+        if (state == ConnectionState.DECLARED) {
+            return SemanticControlCapabilityRegistry.Availability.DECLARED;
+        }
+        if (state != ConnectionState.RUNNING
+            || routeOwnership == null
+            || routeOwnership.closed()
+            || !routing.semanticControlsMaterialized(routeOwnership.route())
+            || currentObservationStatus() != EffectiveObservationStatus.ACTIVE) {
+            return SemanticControlCapabilityRegistry.Availability.UNAVAILABLE;
+        }
+        return SemanticControlCapabilityRegistry.Availability.AVAILABLE;
+    }
+
     private EndpointBinding<C> validateTarget(
         EndpointBinding<C> target,
         String description
@@ -416,6 +439,20 @@ final class RuntimeConnection<C> {
                     );
                 }
             }
+        }
+    }
+
+    private void validateSemanticControlCapability(
+        ConnectionRoute<C> route,
+        EffectiveObservationStatus effectiveStatus
+    ) {
+        if (routing.semanticControlsDeclared()
+            && (!routing.semanticControlsMaterialized(route)
+                || effectiveStatus != EffectiveObservationStatus.ACTIVE)) {
+            throw new IllegalStateException(
+                "Connection '" + id()
+                    + "' declared semantic-control capability but did not materialize it"
+            );
         }
     }
 
