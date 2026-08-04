@@ -12,6 +12,10 @@ package io.github.jacekkardys.systemproof.environment;
  * rollback. The provider remains responsible for cleaning resources created before it returns a
  * {@link ConnectionRoute}, because the framework cannot take ownership before receiving that
  * object.
+ *
+ * <p>A provider that implements {@link SemanticControlRouteCapability} explicitly declares the
+ * forwarding-permit handshake for required observation. Its returned route must own a resource
+ * implementing the same capability; the environment validates both sides during startup.
  */
 @FunctionalInterface
 public interface ConnectionRouteProvider<C> {

@@ -19,7 +19,7 @@ final class ForwardingAttempt {
         try {
             destination.write(originalBytes);
             destination.flush();
-        } catch (IOException writeFailure) {
+        } catch (IOException | RuntimeException | Error writeFailure) {
             try {
                 reporter.writeFailed();
             } catch (RuntimeException | Error callbackFailure) {

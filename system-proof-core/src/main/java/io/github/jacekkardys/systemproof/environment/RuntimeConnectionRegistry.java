@@ -93,6 +93,24 @@ final class RuntimeConnectionRegistry {
         InteractionDecisionCoordinator coordinator,
         ProofSubjectRegistry proofSubjects
     ) {
+        this(
+            declarations,
+            events,
+            routing,
+            coordinator,
+            proofSubjects,
+            new SemanticControlCapabilityRegistry()
+        );
+    }
+
+    RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventPublisher events,
+        ConnectionRouting routing,
+        InteractionDecisionCoordinator coordinator,
+        ProofSubjectRegistry proofSubjects,
+        SemanticControlCapabilityRegistry controlCapabilities
+    ) {
         this.events = Objects.requireNonNull(events, "events must not be null");
         catalog = new RuntimeConnectionCatalog(
             declarations,
@@ -101,6 +119,14 @@ final class RuntimeConnectionRegistry {
             coordinator,
             proofSubjects
         );
+        Objects.requireNonNull(
+            controlCapabilities,
+            "controlCapabilities must not be null"
+        );
+        catalog.all().forEach(connection -> controlCapabilities.register(
+            connection.id(),
+            connection::semanticControlAvailability
+        ));
         catalog.all().forEach(this::recordLifecycle);
     }
 

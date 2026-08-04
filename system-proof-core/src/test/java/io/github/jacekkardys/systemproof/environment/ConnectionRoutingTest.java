@@ -275,6 +275,84 @@ class ConnectionRoutingTest {
             );
     }
 
+    @Test
+    void shouldDeclareSemanticControlsOnlyForRequiredExplicitlyCapableRoutes() {
+        TestComponent client = new TestComponent("semantic-capability");
+        TestComponent server = new TestComponent("semantic-capability");
+        Connection<String> declaration = connection(
+            client.required("command", COMMAND),
+            server.provided("command", COMMAND)
+        );
+        ConnectionRouteProvider<String> capableProvider =
+            (ConnectionRouteProvider<String> & SemanticControlRouteCapability) context ->
+                ConnectionRoute.routed(
+                    context.directTarget(),
+                    () -> EffectiveObservationStatus.ACTIVE,
+                    new ControlCapableResource()
+                );
+        ConnectionRouteProvider<String> customProvider = context ->
+            ConnectionRoute.routed(
+                context.directTarget(),
+                () -> EffectiveObservationStatus.ACTIVE,
+                new ControlCapableResource()
+            );
+
+        assertThat(ConnectionRouting.direct().select(declaration)
+            .semanticControlsDeclared()).isFalse();
+        assertThat(ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.DISABLED,
+            capableProvider
+        ).select(declaration).semanticControlsDeclared()).isFalse();
+        assertThat(ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.OPTIONAL,
+            capableProvider
+        ).select(declaration).semanticControlsDeclared()).isFalse();
+        assertThat(ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.REQUIRED,
+            customProvider
+        ).select(declaration).semanticControlsDeclared()).isFalse();
+        assertThat(ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.REQUIRED,
+            capableProvider
+        ).select(declaration).semanticControlsDeclared()).isTrue();
+    }
+
+    @Test
+    void shouldFailStartupWhenDeclaredSemanticCapabilityIsNotMaterialized() {
+        TestComponent client = new TestComponent("missing-materialized-capability");
+        TestComponent server = new TestComponent("missing-materialized-capability");
+        Connection<String> declaration = connection(
+            client.required("command", COMMAND),
+            server.provided("command", COMMAND)
+        );
+        ConnectionRouteProvider<String> provider =
+            (ConnectionRouteProvider<String> & SemanticControlRouteCapability) context ->
+                ConnectionRoute.routed(
+                    context.directTarget(),
+                    () -> EffectiveObservationStatus.ACTIVE,
+                    () -> {}
+                );
+        ConnectionRouting routing = ConnectionRouting.routed(
+            declaration,
+            ObservationRequirement.REQUIRED,
+            provider
+        );
+
+        assertThatThrownBy(() -> materialize(
+            declaration,
+            routing,
+            binding("direct", "external")
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining(
+                declaration.id().toString(),
+                "declared semantic-control capability but did not materialize it"
+            );
+    }
+
     private static <C> Connection<C> connection(RequiredPort<C> from, ProvidedPort<C> to) {
         return new Connection<>(from, to, ConnectionId.between(from, to));
     }
@@ -331,6 +409,13 @@ class ConnectionRoutingTest {
     }
 
     private record EmptyConfig() implements RuntimeConfig {}
+
+    private static final class ControlCapableResource
+        implements AutoCloseable, SemanticControlRouteCapability {
+        @Override
+        public void close() {
+        }
+    }
 
     private static final class TestComponent extends AbstractComponent<EmptyConfig, Void> {
         private TestComponent(String qualifier) {

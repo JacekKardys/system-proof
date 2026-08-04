@@ -9,6 +9,7 @@ import org.testcontainers.Testcontainers;
 import io.github.jacekkardys.systemproof.environment.ConnectionRoute;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouteContext;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouteProvider;
+import io.github.jacekkardys.systemproof.environment.SemanticControlRouteCapability;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
@@ -77,7 +78,8 @@ public final class InteractionGateway {
      * Returns a route provider with bounded protocol-aware observation.
      *
      * <p>The adapter is used only when the matching routing rule requests optional or required
-     * observation. A disabled rule retains the transparent path.
+     * observation. A disabled rule retains the transparent path. The returned provider declares
+     * semantic-control capability only when selected by a required-observation routing rule.
      */
     public <C, E> ConnectionRouteProvider<C> tcp(
         TcpEndpointAdapter<C> endpoints,
@@ -87,7 +89,8 @@ public final class InteractionGateway {
         Objects.requireNonNull(endpoints, "endpoints must not be null");
         Objects.requireNonNull(protocolAdapter, "protocolAdapter must not be null");
         Objects.requireNonNull(protocolLimits, "protocolLimits must not be null");
-        return context -> prepare(context, endpoints, protocolAdapter, protocolLimits);
+        return (ConnectionRouteProvider<C> & SemanticControlRouteCapability) context ->
+            prepare(context, endpoints, protocolAdapter, protocolLimits);
     }
 
     private <C, E> ConnectionRoute<C> prepare(

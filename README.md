@@ -239,7 +239,7 @@ The protected environment runtime seam accepts `ConnectionRouting` without addin
 declarations to the topology DSL. The Testcontainers `InteractionGateway` adds protocol framing
 through a neutral adapter SPI. For every physical socket pair it opens exactly one
 `InteractionSession`, two independent directional protocol streams, and two bounded byte buffers.
-Each complete forwarding unit follows `frame -> record -> correlate -> decide -> forward`: typed
+Each complete forwarding unit follows `frame -> record -> correlate -> permit -> forward`: typed
 evidence is copied into the scenario journal, immutable adapter-produced correlation contributions
 are published for the returned stable `InteractionRef`, and the captured interaction reaches the
 shared coordinator only after its correlation result is visible. A forwarding permit completes the
@@ -278,12 +278,21 @@ and optionally one uniquely correlated `ProofSubjectRef`. Its codec and predicat
 and therefore must be pure, fast, non-blocking, and side-effect free. A selector exception or
 overlapping matching holds fails closed; missing or ambiguous subject correlation does not match.
 
+Arming is accepted only for an exact connection owned by this environment whose routing rule
+declares semantic-control capability: `ROUTED`, `REQUIRED` observation, a complete-unit protocol
+adapter, and the forwarding-permit handshake. The protocol-aware `InteractionGateway.tcp(...)`
+overloads declare that capability. Direct, disabled, optional, transparent/unsupported, and legacy
+custom providers are rejected before a hold is created. Pre-start arming validates the declaration;
+startup then requires the route to materialize the capability with `ACTIVE` observation, and later
+route failure prevents new holds from being armed.
+
 The lifecycle is `ARMED -> REACHED_HELD -> RELEASING -> FORWARDED`, with `CANCELLED`, `TIMED_OUT`,
 and `FAILED` terminal alternatives. The hold duration begins at `REACHED_HELD`. Cancel, timeout, or
 environment teardown closes only the affected physical session without implicitly forwarding the
 retained unit or degrading an otherwise healthy route. `release()` completes only after the gateway
-reports the result of its single write/flush attempt. A transport failure is never retried and never
-produces a false `FORWARDED`, but it cannot prove that the remote endpoint received no partial bytes.
+reports the result of its single write/flush attempt. Checked and unchecked output failures are
+reported exactly once, never retried, and never produce a false `FORWARDED`, but the framework cannot
+prove that the remote endpoint received no partial bytes.
 
 One directional pump processes units sequentially, so later same-session, same-direction units
 cannot overtake a held unit. Opposite directions, other sessions, and other connections have their

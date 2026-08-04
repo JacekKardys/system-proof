@@ -39,16 +39,20 @@ final class EnvironmentRuntimeFactory {
             new JournalSlf4jEmitter(logging, renderer)
         );
         ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);
+        SemanticControlCapabilityRegistry controlCapabilities =
+            new SemanticControlCapabilityRegistry();
         SemanticControlCoordinator controls = new SemanticControlCoordinator(
             events,
-            proofSubjects
+            proofSubjects,
+            controlCapabilities
         );
         RuntimeConnectionRegistry connections = new RuntimeConnectionRegistry(
             topology.connections(),
             events,
             routing,
             controls,
-            proofSubjects
+            proofSubjects,
+            controlCapabilities
         );
         RuntimeBindings bindings = new RuntimeBindings(connections);
         RuntimeDiagnostics diagnostics = new RuntimeDiagnostics(journal, renderer);

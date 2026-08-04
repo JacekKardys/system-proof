@@ -42,6 +42,7 @@ import io.github.jacekkardys.systemproof.environment.RuntimeEndpointBindings;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
+import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 
 class CoreArchitectureTest {
     private static final Path CLASSES = Path.of("target/classes");
@@ -118,6 +119,7 @@ class CoreArchitectureTest {
         environment.CorrelationContribution
         environment.InteractionSession
         environment.ObservationStatusProvider
+        environment.SemanticControlRouteCapability
         observation.EvidenceCodec
         observation.ForwardingPermit
         observation.InteractionDecisionCoordinator
@@ -473,6 +475,10 @@ class CoreArchitectureTest {
                 "publishBindingsTo(environment.RuntimeEndpointBindings):void",
                 "runtime():driver.ComponentRuntime$Builder",
                 "runtime(java.lang.AutoCloseable):driver.ComponentRuntime$Builder"
+            );
+        assertThat(methodKeys(InteractionDecisionCoordinator.class))
+            .containsExactly(
+                "permit(observation.RecordedInteraction):observation.ForwardingPermit"
             );
         assertThat(methodKeys(EnvironmentTopology.class))
             .containsExactly(

@@ -23,6 +23,8 @@ import io.github.jacekkardys.systemproof.environment.InteractionSession;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
+import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
@@ -362,11 +364,32 @@ class GatewayRouteLifecycleTest {
             TIMEOUT,
             requirement,
             observations(),
-            interactionRef -> FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter(),
             LIMITS,
             () -> listener
         );
+    }
+
+    private static ForwardingPermit immediateForwardPermit() {
+        return new ForwardingPermit() {
+            @Override
+            public ForwardingDecision awaitDecision() {
+                return FORWARD;
+            }
+
+            @Override
+            public void forwarded() {
+            }
+
+            @Override
+            public void writeFailed() {
+            }
+
+            @Override
+            public void abandoned() {
+            }
+        };
     }
 
     private static ConnectionObservations observations() {

@@ -5,6 +5,7 @@ import static io.github.jacekkardys.systemproof.environment.ComponentPortFactory
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.assertj.core.groups.Tuple.tuple;
@@ -80,6 +81,45 @@ class InteractionGatewayTest {
         contract("command", CommandEndpoint.class);
     private static final Contract<SessionEndpoint> SESSION =
         contract("session", SessionEndpoint.class);
+
+    @Test
+    void shouldRejectSemanticArmForOutsideOptionalAndTransparentConnections() {
+        ControllableGatewayListener listener = ControllableGatewayListener.scripted(32139);
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.OPTIONAL,
+            listener
+        );
+        ConnectionId optional = environment.runtimeConnections().stream()
+            .filter(snapshot -> snapshot.observationRequirement()
+                == ObservationRequirement.OPTIONAL)
+            .findFirst()
+            .orElseThrow()
+            .id();
+        ConnectionId transparent = environment.runtimeConnections().stream()
+            .filter(snapshot -> snapshot.observationRequirement()
+                == ObservationRequirement.DISABLED)
+            .findFirst()
+            .orElseThrow()
+            .id();
+
+        assertThatThrownBy(() -> environment.controls().arm(
+            semanticSelector(ConnectionId.of("outside[].out->missing[].in")),
+            Duration.ofSeconds(5)
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("outside the environment");
+        assertThatThrownBy(() -> environment.controls().arm(
+            semanticSelector(optional),
+            Duration.ofSeconds(5)
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("does not declare semantic-control capability");
+        assertThatThrownBy(() -> environment.controls().arm(
+            semanticSelector(transparent),
+            Duration.ofSeconds(5)
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("does not declare semantic-control capability");
+
+        environment.close();
+    }
 
     @Test
     void shouldExposeProductionArmReachReleaseWorkflowWithJournaledZeroByteHold()
@@ -244,6 +284,62 @@ class InteractionGatewayTest {
         } finally {
             environment.close();
         }
+    }
+
+    @Test
+    void shouldForwardOrdinaryFrameEmittedByComponentCleanup() throws Exception {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameServer> frameServer = new AtomicReference<>();
+        AtomicInteger cleanupFrames = new AtomicInteger();
+        byte[] cleanupFrame = LengthPrefixedProtocolAdapter.frame("cleanup-logout");
+        Server server = correlationServer(frameServer);
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            CommandEndpoint command = context.resolve(typed.command);
+            SessionEndpoint session = context.resolve(typed.session);
+            return ComponentRuntime.<ResolvedRoutes>runtime(() -> {
+                try (Socket socket = connect(listenerAddresses.getFirst())) {
+                    socket.getOutputStream().write(cleanupFrame);
+                    socket.getOutputStream().flush();
+                    assertThat(frameServer.get().awaitPayload())
+                        .isEqualTo("cleanup-logout".getBytes(UTF_8));
+                    cleanupFrames.incrementAndGet();
+                }
+            })
+                .operations(new ResolvedRoutes(command, session))
+                .build();
+        });
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            ObservationRequirement.REQUIRED,
+            gateway.tcp(
+                commandAdapter("cleanup-route", listenerAddresses, new ArrayList<>()),
+                new LengthPrefixedProtocolAdapter(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "cleanup-session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        RoutedEnvironment environment = routedEnvironment(builder, routing);
+
+        environment.start();
+        environment.close();
+
+        assertThat(cleanupFrames).hasValue(1);
+        assertThat(environment.journalSnapshot().entries().stream()
+            .map(entry -> entry.event())
+            .filter(SemanticHoldEvent.class::isInstance))
+            .isEmpty();
     }
 
     @Test
@@ -444,6 +540,17 @@ class InteractionGatewayTest {
             ObservationRequirement.REQUIRED,
             EffectiveObservationStatus.FAILED
         );
+        ConnectionId failedConnection = environment.runtimeConnections().stream()
+            .filter(snapshot -> snapshot.observationRequirement()
+                == ObservationRequirement.REQUIRED)
+            .findFirst()
+            .orElseThrow()
+            .id();
+        assertThatThrownBy(() -> environment.controls().arm(
+            semanticSelector(failedConnection),
+            Duration.ofSeconds(5)
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("does not currently have active semantic-control capability");
         socket.releaseSetup();
         socket.awaitCloseEntered();
 
@@ -990,6 +1097,17 @@ class InteractionGatewayTest {
             .findFirst()
             .orElseThrow()
             .effectiveObservationStatus();
+    }
+
+    private static SemanticHoldSelector<
+        LengthPrefixedProtocolAdapter.FrameEvidence
+    > semanticSelector(ConnectionId connectionId) {
+        return SemanticHoldSelector.matching(
+            connectionId,
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            LengthPrefixedProtocolAdapter.CODEC,
+            ignored -> true
+        );
     }
 
     private static void awaitObservationStatus(

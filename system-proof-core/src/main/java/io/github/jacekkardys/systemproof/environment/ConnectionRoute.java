@@ -86,6 +86,10 @@ public final class ConnectionRoute<C> {
         );
     }
 
+    boolean semanticControlsMaterialized() {
+        return resource instanceof SemanticControlRouteCapability;
+    }
+
     synchronized void close() throws Exception {
         if (closed) {
             return;

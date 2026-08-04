@@ -43,6 +43,40 @@ class SemanticControlCoordinatorTest {
     private static final EvidenceCodec<String> OTHER_CODEC = codec("other-message");
 
     @Test
+    void shouldRejectArmUnlessConnectionBelongsToEnvironmentAndDeclaresAvailableCapability() {
+        Fixture outside = fixture();
+        assertThatThrownBy(() -> outside.coordinator.arm(
+            selector(OTHER_CONNECTION, "target"),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessage("Connection 'other[].out->server[].in' is outside the environment");
+
+        Fixture unsupported = fixture(
+            SemanticControlCapabilityRegistry.Availability.UNSUPPORTED
+        );
+        assertThatThrownBy(() -> unsupported.coordinator.arm(
+            selector("target"),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("does not declare semantic-control capability");
+
+        Fixture unavailable = fixture(
+            SemanticControlCapabilityRegistry.Availability.UNAVAILABLE
+        );
+        assertThatThrownBy(() -> unavailable.coordinator.arm(
+            selector("target"),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("does not currently have active semantic-control capability");
+
+        Fixture available = fixture(
+            SemanticControlCapabilityRegistry.Availability.AVAILABLE
+        );
+        SemanticHold hold = available.coordinator.arm(selector("target"), MAXIMUM_HOLD);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
     void shouldArmMatchJournalReachReleaseAndCompleteOnlyAfterForwardedCallback()
         throws Exception {
         Fixture fixture = fixture();
@@ -227,6 +261,51 @@ class SemanticControlCoordinatorTest {
         assertThat(release.toCompletableFuture()).isCompletedExceptionally();
         assertThat(events(failureFixture).getLast().failure())
             .contains(SemanticHoldFailure.WRITE_FAILURE);
+        assertThat(states(failureFixture).stream()
+            .filter(SemanticControlCoordinatorTest::terminal))
+            .containsExactly(SemanticHoldState.FAILED);
+    }
+
+    @Test
+    void shouldKeepReachedHistoricalWhenTimeoutRunsBeforeReachedFuturePublication()
+        throws Exception {
+        ScenarioJournal journal = ScenarioJournal.withoutDiagnosticTime();
+        EnvironmentEventPublisher events = new EnvironmentEventPublisher(
+            journal,
+            EnvironmentLogging.defaults()
+        );
+        ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);
+        SemanticControlCapabilityRegistry capabilities =
+            new SemanticControlCapabilityRegistry();
+        capabilities.register(
+            CONNECTION,
+            () -> SemanticControlCapabilityRegistry.Availability.DECLARED
+        );
+        ImmediateTimeoutScheduler scheduler = new ImmediateTimeoutScheduler();
+        SemanticControlCoordinator coordinator = new SemanticControlCoordinator(
+            events,
+            proofSubjects,
+            capabilities,
+            scheduler
+        );
+        SemanticHold hold = coordinator.arm(selector("target"), MAXIMUM_HOLD);
+
+        ForwardingPermit permit = coordinator.permit(interaction("target", 1));
+
+        assertThat(await(hold.reached())).isEqualTo(interactionRef(1));
+        assertThat(await(hold.completion())).isEqualTo(SemanticHoldState.TIMED_OUT);
+        assertThat(permit.awaitDecision()).isEqualTo(ForwardingDecision.CLOSE_SESSION);
+        assertThat(journal.snapshot().entries().stream()
+            .map(entry -> entry.event())
+            .filter(SemanticHoldEvent.class::isInstance)
+            .map(SemanticHoldEvent.class::cast)
+            .map(SemanticHoldEvent::state))
+            .containsExactly(
+                SemanticHoldState.ARMED,
+                SemanticHoldState.REACHED_HELD,
+                SemanticHoldState.TIMED_OUT
+            );
+        assertThat(scheduler.cancelled).isTrue();
     }
 
     @Test
@@ -465,10 +544,22 @@ class SemanticControlCoordinatorTest {
         releasingPermit.forwarded();
         assertThat(await(release)).isNull();
         assertThat(releasing.state()).isEqualTo(SemanticHoldState.FORWARDED);
+        assertImmediate(fixture.coordinator.permit(interaction("cleanup", 3)));
+        assertThatThrownBy(() -> fixture.coordinator.arm(
+            selector("late"),
+            MAXIMUM_HOLD
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("cannot arm semantic holds");
         assertThat(fixture.scheduler.closed).isTrue();
     }
 
     private static Fixture fixture() {
+        return fixture(SemanticControlCapabilityRegistry.Availability.DECLARED);
+    }
+
+    private static Fixture fixture(
+        SemanticControlCapabilityRegistry.Availability availability
+    ) {
         ScenarioJournal journal = ScenarioJournal.withoutDiagnosticTime();
         EnvironmentEventPublisher events = new EnvironmentEventPublisher(
             journal,
@@ -476,8 +567,19 @@ class SemanticControlCoordinatorTest {
         );
         ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);
         ManualTimeoutScheduler scheduler = new ManualTimeoutScheduler();
+        SemanticControlCapabilityRegistry capabilities =
+            new SemanticControlCapabilityRegistry();
+        capabilities.register(
+            CONNECTION,
+            () -> availability
+        );
         return new Fixture(
-            new SemanticControlCoordinator(events, proofSubjects, scheduler),
+            new SemanticControlCoordinator(
+                events,
+                proofSubjects,
+                capabilities,
+                scheduler
+            ),
             proofSubjects,
             journal,
             scheduler
@@ -485,8 +587,15 @@ class SemanticControlCoordinatorTest {
     }
 
     private static SemanticHoldSelector<String> selector(String expected) {
+        return selector(CONNECTION, expected);
+    }
+
+    private static SemanticHoldSelector<String> selector(
+        ConnectionId connectionId,
+        String expected
+    ) {
         return SemanticHoldSelector.matching(
-            CONNECTION,
+            connectionId,
             FlowDirection.CONSUMER_TO_PROVIDER,
             CODEC,
             expected::equals
@@ -604,6 +713,25 @@ class SemanticControlCoordinatorTest {
         ScenarioJournal journal,
         ManualTimeoutScheduler scheduler
     ) {}
+
+    private static final class ImmediateTimeoutScheduler
+        implements SemanticControlCoordinator.TimeoutScheduler {
+        private boolean cancelled;
+
+        @Override
+        public SemanticControlCoordinator.TimeoutTask schedule(
+            Duration delay,
+            Runnable action
+        ) {
+            assertThat(delay).isPositive();
+            action.run();
+            return () -> cancelled = true;
+        }
+
+        @Override
+        public void close() {
+        }
+    }
 
     private static final class ManualTimeoutScheduler
         implements SemanticControlCoordinator.TimeoutScheduler {

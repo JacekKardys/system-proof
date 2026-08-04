@@ -149,7 +149,7 @@ whole.
   `DriverContext`, `DriverResourceKey`, `DiagnosticSource`, `JournalContributions`.
 - Routing/session SPI: `ConnectionObservations`, `ConnectionRoute`, `ConnectionRouteContext`,
   `ConnectionRouteProvider`, `CorrelationContribution`, `InteractionSession`,
-  `ObservationStatusProvider`.
+  `ObservationStatusProvider`, `SemanticControlRouteCapability`.
 - Observation SPI: `EvidenceCodec`, `ForwardingPermit`, `InteractionDecisionCoordinator`.
 
 Route selection, preparation, consumer-target access, observation-status extraction, and route

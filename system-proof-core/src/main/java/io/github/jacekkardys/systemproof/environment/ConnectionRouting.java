@@ -268,6 +268,18 @@ public final class ConnectionRouting {
             return Objects.requireNonNull(route, "route must not be null").observationStatus();
         }
 
+        boolean semanticControlsDeclared() {
+            return mode == RoutingMode.ROUTED
+                && observationRequirement == ObservationRequirement.REQUIRED
+                && provider instanceof SemanticControlRouteCapability;
+        }
+
+        boolean semanticControlsMaterialized(ConnectionRoute<C> route) {
+            return semanticControlsDeclared()
+                && Objects.requireNonNull(route, "route must not be null")
+                    .semanticControlsMaterialized();
+        }
+
         void close(ConnectionRoute<C> route) throws Exception {
             Objects.requireNonNull(route, "route must not be null").close();
         }

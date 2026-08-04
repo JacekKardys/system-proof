@@ -31,6 +31,7 @@ import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordina
 import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
 import io.github.jacekkardys.systemproof.environment.InteractionSession;
 import io.github.jacekkardys.systemproof.environment.ObservationStatusProvider;
+import io.github.jacekkardys.systemproof.environment.SemanticControlRouteCapability;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
@@ -49,7 +50,8 @@ import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
  * close performs deterministic cleanup once and propagates the listener cause with cleanup
  * failures suppressed.
  */
-final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider {
+final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
+    SemanticControlRouteCapability {
     private static final Logger LOG = LoggerFactory.getLogger(GatewayRoute.class);
     private static final int MAXIMUM_READ_CHUNK_BYTES = 8 * 1024;
 

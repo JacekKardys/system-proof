@@ -121,7 +121,7 @@ class ObserveBeforeForwardGatewayTest {
             RouteFixture second = RouteFixture.required(
                 SECOND_CONNECTION,
                 secondObservations,
-                interaction -> ForwardingDecision.FORWARD,
+                interaction -> immediateForwardPermit(),
                 new LengthPrefixedProtocolAdapter(),
                 LIMITS
             );
@@ -249,7 +249,8 @@ class ObserveBeforeForwardGatewayTest {
         CountDownLatch decisionEntered = new CountDownLatch(1);
         CountDownLatch allowDecision = new CountDownLatch(1);
         List<InteractionRef> decisions = new ArrayList<>();
-        InteractionDecisionCoordinator coordinator = interactionRef -> {
+        InteractionDecisionCoordinator coordinator = interaction -> {
+            InteractionRef interactionRef = interaction.interactionRef();
             assertThat(observations.contains(interactionRef)).isTrue();
             synchronized (decisions) {
                 decisions.add(interactionRef);
@@ -258,7 +259,7 @@ class ObserveBeforeForwardGatewayTest {
                 decisionEntered.countDown();
                 await(allowDecision, "first forwarding decision was not released");
             }
-            return ForwardingDecision.FORWARD;
+            return immediateForwardPermit();
         };
         byte[] first = LengthPrefixedProtocolAdapter.frame("alpha");
         byte[] second = LengthPrefixedProtocolAdapter.frame("beta");
@@ -338,7 +339,7 @@ class ObserveBeforeForwardGatewayTest {
         try (RouteFixture fixture = RouteFixture.required(
             FIRST_CONNECTION,
             observations,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter(),
             LIMITS
         )) {
@@ -461,7 +462,7 @@ class ObserveBeforeForwardGatewayTest {
             new RecordingObservations(FIRST_CONNECTION);
         assertPipelineFailure(
             codecObservations,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             codecFailure
         );
         assertThat(codecObservations.events()).isEmpty();
@@ -470,7 +471,7 @@ class ObserveBeforeForwardGatewayTest {
             new RecordingObservations(FIRST_CONNECTION, true);
         assertPipelineFailure(
             journalFailure,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter()
         );
         assertThat(journalFailure.events()).isEmpty();
@@ -495,7 +496,7 @@ class ObserveBeforeForwardGatewayTest {
             () -> {
                 throw new AssertionError("observation session initialization secret");
             },
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter(),
             new byte[0],
             false,
@@ -521,7 +522,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             new RecordingObservations(FIRST_CONNECTION),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             codecInitializationError,
             new byte[0],
             false,
@@ -538,7 +539,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             new RecordingObservations(FIRST_CONNECTION),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             adapterSessionError,
             new byte[0],
             false,
@@ -555,7 +556,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             new RecordingObservations(FIRST_CONNECTION),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             streamError,
             new byte[0],
             false,
@@ -581,7 +582,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             new RecordingObservations(FIRST_CONNECTION),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             decodeError,
             LengthPrefixedProtocolAdapter.frame("undecided"),
             false,
@@ -608,7 +609,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             new RecordingObservations(FIRST_CONNECTION),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             endOfInputError,
             new byte[0],
             true,
@@ -632,7 +633,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             observationError,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter(),
             LengthPrefixedProtocolAdapter.frame("undecided"),
             false,
@@ -693,7 +694,7 @@ class ObserveBeforeForwardGatewayTest {
             FIRST_CONNECTION,
             ObservationRequirement.OPTIONAL,
             observations,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             new LengthPrefixedProtocolAdapter(),
             LIMITS
         )) {
@@ -722,9 +723,9 @@ class ObserveBeforeForwardGatewayTest {
         List<InteractionRef> decisions = java.util.Collections.synchronizedList(
             new ArrayList<>()
         );
-        InteractionDecisionCoordinator coordinator = interactionRef -> {
-            decisions.add(interactionRef);
-            return ForwardingDecision.FORWARD;
+        InteractionDecisionCoordinator coordinator = interaction -> {
+            decisions.add(interaction.interactionRef());
+            return immediateForwardPermit();
         };
         RecordingObservations firstObservations =
             new RecordingObservations(FIRST_CONNECTION);
@@ -781,7 +782,8 @@ class ObserveBeforeForwardGatewayTest {
         observations.arm("missing", missingKey);
         List<InteractionRef> decisions = new ArrayList<>();
         AtomicInteger firstKeyDecisions = new AtomicInteger();
-        InteractionDecisionCoordinator coordinator = interactionRef -> {
+        InteractionDecisionCoordinator coordinator = interaction -> {
+            InteractionRef interactionRef = interaction.interactionRef();
             CorrelationKey publishedKey = observations.publishedKey(interactionRef);
             assertThat(publishedKey)
                 .as("correlation must be published before decision")
@@ -802,7 +804,7 @@ class ObserveBeforeForwardGatewayTest {
             assertThat(observations.cardinality("missing", missingKey))
                 .isEqualTo(CorrelationCardinality.MISSING);
             decisions.add(interactionRef);
-            return ForwardingDecision.FORWARD;
+            return immediateForwardPermit();
         };
         byte[] first = LengthPrefixedProtocolAdapter.frame("first-subject");
         byte[] second = LengthPrefixedProtocolAdapter.frame("second-subject");
@@ -858,7 +860,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.REQUIRED,
             failingCorrelation(new IllegalStateException("correlation runtime secret")),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             LengthPrefixedProtocolAdapter.correlating(),
             undecided,
             false,
@@ -867,7 +869,7 @@ class ObserveBeforeForwardGatewayTest {
         assertCallbackError(
             ObservationRequirement.OPTIONAL,
             failingCorrelation(new AssertionError("correlation error secret")),
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             LengthPrefixedProtocolAdapter.correlating(),
             undecided,
             false,
@@ -885,7 +887,7 @@ class ObserveBeforeForwardGatewayTest {
         try (RouteFixture fixture = RouteFixture.required(
             FIRST_CONNECTION,
             observations,
-            interactionRef -> ForwardingDecision.FORWARD,
+            interaction -> immediateForwardPermit(),
             adapter,
             limits
         )) {
@@ -1062,11 +1064,6 @@ class ObserveBeforeForwardGatewayTest {
         }
 
         @Override
-        public ForwardingDecision decide(InteractionRef interactionRef) {
-            return ForwardingDecision.FORWARD;
-        }
-
-        @Override
         public ForwardingPermit permit(RecordedInteraction interaction) {
             if (interaction.interactionRef().direction()
                 == FlowDirection.CONSUMER_TO_PROVIDER
@@ -1074,7 +1071,7 @@ class ObserveBeforeForwardGatewayTest {
                 held.reached.countDown();
                 return held;
             }
-            return InteractionDecisionCoordinator.super.permit(interaction);
+            return immediateForwardPermit();
         }
     }
 
@@ -1088,11 +1085,6 @@ class ObserveBeforeForwardGatewayTest {
         }
 
         @Override
-        public ForwardingDecision decide(InteractionRef interactionRef) {
-            return ForwardingDecision.FORWARD;
-        }
-
-        @Override
         public ForwardingPermit permit(RecordedInteraction interaction) {
             if (interaction.interactionRef().direction()
                 == FlowDirection.CONSUMER_TO_PROVIDER
@@ -1100,8 +1092,29 @@ class ObserveBeforeForwardGatewayTest {
                 held.reached.countDown();
                 return held;
             }
-            return InteractionDecisionCoordinator.super.permit(interaction);
+            return immediateForwardPermit();
         }
+    }
+
+    private static ForwardingPermit immediateForwardPermit() {
+        return new ForwardingPermit() {
+            @Override
+            public ForwardingDecision awaitDecision() {
+                return ForwardingDecision.FORWARD;
+            }
+
+            @Override
+            public void forwarded() {
+            }
+
+            @Override
+            public void writeFailed() {
+            }
+
+            @Override
+            public void abandoned() {
+            }
+        };
     }
 
     private static final class FragmentProbeAdapter

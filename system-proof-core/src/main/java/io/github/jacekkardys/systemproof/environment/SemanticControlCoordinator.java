@@ -41,27 +41,39 @@ final class SemanticControlCoordinator
     private final Object owner = new Object();
     private final EnvironmentEventPublisher events;
     private final ProofSubjectRegistry proofSubjects;
+    private final SemanticControlCapabilityRegistry controlCapabilities;
     private final TimeoutScheduler timeoutScheduler;
     private final Map<RuntimeSemanticHoldRef, HoldEntry> active = new LinkedHashMap<>();
     private long nextHoldValue = FIRST_HOLD_VALUE;
-    private boolean accepting = true;
+    private boolean acceptingNewHolds = true;
 
     SemanticControlCoordinator(
         EnvironmentEventPublisher events,
-        ProofSubjectRegistry proofSubjects
+        ProofSubjectRegistry proofSubjects,
+        SemanticControlCapabilityRegistry controlCapabilities
     ) {
-        this(events, proofSubjects, new SystemTimeoutScheduler());
+        this(
+            events,
+            proofSubjects,
+            controlCapabilities,
+            new SystemTimeoutScheduler()
+        );
     }
 
     SemanticControlCoordinator(
         EnvironmentEventPublisher events,
         ProofSubjectRegistry proofSubjects,
+        SemanticControlCapabilityRegistry controlCapabilities,
         TimeoutScheduler timeoutScheduler
     ) {
         this.events = Objects.requireNonNull(events, "events must not be null");
         this.proofSubjects = Objects.requireNonNull(
             proofSubjects,
             "proofSubjects must not be null"
+        );
+        this.controlCapabilities = Objects.requireNonNull(
+            controlCapabilities,
+            "controlCapabilities must not be null"
         );
         this.timeoutScheduler = Objects.requireNonNull(
             timeoutScheduler,
@@ -81,6 +93,7 @@ final class SemanticControlCoordinator
         );
         synchronized (this) {
             requireAccepting();
+            controlCapabilities.validateArm(selector.connectionId());
             selector.proofSubject().ifPresent(proofSubjects::validateSubject);
             RuntimeSemanticHoldRef ref = nextReference();
             HoldEntry entry = new HoldEntry(ref, selector, maximumHoldDuration);
@@ -88,14 +101,6 @@ final class SemanticControlCoordinator
             append(entry, SemanticHoldState.ARMED, Optional.empty());
             return new SemanticHoldHandle(this, entry);
         }
-    }
-
-    @Override
-    public ForwardingDecision decide(InteractionRef interactionRef) {
-        Objects.requireNonNull(interactionRef, "interactionRef must not be null");
-        throw new UnsupportedOperationException(
-            "Semantic controls require a recorded interaction with captured evidence"
-        );
     }
 
     @Override
@@ -114,10 +119,6 @@ final class SemanticControlCoordinator
         RecordedInteraction interaction,
         List<Runnable> afterTransition
     ) {
-        if (!accepting) {
-            return CLOSE_SESSION;
-        }
-
         List<HoldEntry> matches = new ArrayList<>();
         for (HoldEntry entry : active.values()) {
             if (entry.state != SemanticHoldState.ARMED
@@ -169,18 +170,24 @@ final class SemanticControlCoordinator
         HoldEntry matched = matches.getFirst();
         matched.interactionRef = interaction.interactionRef();
         transitionLocked(matched, SemanticHoldState.REACHED_HELD, Optional.empty());
+        matched.reachedEstablished = true;
+        afterTransition.add(() -> matched.reached.complete(matched.interactionRef));
         HeldForwardingPermit permit = new HeldForwardingPermit(this, matched);
         matched.permit = permit;
         try {
-            matched.timeoutTask = timeoutScheduler.schedule(
+            TimeoutTask scheduled = timeoutScheduler.schedule(
                 matched.maximumHoldDuration,
                 () -> timeout(matched)
             );
+            if (matched.state == SemanticHoldState.REACHED_HELD) {
+                matched.timeoutTask = scheduled;
+            } else {
+                scheduled.cancel();
+            }
         } catch (RuntimeException | Error schedulingFailure) {
             failLocked(matched, SemanticHoldFailure.INTERNAL_FAILURE, afterTransition);
             return CLOSE_SESSION;
         }
-        afterTransition.add(() -> matched.reached.complete(matched.interactionRef));
         return permit;
     }
 
@@ -282,10 +289,10 @@ final class SemanticControlCoordinator
     void completeExecution() {
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
-            if (!accepting) {
+            if (!acceptingNewHolds) {
                 return;
             }
-            accepting = false;
+            acceptingNewHolds = false;
             for (HoldEntry entry : List.copyOf(active.values())) {
                 if (entry.state == SemanticHoldState.ARMED
                     || entry.state == SemanticHoldState.REACHED_HELD) {
@@ -332,7 +339,7 @@ final class SemanticControlCoordinator
             );
         }
         IllegalStateException terminalFailure = terminalFailure(entry);
-        if (!entry.reached.isDone()) {
+        if (!entry.reachedEstablished && !entry.reached.isDone()) {
             afterTransition.add(() -> entry.reached.completeExceptionally(terminalFailure));
         }
         if (terminalState == SemanticHoldState.FORWARDED) {
@@ -385,7 +392,7 @@ final class SemanticControlCoordinator
     }
 
     private void requireAccepting() {
-        if (!accepting) {
+        if (!acceptingNewHolds) {
             throw new IllegalStateException(
                 "Environment execution is complete and cannot arm semantic holds"
             );
@@ -486,6 +493,7 @@ final class SemanticControlCoordinator
         private SemanticHoldSelector<?> selector;
         private SemanticHoldState state = SemanticHoldState.ARMED;
         private InteractionRef interactionRef;
+        private boolean reachedEstablished;
         private HeldForwardingPermit permit;
         private TimeoutTask timeoutTask;
 
