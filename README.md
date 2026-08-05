@@ -7,8 +7,9 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 
 ```text
 system-proof-examples -> system-proof-junit5        -> system-proof-core
-        |------------> system-proof-testcontainers -> system-proof-core
-        `------------------------------------------> system-proof-core
+        |------------> system-proof-postgresql      -> system-proof-testcontainers -> system-proof-core
+        |------------> system-proof-testcontainers  -> system-proof-core
+        `-------------------------------------------> system-proof-core
 
 system-proof-examples/apps
         `-> system-proof-ingestion-service
@@ -22,6 +23,8 @@ system-proof-examples/fixtures
   failure artifacts.
 - `system-proof-testcontainers`: container-backed drivers, runtime port bindings, and test-JVM
   interaction gateway routes.
+- `system-proof-postgresql`: bounded plaintext PostgreSQL v3 observation, exact explicit-commit
+  control, typed transaction evidence, write correlation, and independent durability preflight.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
 - `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
 - `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
@@ -30,6 +33,12 @@ Core is independent of JUnit and Testcontainers. The JUnit 5 module is independe
 Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
 `Junit5ModuleBoundaryTest` and recorded with the T1 baseline in
 [`docs/adr/0001-t1-proof-contract.md`](docs/adr/0001-t1-proof-contract.md).
+
+The PostgreSQL adapter is intentionally not a general proxy. Its characterized pgJDBC subset,
+commit-success definition, plaintext/TLS boundary, memory limits, and durability preflight are in the
+[`system-proof-postgresql` module](system-proof-postgresql/README.md) and
+[`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). This evidence does not yet implement AML
+attribution or claim the final T1 proof.
 
 ## Minimal test
 
@@ -218,7 +227,8 @@ An immutable routing policy can contain multiple rules keyed by semantic `Contra
 structured `ConnectionId`; connection-specific rules take precedence and unmatched connections stay
 direct. The provider receives one immutable `ConnectionRouteContext<C>` containing that
 connection's stable descriptor, direct binding, observation requirement, connection-bound
-observation capability, and the one environment-scoped decision coordinator. It then returns the
+observation capability, optional scenario-owned `RequiredObservationProfile`, and the one
+environment-scoped decision coordinator. It then returns the
 effective binding, effective observation-status provider, and an optional connection-owned
 resource. All routes for one provider are prepared before any targeted connection becomes
 `RUNNING`. Partial creation closes already prepared resources in reverse order and retains cleanup
@@ -234,6 +244,12 @@ traffic was observed. Observation is configured independently as `DISABLED`, `OP
 `DEGRADED`. Required routes must start `ACTIVE` and fail closed to `FAILED` rather than silently
 relaying undecided bytes. Requested observation is `PENDING` before route preparation, and a
 cleanly stopped formerly active route is `INACTIVE`.
+
+A required observation profile belongs to the scenario/routing rule, not the adapter. It declares
+protocol-neutral evidence and native-reference schema IDs, capabilities, and required features for
+one selected `ConnectionId`. Route preparation compares it with the adapter-provided
+profile before a listener or protocol session is opened. Different connections using one provider
+may require different profiles.
 
 The protected environment runtime seam accepts `ConnectionRouting` without adding route or proxy
 declarations to the topology DSL. The Testcontainers `InteractionGateway` adds protocol framing
@@ -263,7 +279,11 @@ SemanticHold hold = environment.controls().arm(
         FlowDirection.CONSUMER_TO_PROVIDER,
         evidenceCodec,
         evidence -> evidence.matchesExpectedValue()
-    ).forSubject(subject), // optional
+    ).forSubject(subject).through(
+        correlationKey,
+        nativeReferenceCodec,
+        evidence -> evidence.nativeFlowReference()
+    ), // optional native-flow constraint
     Duration.ofSeconds(10)
 );
 
@@ -274,15 +294,22 @@ hold.release().toCompletableFuture().join();
 ```
 
 The selector matches an exact `ConnectionId`, exact `FlowDirection`, evidence schema, typed value,
-and optionally one uniquely correlated `ProofSubjectRef`. Its codec and predicate run synchronously
-and therefore must be pure, fast, non-blocking, and side-effect free. A selector exception or
-overlapping matching holds fails closed; missing or ambiguous subject correlation does not match.
+and optionally one uniquely correlated `ProofSubjectRef`. `through(...)` allows the hold to be
+armed before traffic and joins later evidence to the subject's sole unique native reference only
+when the contribution and held candidate belong to the same logical connection and exact physical
+gateway session. Their directions may differ; equal native-reference bytes on another connection
+or session never join. The two facts need not share one `InteractionRef`. Its codecs, predicate,
+and extractor run synchronously and therefore must be pure, fast, non-blocking, and side-effect
+free. A selector exception or overlapping matching holds fails closed; missing or ambiguous
+subject correlation does not match.
 
 Arming is accepted only for an exact connection owned by this environment whose routing rule
 declares semantic-control capability: `ROUTED`, `REQUIRED` observation, a complete-unit protocol
 adapter, and the forwarding-permit handshake. The protocol-aware `InteractionGateway.tcp(...)`
-overloads declare that capability. Direct, disabled, optional, transparent/unsupported, and legacy
-custom providers are rejected before a hold is created. Pre-start arming validates the declaration;
+overloads declare that capability. The selector's evidence schema and optional native-flow schema
+must also equal the active required profile for that exact connection. Direct, disabled, optional,
+transparent/unsupported, profile-less, and legacy custom providers are rejected before a hold is
+created. Pre-start arming validates the declaration;
 startup then requires the route to materialize the capability with `ACTIVE` observation, and later
 route failure prevents new holds from being armed.
 
@@ -293,6 +320,14 @@ retained unit or degrading an otherwise healthy route. `release()` completes onl
 reports the result of its single write/flush attempt. Checked and unchecked output failures are
 reported exactly once, never retried, and never produce a false `FORWARDED`, but the framework cannot
 prove that the remote endpoint received no partial bytes.
+
+For a reached `through(...)` hold, `release()` revalidates the exact subject, key, originating
+`InteractionRef`, gateway session, connection, and native-reference snapshot that caused the match.
+This synchronized registry check immediately before the `RELEASING` transition is the release
+linearization point. If the candidate is no longer the subject's sole unique native flow, release
+fails with `CORRELATION_INVALIDATED`, closes that physical session, forwards no held byte, and
+completes exceptionally. A contribution published after the linearization point does not revoke an
+already authorized release.
 
 One directional pump processes units sequentially, so later same-session, same-direction units
 cannot overtake a held unit. Opposite directions, other sessions, and other connections have their

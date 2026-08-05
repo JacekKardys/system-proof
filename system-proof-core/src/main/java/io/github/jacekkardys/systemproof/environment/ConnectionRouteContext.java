@@ -1,10 +1,12 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
+import java.util.Optional;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
 
 /**
  * Immutable preparation input for one exact materialized runtime connection.
@@ -16,6 +18,7 @@ import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 public final class ConnectionRouteContext<C> {
     private final ConnectionDescriptor connection;
     private final ObservationRequirement observationRequirement;
+    private final RequiredObservationProfile requiredObservationProfile;
     private final ConnectionObservations observations;
     private final InteractionDecisionCoordinator coordinator;
     private final EndpointBinding<C> directTarget;
@@ -23,6 +26,7 @@ public final class ConnectionRouteContext<C> {
     ConnectionRouteContext(
         ConnectionDescriptor connection,
         ObservationRequirement observationRequirement,
+        RequiredObservationProfile requiredObservationProfile,
         ConnectionObservations observations,
         InteractionDecisionCoordinator coordinator,
         EndpointBinding<C> directTarget
@@ -32,6 +36,7 @@ public final class ConnectionRouteContext<C> {
             observationRequirement,
             "observationRequirement must not be null"
         );
+        this.requiredObservationProfile = requiredObservationProfile;
         this.observations = Objects.requireNonNull(
             observations,
             "observations must not be null"
@@ -50,6 +55,11 @@ public final class ConnectionRouteContext<C> {
 
     public ObservationRequirement observationRequirement() {
         return observationRequirement;
+    }
+
+    /** Returns scenario-owned protocol requirements for this exact connection, when declared. */
+    public Optional<RequiredObservationProfile> requiredObservationProfile() {
+        return Optional.ofNullable(requiredObservationProfile);
     }
 
     public InteractionDecisionCoordinator coordinator() {

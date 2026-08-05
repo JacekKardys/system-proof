@@ -9,12 +9,15 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 
 /** Test-only four-byte length-prefixed protocol. */
 final class LengthPrefixedProtocolAdapter
@@ -63,6 +66,22 @@ final class LengthPrefixedProtocolAdapter
         keys.add(Objects.requireNonNull(first, "first must not be null"));
         keys.addAll(List.of(additional));
         return new LengthPrefixedProtocolAdapter(true, keys);
+    }
+
+    @Override
+    public Optional<ProtocolObservationContract> observationContract() {
+        return Optional.of(new ProtocolObservationContract(
+            "http",
+            "http",
+            InteractionGatewayTest.CommandEndpoint.class,
+            CODEC.schemaId(),
+            Optional.of(NATIVE_REFERENCE_CODEC.schemaId()),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of()
+        ));
     }
 
     @Override

@@ -182,6 +182,9 @@ class CoreArchitectureTest {
         observation.ForwardingDecision
         observation.InteractionRef
         observation.ObservationRequirement
+        observation.RequiredObservationProfile
+        observation.RequiredObservationProfile$Capability
+        observation.RequiredObservationProfile$Feature
         observation.RecordedInteraction
         observation.SessionId
         proof.CorrelationCardinality
@@ -215,6 +218,7 @@ class CoreArchitectureTest {
         component.ComponentState#STOPPED:component.ComponentState
         component.ComponentState#STOPPING:component.ComponentState
         control.SemanticHoldFailure#AMBIGUOUS_MATCH:control.SemanticHoldFailure
+        control.SemanticHoldFailure#CORRELATION_INVALIDATED:control.SemanticHoldFailure
         control.SemanticHoldFailure#INTERNAL_FAILURE:control.SemanticHoldFailure
         control.SemanticHoldFailure#SELECTOR_EVALUATION:control.SemanticHoldFailure
         control.SemanticHoldFailure#SESSION_ABANDONED:control.SemanticHoldFailure
@@ -226,6 +230,10 @@ class CoreArchitectureTest {
         control.SemanticHoldState#REACHED_HELD:control.SemanticHoldState
         control.SemanticHoldState#RELEASING:control.SemanticHoldState
         control.SemanticHoldState#TIMED_OUT:control.SemanticHoldState
+        observation.RequiredObservationProfile$Capability#CORRELATION_CONTRIBUTIONS:observation.RequiredObservationProfile$Capability
+        observation.RequiredObservationProfile$Capability#SEMANTIC_CONTROL:observation.RequiredObservationProfile$Capability
+        observation.RequiredObservationProfile$Feature#ENCRYPTED_TRANSPORT:observation.RequiredObservationProfile$Feature
+        observation.RequiredObservationProfile$Feature#GENERAL_PIPELINING:observation.RequiredObservationProfile$Feature
         configuration.ConfigurationSource#UNSET:java.lang.String
         environment.state.ConnectionState#DECLARED:environment.state.ConnectionState
         environment.state.ConnectionState#FAILED:environment.state.ConnectionState
@@ -558,6 +566,7 @@ class CoreArchitectureTest {
                 "connection",
                 "observations",
                 "observationRequirement",
+                "requiredObservationProfile",
                 "coordinator",
                 "directTarget"
             );

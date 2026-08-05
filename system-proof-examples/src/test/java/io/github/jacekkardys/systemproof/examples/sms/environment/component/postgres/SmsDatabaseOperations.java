@@ -12,6 +12,9 @@ import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionTimeoutException;
 import io.github.jacekkardys.systemproof.examples.sms.environment.domain.SmsPersistence;
 import io.github.jacekkardys.systemproof.examples.sms.environment.domain.TestSms;
+import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityRequirements;
+import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityResult;
+import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityVerifier;
 
 /** SMS persistence probes used by the system-test happy path. */
 public final class SmsDatabaseOperations {
@@ -34,7 +37,9 @@ public final class SmsDatabaseOperations {
         return new DatabaseAwait(this);
     }
 
-    private SmsPersistence observe(TestSms message) {
+    /** Captures the current independent-connection persistence state without awaiting changes. */
+    public SmsPersistence snapshot(TestSms message) {
+        Objects.requireNonNull(message, "message must not be null");
         String sql = """
             WITH matching_raw AS (
                 SELECT *
@@ -79,12 +84,32 @@ public final class SmsDatabaseOperations {
         }
     }
 
+    /** Runs the pre-proof durability preflight through a new test-owned connection. */
+    public PostgresqlDurabilityResult durabilityPreflight(
+        PostgresqlDurabilityRequirements requirements
+    ) {
+        Objects.requireNonNull(requirements, "requirements must not be null");
+        try (Connection connection = connect()) {
+            return PostgresqlDurabilityVerifier.verify(connection, requirements);
+        } catch (SQLException exception) {
+            throw new IllegalStateException(
+                "Cannot run the PostgreSQL durability preflight",
+                exception
+            );
+        }
+    }
+
     private Connection connect() throws SQLException {
         return DriverManager.getConnection(jdbcUrl, username, password);
     }
 
     private String diagnostics() {
-        return "last database result=" + lastObservedState
+        SmsPersistence observed = lastObservedState;
+        String lastResult = observed == null
+            ? "<not observed>"
+            : "rawCount=" + observed.rawCount()
+                + ", outboxCount=" + observed.outboxCount();
+        return "last database result=" + lastResult
             + System.lineSeparator() + "Environment events:"
             + System.lineSeparator() + events.get();
     }
@@ -103,7 +128,7 @@ public final class SmsDatabaseOperations {
                     .atMost(DEFAULT_TIMEOUT)
                     .pollInterval(Duration.ofMillis(250))
                     .until(
-                        () -> database.observe(message),
+                        () -> database.snapshot(message),
                         observed -> observed.rawCount() > 0 && observed.outboxCount() > 0
                     );
             } catch (ConditionTimeoutException timeout) {

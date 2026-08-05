@@ -21,11 +21,14 @@ import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
 import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
 import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
+import io.github.jacekkardys.systemproof.environment.ProofSubjectRegistry.NativeFlowResolution;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.RecordedInteraction;
+import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 /** Environment-owned semantic-control registry, matcher, and linearizable state machine. */
@@ -93,8 +96,14 @@ final class SemanticControlCoordinator
         );
         synchronized (this) {
             requireAccepting();
-            controlCapabilities.validateArm(selector.connectionId());
+            controlCapabilities.validateArm(selector);
             selector.proofSubject().ifPresent(proofSubjects::validateSubject);
+            if (selector.nativeFlowCorrelationKey().isPresent()) {
+                proofSubjects.validateSubjectFlow(
+                    selector.proofSubject().orElseThrow(),
+                    selector.nativeFlowCorrelationKey().orElseThrow()
+                );
+            }
             RuntimeSemanticHoldRef ref = nextReference();
             HoldEntry entry = new HoldEntry(ref, selector, maximumHoldDuration);
             active.put(ref, entry);
@@ -142,12 +151,48 @@ final class SemanticControlCoordinator
             if (!evidenceMatches) {
                 continue;
             }
-            if (entry.proofSubject.isPresent()
-                && !proofSubjects.isSoleUniqueSubjectFor(
+            if (entry.proofSubject.isPresent()) {
+                Optional<CorrelationKey> nativeFlowKey =
+                    entry.selector.nativeFlowCorrelationKey();
+                if (nativeFlowKey.isPresent()) {
+                    Optional<NativeFlowResolution> resolved =
+                        proofSubjects.soleUniqueNativeFlow(
+                            entry.proofSubject.orElseThrow(),
+                            nativeFlowKey.orElseThrow()
+                        );
+                    if (resolved.isEmpty()) {
+                        continue;
+                    }
+                    NativeFlowResolution resolvedFlow = resolved.orElseThrow();
+                    if (!resolvedFlow.containsCandidate(interaction.interactionRef())) {
+                        continue;
+                    }
+                    try {
+                        if (!entry.selector.matchesNativeFlow(
+                            interaction.evidence(),
+                            resolvedFlow.nativeReference()
+                        )) {
+                            continue;
+                        }
+                    } catch (RuntimeException | Error failure) {
+                        entry.interactionRef = interaction.interactionRef();
+                        failLocked(
+                            entry,
+                            SemanticHoldFailure.SELECTOR_EVALUATION,
+                            afterTransition
+                        );
+                        return CLOSE_SESSION;
+                    }
+                    if (!proofSubjects.remainsSoleUniqueNativeFlow(resolvedFlow)) {
+                        continue;
+                    }
+                    entry.nativeFlowResolution = resolvedFlow;
+                } else if (!proofSubjects.isSoleUniqueSubjectFor(
                     entry.proofSubject.orElseThrow(),
                     interaction.interactionRef()
                 )) {
-                continue;
+                    continue;
+                }
             }
             matches.add(entry);
         }
@@ -206,12 +251,23 @@ final class SemanticControlCoordinator
                     "Semantic hold cannot be released from state " + entry.state
                 );
             }
-            transitionLocked(entry, SemanticHoldState.RELEASING, Optional.empty());
-            cancelTimeout(entry);
-            afterTransition.add(
-                () -> entry.permit.authorize(ForwardingDecision.FORWARD)
-            );
             result = entry.releaseCompletion.minimalCompletionStage();
+            if (entry.nativeFlowResolution != null
+                && !proofSubjects.remainsSoleUniqueNativeFlow(
+                    entry.nativeFlowResolution
+                )) {
+                failLocked(
+                    entry,
+                    SemanticHoldFailure.CORRELATION_INVALIDATED,
+                    afterTransition
+                );
+            } else {
+                transitionLocked(entry, SemanticHoldState.RELEASING, Optional.empty());
+                cancelTimeout(entry);
+                afterTransition.add(
+                    () -> entry.permit.authorize(ForwardingDecision.FORWARD)
+                );
+            }
         }
         runAfterTransition(afterTransition);
         return result;
@@ -332,6 +388,7 @@ final class SemanticControlCoordinator
         cancelTimeout(entry);
         active.remove(entry.ref);
         entry.selector = null;
+        entry.nativeFlowResolution = null;
         if (entry.permit != null
             && terminalState != SemanticHoldState.FORWARDED) {
             afterTransition.add(
@@ -493,6 +550,7 @@ final class SemanticControlCoordinator
         private SemanticHoldSelector<?> selector;
         private SemanticHoldState state = SemanticHoldState.ARMED;
         private InteractionRef interactionRef;
+        private NativeFlowResolution nativeFlowResolution;
         private boolean reachedEstablished;
         private HeldForwardingPermit permit;
         private TimeoutTask timeoutTask;

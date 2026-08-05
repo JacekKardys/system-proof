@@ -5,6 +5,7 @@ import static io.github.jacekkardys.systemproof.endpoint.EndpointBinding.binding
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
 import org.testcontainers.Testcontainers;
 import io.github.jacekkardys.systemproof.environment.ConnectionRoute;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouteContext;
@@ -13,6 +14,8 @@ import io.github.jacekkardys.systemproof.environment.SemanticControlRouteCapabil
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 
 /**
  * Creates connection-owned transparent TCP routes through the test JVM.
@@ -127,6 +130,22 @@ public final class InteractionGateway {
         Objects.requireNonNull(context, "context must not be null");
         ConnectionDescriptor connection = context.connection();
         EndpointBinding<C> directTarget = context.directTarget();
+        if (context.observationRequirement() == ObservationRequirement.REQUIRED
+            && configuredProtocolAdapter == null) {
+            throw new IllegalArgumentException(
+                "Required observation route has no protocol adapter"
+            );
+        }
+        if (context.observationRequirement() != ObservationRequirement.DISABLED
+            && configuredProtocolAdapter != null) {
+            validateObservationContract(
+                connection,
+                directTarget,
+                configuredProtocolAdapter,
+                context.requiredObservationProfile(),
+                context.observationRequirement() == ObservationRequirement.REQUIRED
+            );
+        }
         InetSocketAddress target = endpoints.address(directTarget.external());
         ProtocolAdapter<E> effectiveProtocolAdapter =
             context.observationRequirement()
@@ -168,6 +187,62 @@ public final class InteractionGateway {
             closeAfterPreparationFailure(route, failure);
             throw failure;
         }
+    }
+
+    private static void validateObservationContract(
+        ConnectionDescriptor connection,
+        EndpointBinding<?> directTarget,
+        ProtocolAdapter<?> adapter,
+        Optional<RequiredObservationProfile> requiredObservationProfile,
+        boolean requireSemanticControl
+    ) {
+        ProtocolObservationContract contract = adapter.observationContract()
+            .orElseThrow(() -> new IllegalArgumentException(
+                "Protocol adapter does not declare an observation contract"
+            ));
+        if (!connection.protocolId().equals(contract.protocolId())
+            || !connection.protocolScheme().equals(contract.protocolScheme())) {
+            throw incompatibleAdapter(connection, "protocol");
+        }
+        if (!connection.contractTypeName().equals(contract.endpointType().getName())
+            || !contract.endpointType().isInstance(directTarget.internal())
+            || !contract.endpointType().isInstance(directTarget.external())) {
+            throw incompatibleAdapter(connection, "endpoint type");
+        }
+        if (!adapter.evidenceCodec().schemaId().equals(contract.evidenceSchema())) {
+            throw incompatibleAdapter(connection, "evidence schema");
+        }
+        requiredObservationProfile.ifPresent(required -> {
+            if (!required.evidenceSchema().equals(contract.evidenceSchema())) {
+                throw incompatibleAdapter(connection, "required evidence schema");
+            }
+            required.nativeFlowReferenceSchema().ifPresent(schema -> {
+                if (!contract.nativeFlowReferenceSchema().filter(schema::equals).isPresent()) {
+                    throw incompatibleAdapter(connection, "required native-flow schema");
+                }
+            });
+            if (!contract.capabilities().containsAll(required.capabilities())) {
+                throw incompatibleAdapter(connection, "required capabilities");
+            }
+            if (!contract.supportedFeatures().containsAll(required.requiredFeatures())) {
+                throw incompatibleAdapter(connection, "required protocol features");
+            }
+        });
+        if (requiredObservationProfile.isEmpty()
+            && requireSemanticControl
+            && !contract.capabilities().contains(Capability.SEMANTIC_CONTROL)) {
+            throw incompatibleAdapter(connection, "semantic-control capability");
+        }
+    }
+
+    private static IllegalArgumentException incompatibleAdapter(
+        ConnectionDescriptor connection,
+        String mismatch
+    ) {
+        return new IllegalArgumentException(
+            "Protocol adapter is incompatible with connection '" + connection.id()
+                + "': " + mismatch + " mismatch"
+        );
     }
 
     private void expose(ConnectionDescriptor connection, GatewayRoute<?> route) {

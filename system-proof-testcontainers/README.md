@@ -15,6 +15,11 @@ Public composition API:
 - `ProtocolAdapter<E>`, `ProtocolSession<E>`, `ProtocolStream<E>`, `ProtocolUnit<E>`, and
   `ProtocolLimits`: protocol-neutral, bounded framing, typed-evidence, and immutable declarative
   correlation-contribution SPI.
+- `ProtocolObservationContract`: the adapter-provided profile for protocol ID/scheme, endpoint
+  value type, evidence and native-reference schemas, capabilities, and positively declared
+  supported features. Observed route preparation compares it with both the logical port contract and the
+  scenario-owned core `RequiredObservationProfile` for the exact `ConnectionId` before opening a
+  listener; required observation fails closed when any declaration is missing or mismatched.
 - component-scoped `DriverContext`: typed dependency resolution, journal-backed diagnostics, and
   restricted checkpoint/disruption contributions without exposing `ScenarioJournal`.
 
@@ -77,8 +82,10 @@ buffer-overflow conditions are typed `ProtocolFailureKind` values. Diagnostics r
 connection identity, failure stage/classification, and never payloads, frames, addresses, ports, or
 secrets.
 
-The SPI owns no sockets, listeners, route lifecycle, `ConnectionId`, `SessionId`, ordinal, or
-`InteractionRef`. Native reference types remain adapter-local and cross the existing
+The gateway owns sockets, listeners, route lifecycle, `SessionId`, ordinals, and `InteractionRef`.
+It passes the exact logical `ConnectionId` when opening an adapter session so route-scoped protocol
+authorization cannot fall back to endpoint-local identifiers. Native reference types remain
+adapter-local and cross the existing
 schema-checked `EvidenceSnapshot` copy boundary. Real HTTP, SMPP, and PostgreSQL adapters are not
 included. Semantic holds,
 releases, TLS termination, fault mutation, and causal proof are also outside this milestone. One

@@ -4,6 +4,7 @@ package io.github.jacekkardys.systemproof.control;
 public enum SemanticHoldFailure {
     SELECTOR_EVALUATION,
     AMBIGUOUS_MATCH,
+    CORRELATION_INVALIDATED,
     WRITE_FAILURE,
     SESSION_ABANDONED,
     INTERNAL_FAILURE

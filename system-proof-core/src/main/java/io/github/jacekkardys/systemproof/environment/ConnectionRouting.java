@@ -3,6 +3,7 @@ package io.github.jacekkardys.systemproof.environment;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
@@ -11,6 +12,8 @@ import io.github.jacekkardys.systemproof.topology.Connection;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.Contract;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 
 /**
@@ -47,6 +50,15 @@ public final class ConnectionRouting {
         return DIRECT.withRoute(contract, observationRequirement, provider);
     }
 
+    /** Routes every matching contract with one explicit scenario-owned observation profile. */
+    public static <C> ConnectionRouting routed(
+        Contract<C> contract,
+        RequiredObservationProfile requiredObservationProfile,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return DIRECT.withRoute(contract, requiredObservationProfile, provider);
+    }
+
     public static <C> ConnectionRouting routed(
         Connection<C> connection,
         ConnectionRouteProvider<C> provider
@@ -62,6 +74,15 @@ public final class ConnectionRouting {
         return DIRECT.withRoute(connection, observationRequirement, provider);
     }
 
+    /** Routes one exact connection with an explicit scenario-owned observation profile. */
+    public static <C> ConnectionRouting routed(
+        Connection<C> connection,
+        RequiredObservationProfile requiredObservationProfile,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return DIRECT.withRoute(connection, requiredObservationProfile, provider);
+    }
+
     public <C> ConnectionRouting withRoute(
         Contract<C> contract,
         ConnectionRouteProvider<C> provider
@@ -75,6 +96,22 @@ public final class ConnectionRouting {
         ConnectionRouteProvider<C> provider
     ) {
         return append(Rule.forContract(contract, observationRequirement, provider));
+    }
+
+    public <C> ConnectionRouting withRoute(
+        Contract<C> contract,
+        RequiredObservationProfile requiredObservationProfile,
+        ConnectionRouteProvider<C> provider
+    ) {
+        return append(Rule.forContract(
+            contract,
+            ObservationRequirement.REQUIRED,
+            Objects.requireNonNull(
+                requiredObservationProfile,
+                "requiredObservationProfile must not be null"
+            ),
+            provider
+        ));
     }
 
     public <C> ConnectionRouting withRoute(
@@ -94,6 +131,25 @@ public final class ConnectionRouting {
             connection.id(),
             connection.from().contract(),
             observationRequirement,
+            null,
+            provider
+        ));
+    }
+
+    public <C> ConnectionRouting withRoute(
+        Connection<C> connection,
+        RequiredObservationProfile requiredObservationProfile,
+        ConnectionRouteProvider<C> provider
+    ) {
+        Objects.requireNonNull(connection, "connection must not be null");
+        return append(Rule.forConnection(
+            connection.id(),
+            connection.from().contract(),
+            ObservationRequirement.REQUIRED,
+            Objects.requireNonNull(
+                requiredObservationProfile,
+                "requiredObservationProfile must not be null"
+            ),
             provider
         ));
     }
@@ -106,6 +162,7 @@ public final class ConnectionRouting {
             return new Selection<>(
                 RoutingMode.DIRECT,
                 ObservationRequirement.DISABLED,
+                null,
                 context -> ConnectionRoute.direct(context.directTarget())
             );
         }
@@ -153,6 +210,7 @@ public final class ConnectionRouting {
         return new Selection<>(
             RoutingMode.ROUTED,
             rule.observationRequirement(),
+            rule.requiredObservationProfile(),
             (ConnectionRouteProvider<C>) rule.provider()
         );
     }
@@ -161,6 +219,7 @@ public final class ConnectionRouting {
         Contract<C> contract,
         ConnectionId connectionId,
         ObservationRequirement observationRequirement,
+        RequiredObservationProfile requiredObservationProfile,
         ConnectionRouteProvider<C> provider
     ) {
         private Rule {
@@ -177,19 +236,36 @@ public final class ConnectionRouting {
             ObservationRequirement observationRequirement,
             ConnectionRouteProvider<C> provider
         ) {
-            return new Rule<>(contract, null, observationRequirement, provider);
+            return forContract(contract, observationRequirement, null, provider);
+        }
+
+        private static <C> Rule<C> forContract(
+            Contract<C> contract,
+            ObservationRequirement observationRequirement,
+            RequiredObservationProfile requiredObservationProfile,
+            ConnectionRouteProvider<C> provider
+        ) {
+            return new Rule<>(
+                contract,
+                null,
+                observationRequirement,
+                requiredObservationProfile,
+                provider
+            );
         }
 
         private static <C> Rule<C> forConnection(
             ConnectionId connectionId,
             Contract<C> contract,
             ObservationRequirement observationRequirement,
+            RequiredObservationProfile requiredObservationProfile,
             ConnectionRouteProvider<C> provider
         ) {
             return new Rule<>(
                 contract,
                 Objects.requireNonNull(connectionId, "connectionId must not be null"),
                 observationRequirement,
+                requiredObservationProfile,
                 provider
             );
         }
@@ -216,11 +292,13 @@ public final class ConnectionRouting {
     static final class Selection<C> {
         private final RoutingMode mode;
         private final ObservationRequirement observationRequirement;
+        private final RequiredObservationProfile requiredObservationProfile;
         private final ConnectionRouteProvider<C> provider;
 
         private Selection(
             RoutingMode mode,
             ObservationRequirement observationRequirement,
+            RequiredObservationProfile requiredObservationProfile,
             ConnectionRouteProvider<C> provider
         ) {
             this.mode = Objects.requireNonNull(mode, "mode must not be null");
@@ -228,6 +306,7 @@ public final class ConnectionRouting {
                 observationRequirement,
                 "observationRequirement must not be null"
             );
+            this.requiredObservationProfile = requiredObservationProfile;
             this.provider = Objects.requireNonNull(provider, "provider must not be null");
             if (this.mode == RoutingMode.DIRECT
                 && this.observationRequirement != ObservationRequirement.DISABLED) {
@@ -245,6 +324,10 @@ public final class ConnectionRouting {
             return observationRequirement;
         }
 
+        Optional<RequiredObservationProfile> requiredObservationProfile() {
+            return Optional.ofNullable(requiredObservationProfile);
+        }
+
         ConnectionRoute<C> prepare(
             ConnectionDescriptor connection,
             ConnectionObservations observations,
@@ -254,6 +337,7 @@ public final class ConnectionRouting {
             return provider.prepare(new ConnectionRouteContext<>(
                 connection,
                 observationRequirement,
+                requiredObservationProfile,
                 observations,
                 coordinator,
                 directTarget
@@ -271,7 +355,11 @@ public final class ConnectionRouting {
         boolean semanticControlsDeclared() {
             return mode == RoutingMode.ROUTED
                 && observationRequirement == ObservationRequirement.REQUIRED
-                && provider instanceof SemanticControlRouteCapability;
+                && provider instanceof SemanticControlRouteCapability
+                && requiredObservationProfile != null
+                && requiredObservationProfile.capabilities().contains(
+                    Capability.SEMANTIC_CONTROL
+                );
         }
 
         boolean semanticControlsMaterialized(ConnectionRoute<C> route) {

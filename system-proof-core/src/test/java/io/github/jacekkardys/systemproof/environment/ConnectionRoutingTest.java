@@ -8,7 +8,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.github.jacekkardys.systemproof.topology.Contract.contract;
 import static io.github.jacekkardys.systemproof.endpoint.EndpointBinding.binding;
 
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
@@ -20,8 +23,11 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.topology.Contract;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.topology.InteractionSpec;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.topology.ProtocolSpec;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
@@ -158,6 +164,46 @@ class ConnectionRoutingTest {
         assertThat(direct.resolve(secondRequired)).isEqualTo("direct");
         assertThat(routed.routingMode()).isEqualTo(RoutingMode.ROUTED);
         assertThat(direct.routingMode()).isEqualTo(RoutingMode.DIRECT);
+    }
+
+    @Test
+    void shouldCarryDifferentScenarioProfilesForExactConnectionIds() {
+        TestComponent firstClient = new TestComponent("profile-first");
+        TestComponent secondClient = new TestComponent("profile-second");
+        TestComponent server = new TestComponent("profile-server");
+        RequiredPort<String> firstRequired = firstClient.required("command", COMMAND);
+        RequiredPort<String> secondRequired = secondClient.required("command", COMMAND);
+        ProvidedPort<String> provided = server.provided("command", COMMAND);
+        Connection<String> first = connection(firstRequired, provided);
+        Connection<String> second = connection(secondRequired, provided);
+        RequiredObservationProfile firstProfile = profile("first-evidence");
+        RequiredObservationProfile secondProfile = profile("second-evidence");
+        AtomicReference<RequiredObservationProfile> firstSeen = new AtomicReference<>();
+        AtomicReference<RequiredObservationProfile> secondSeen = new AtomicReference<>();
+        EndpointBinding<String> target = binding("direct", "external");
+        ConnectionRouting routing = ConnectionRouting.routed(
+            first,
+            firstProfile,
+            context -> {
+                assertThat(context.connection().id()).isEqualTo(first.id());
+                firstSeen.set(context.requiredObservationProfile().orElseThrow());
+                return routeWithStatus(target, EffectiveObservationStatus.ACTIVE);
+            }
+        ).withRoute(
+            second,
+            secondProfile,
+            context -> {
+                assertThat(context.connection().id()).isEqualTo(second.id());
+                secondSeen.set(context.requiredObservationProfile().orElseThrow());
+                return routeWithStatus(target, EffectiveObservationStatus.ACTIVE);
+            }
+        );
+
+        materialize(first, routing, target);
+        materialize(second, routing, target);
+
+        assertThat(firstSeen).hasValue(firstProfile);
+        assertThat(secondSeen).hasValue(secondProfile);
     }
 
     @Test
@@ -318,6 +364,11 @@ class ConnectionRoutingTest {
             declaration,
             ObservationRequirement.REQUIRED,
             capableProvider
+        ).select(declaration).semanticControlsDeclared()).isFalse();
+        assertThat(ConnectionRouting.routed(
+            declaration,
+            semanticProfile(),
+            capableProvider
         ).select(declaration).semanticControlsDeclared()).isTrue();
     }
 
@@ -338,7 +389,7 @@ class ConnectionRoutingTest {
                 );
         ConnectionRouting routing = ConnectionRouting.routed(
             declaration,
-            ObservationRequirement.REQUIRED,
+            semanticProfile(),
             provider
         );
 
@@ -355,6 +406,24 @@ class ConnectionRoutingTest {
 
     private static <C> Connection<C> connection(RequiredPort<C> from, ProvidedPort<C> to) {
         return new Connection<>(from, to, ConnectionId.between(from, to));
+    }
+
+    private static RequiredObservationProfile profile(String evidenceName) {
+        return new RequiredObservationProfile(
+            new EvidenceSchemaId("system-proof-test", evidenceName, 1),
+            Optional.empty(),
+            Set.of(),
+            Set.of()
+        );
+    }
+
+    private static RequiredObservationProfile semanticProfile() {
+        return new RequiredObservationProfile(
+            new EvidenceSchemaId("system-proof-test", "semantic-evidence", 1),
+            Optional.empty(),
+            Set.of(Capability.SEMANTIC_CONTROL),
+            Set.of()
+        );
     }
 
     private static <C> ConnectionRoute<C> routeWithStatus(

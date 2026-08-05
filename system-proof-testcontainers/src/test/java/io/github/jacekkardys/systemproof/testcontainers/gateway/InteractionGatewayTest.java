@@ -29,6 +29,7 @@ import java.net.SocketException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -43,6 +44,7 @@ import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
+import io.github.jacekkardys.systemproof.environment.ConnectionRouteProvider;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.environment.EnvironmentStartException;
@@ -61,9 +63,13 @@ import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.topology.InteractionSpec;
 import io.github.jacekkardys.systemproof.topology.ProtocolSpec;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
@@ -124,6 +130,151 @@ class InteractionGatewayTest {
     }
 
     @Test
+    void shouldRejectWrongProtocolAdapterBeforeRoutePreparation() {
+        LengthPrefixedProtocolAdapter delegate = new LengthPrefixedProtocolAdapter();
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> wrongProtocol =
+            new ProtocolAdapter<>() {
+                @Override
+                public Optional<ProtocolObservationContract> observationContract() {
+                    ProtocolObservationContract declared = delegate.observationContract()
+                        .orElseThrow();
+                    return Optional.of(new ProtocolObservationContract(
+                        "smpp",
+                        "smpp",
+                        declared.endpointType(),
+                        declared.evidenceSchema(),
+                        declared.nativeFlowReferenceSchema(),
+                        declared.capabilities(),
+                        declared.supportedFeatures()
+                    ));
+                }
+
+                @Override
+                public io.github.jacekkardys.systemproof.observation.EvidenceCodec<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > evidenceCodec() {
+                    return delegate.evidenceCodec();
+                }
+
+                @Override
+                public ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence>
+                    openSession(ProtocolLimits limits) {
+                    throw new AssertionError("An incompatible adapter must not open a session");
+                }
+            };
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32142),
+            wrongProtocol
+        );
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause())
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                "Protocol adapter is incompatible with connection '"
+                    + environment.connections().getFirst().id()
+                    + "': protocol mismatch"
+            );
+    }
+
+    @Test
+    void shouldConsumeEveryRequiredObservationProfileFieldBeforeTraffic() {
+        EvidenceSchemaId otherSchema = new EvidenceSchemaId(
+            "system-proof-test",
+            "other-frame",
+            1
+        );
+        Set<Capability> baseCapabilities = Set.of(
+            Capability.CORRELATION_CONTRIBUTIONS,
+            Capability.SEMANTIC_CONTROL
+        );
+
+        assertRequiredProfileRejected(
+            requiredLengthProfile(otherSchema, baseCapabilities, Set.of()),
+            "required evidence schema"
+        );
+        assertRequiredProfileRejected(
+            new RequiredObservationProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                Optional.of(otherSchema),
+                baseCapabilities,
+                Set.of()
+            ),
+            "required native-flow schema"
+        );
+        assertRequiredProfileRejected(
+            requiredLengthProfile(
+                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+                baseCapabilities,
+                Set.of(Feature.ENCRYPTED_TRANSPORT)
+            ),
+            "required protocol features"
+        );
+    }
+
+    @Test
+    void shouldAcceptOnlyAnExplicitlySupportedRequiredFeature() {
+        LengthPrefixedProtocolAdapter delegate = new LengthPrefixedProtocolAdapter();
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> supporting =
+            new ProtocolAdapter<>() {
+                @Override
+                public Optional<ProtocolObservationContract> observationContract() {
+                    ProtocolObservationContract declared = delegate.observationContract()
+                        .orElseThrow();
+                    return Optional.of(new ProtocolObservationContract(
+                        declared.protocolId(),
+                        declared.protocolScheme(),
+                        declared.endpointType(),
+                        declared.evidenceSchema(),
+                        declared.nativeFlowReferenceSchema(),
+                        declared.capabilities(),
+                        Set.of(Feature.ENCRYPTED_TRANSPORT)
+                    ));
+                }
+
+                @Override
+                public io.github.jacekkardys.systemproof.observation.EvidenceCodec<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > evidenceCodec() {
+                    return delegate.evidenceCodec();
+                }
+
+                @Override
+                public ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence> openSession(
+                    ProtocolLimits limits
+                ) {
+                    return delegate.openSession(limits);
+                }
+            };
+        RequiredObservationProfile profile = requiredLengthProfile(
+            LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of(Feature.ENCRYPTED_TRANSPORT)
+        );
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32144),
+            supporting,
+            profile
+        );
+
+        try {
+            environment.start();
+            assertThat(environment.isRunning()).isTrue();
+        } finally {
+            environment.close();
+        }
+    }
+
+    @Test
     void shouldExposeProductionArmReachReleaseWorkflowWithJournaledZeroByteHold()
         throws Exception {
         List<InetSocketAddress> listenerAddresses = new ArrayList<>();
@@ -145,7 +296,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("semantic-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -322,6 +473,82 @@ class InteractionGatewayTest {
     }
 
     @Test
+    void shouldCloseHeldSessionWithoutForwardingWhenCorrelationInvalidatesBeforeRelease()
+        throws Exception {
+        CorrelationKey key = LengthPrefixedProtocolAdapter.correlationKey(
+            "release-invalidation-key"
+        );
+        SubjectGatewayFixture fixture = subjectGateway(
+            new InteractionGateway(port -> {}),
+            LengthPrefixedProtocolAdapter.correlating(key)
+        );
+        String heldPayload = "held-native-flow-secret";
+        String invalidatingPayload = "distinct-native-flow-secret";
+        ProofSubjectRef subject = fixture.environment().proofSubjects().create();
+        fixture.environment().proofSubjects().arm(subject, key);
+        SemanticHold hold = fixture.environment().controls().arm(
+            SemanticHoldSelector.matching(
+                fixture.connectionId(),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadSha256().equals(
+                    LengthPrefixedProtocolAdapter.sha256(heldPayload.getBytes(UTF_8))
+                )
+            ).forSubject(subject).through(
+                key,
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC,
+                evidence -> new LengthPrefixedProtocolAdapter.FrameNativeReference(
+                    evidence.direction(),
+                    evidence.payloadBytes(),
+                    evidence.payloadSha256()
+                )
+            ),
+            Duration.ofSeconds(5)
+        );
+
+        try {
+            fixture.environment().start();
+            try (Socket held = connect(fixture.listenerAddresses().getFirst());
+                 Socket invalidating = connect(fixture.listenerAddresses().getFirst())) {
+                held.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(heldPayload)
+                );
+                held.getOutputStream().flush();
+                hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                fixture.frameServer().get().assertNoBytes();
+
+                invalidating.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(invalidatingPayload)
+                );
+                invalidating.getOutputStream().flush();
+                awaitAmbiguousCorrelation(fixture.environment(), subject, key);
+
+                var release = hold.release();
+
+                assertThat(hold.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(SemanticHoldState.FAILED);
+                assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+                assertPeerClosed(held);
+                fixture.frameServer().get().assertClosedWithoutPayload();
+                assertThat(fixture.environment().journalSnapshot().entries().stream()
+                    .map(entry -> entry.event())
+                    .filter(SemanticHoldEvent.class::isInstance)
+                    .map(SemanticHoldEvent.class::cast)
+                    .filter(event -> event.state() == SemanticHoldState.FAILED))
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.failure())
+                        .contains(SemanticHoldFailure.CORRELATION_INVALIDATED));
+                assertThat(new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
+                    .render(fixture.environment().journalSnapshot())
+                    .content())
+                    .doesNotContain(heldPayload, invalidatingPayload);
+            }
+        } finally {
+            fixture.environment().close();
+        }
+    }
+
+    @Test
     void shouldFailReleasedHoldOnFullGatewayWriteFailureWithoutRetry()
         throws Exception {
         assertFullGatewayForwardingFailure(ForwardingFailurePoint.WRITE);
@@ -355,7 +582,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("teardown-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -443,7 +670,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("cleanup-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -491,7 +718,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter("timeout-hold-route", listenerAddresses, new ArrayList<>()),
                 new LengthPrefixedProtocolAdapter(),
@@ -572,7 +799,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "required-route",
@@ -793,7 +1020,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "correlation-route",
@@ -1192,7 +1419,7 @@ class InteractionGatewayTest {
             .connect(client.session, server.session);
         ConnectionRouting routing = ConnectionRouting.routed(
             COMMAND,
-            ObservationRequirement.REQUIRED,
+            requiredLengthProfile(),
             gateway.tcp(
                 commandAdapter(
                     "subject-hold-route",
@@ -1297,6 +1524,32 @@ class InteractionGatewayTest {
         ObservationRequirement requirement,
         ControllableGatewayListener listener
     ) {
+        return observedEnvironment(
+            requirement,
+            listener,
+            new LengthPrefixedProtocolAdapter()
+        );
+    }
+
+    private static RoutedEnvironment observedEnvironment(
+        ObservationRequirement requirement,
+        ControllableGatewayListener listener,
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter
+    ) {
+        return observedEnvironment(
+            requirement,
+            listener,
+            adapter,
+            requiredLengthProfile()
+        );
+    }
+
+    private static RoutedEnvironment observedEnvironment(
+        ObservationRequirement requirement,
+        ControllableGatewayListener listener,
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> adapter,
+        RequiredObservationProfile requiredObservationProfile
+    ) {
         AtomicInteger openedListeners = new AtomicInteger();
         InteractionGateway gateway = new InteractionGateway(
             port -> {},
@@ -1318,14 +1571,14 @@ class InteractionGatewayTest {
             .components(client, server)
             .connect(client.command, server.command)
             .connect(client.session, server.session);
-        ConnectionRouting routing = ConnectionRouting.routed(
-            COMMAND,
-            requirement,
-            gateway.tcp(
+        ConnectionRouteProvider<CommandEndpoint> observedRoute = gateway.tcp(
                 commandAdapter("observed-route", new ArrayList<>(), new ArrayList<>()),
-                new LengthPrefixedProtocolAdapter(),
+                adapter,
                 new ProtocolLimits(128, 256)
-            )
+        );
+        ConnectionRouting routing = (requirement == ObservationRequirement.REQUIRED
+            ? ConnectionRouting.routed(COMMAND, requiredObservationProfile, observedRoute)
+            : ConnectionRouting.routed(COMMAND, requirement, observedRoute)
         ).withRoute(
             SESSION,
             gateway.tcp(sessionAdapter(
@@ -1360,6 +1613,55 @@ class InteractionGatewayTest {
         );
     }
 
+    private static RequiredObservationProfile requiredLengthProfile() {
+        return requiredLengthProfile(
+            LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of()
+        );
+    }
+
+    private static RequiredObservationProfile requiredLengthProfile(
+        EvidenceSchemaId evidenceSchema,
+        Set<Capability> capabilities,
+        Set<Feature> requiredFeatures
+    ) {
+        return new RequiredObservationProfile(
+            evidenceSchema,
+            Optional.of(LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC.schemaId()),
+            capabilities,
+            requiredFeatures
+        );
+    }
+
+    private static void assertRequiredProfileRejected(
+        RequiredObservationProfile requiredObservationProfile,
+        String mismatch
+    ) {
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32143),
+            new LengthPrefixedProtocolAdapter(),
+            requiredObservationProfile
+        );
+
+        EnvironmentStartException thrown = catchThrowableOfType(
+            environment::start,
+            EnvironmentStartException.class
+        );
+
+        assertThat(thrown.getCause())
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                "Protocol adapter is incompatible with connection '"
+                    + environment.connections().getFirst().id()
+                    + "': " + mismatch + " mismatch"
+            );
+    }
+
     private static void awaitObservationStatus(
         Environment environment,
         ObservationRequirement requirement,
@@ -1371,6 +1673,27 @@ class InteractionGatewayTest {
             Thread.onSpinWait();
         }
         assertThat(observationStatus(environment, requirement)).isEqualTo(expected);
+    }
+
+    private static void awaitAmbiguousCorrelation(
+        Environment environment,
+        ProofSubjectRef subject,
+        CorrelationKey key
+    ) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        CorrelationResult<?> result;
+        do {
+            result = environment.proofSubjects().correlation(
+                subject,
+                key,
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC
+            );
+            if (result instanceof CorrelationResult.Ambiguous<?>) {
+                return;
+            }
+            Thread.onSpinWait();
+        } while (System.nanoTime() < deadline);
+        assertThat(result).isInstanceOf(CorrelationResult.Ambiguous.class);
     }
 
     private static Server server(
@@ -1567,7 +1890,7 @@ class InteractionGatewayTest {
         }
     }
 
-    private record CommandEndpoint(String host, int port) {}
+    record CommandEndpoint(String host, int port) {}
 
     private record SessionEndpoint(
         String host,
@@ -1760,6 +2083,19 @@ class InteractionGatewayTest {
             try {
                 assertThat(catchThrowable(() -> client.getInputStream().read()))
                     .isInstanceOf(java.net.SocketTimeoutException.class);
+            } finally {
+                client.setSoTimeout(0);
+            }
+        }
+
+        private void assertClosedWithoutPayload() throws Exception {
+            Socket client = connectedClient.get();
+            client.setSoTimeout(5_000);
+            try {
+                assertThat(client.getInputStream().read())
+                    .as("held upstream session closed without forwarding a byte")
+                    .isEqualTo(-1);
+                assertThat(payload.get()).isNull();
             } finally {
                 client.setSoTimeout(0);
             }

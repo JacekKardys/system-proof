@@ -54,6 +54,7 @@ duplicate models. Java-public internal types may change at any time.
 | `junit.internal` | Unsupported JUnit lifecycle implementation. |
 | `testcontainers.component` | Container-backed driver plans, runtime materialization, and internal container log capture. |
 | `testcontainers.gateway` | Protocol adapters and the observe-before-forward gateway. |
+| `postgresql` | Bounded PostgreSQL protocol observation, transaction evidence, write correlation, and durability checks. |
 
 Package-private types in `environment` own every mutable construction and execution concern:
 component state and handles, connection bindings and routes, proof-subject allocation, journal
@@ -119,6 +120,11 @@ The following directions are forbidden and executable tests enforce them:
 Neither core side depends on Testcontainers. Provider endpoint lookup remains inside environment
 execution despite the explicitly guarded `RuntimeEndpointBindings` transfer edge.
 
+The concrete PostgreSQL adapter remains outside core and follows the module direction
+`system-proof-postgresql -> system-proof-testcontainers -> system-proof-core`. The examples module
+uses the PostgreSQL adapter only in test scope. PostgreSQL parsing, mutable session state, buffers,
+and transport internals are package-private and do not expand either core or gateway SPI.
+
 ## Supported core public API whitelist
 
 The whitelist is type-specific. Nested types shown here are included; no package is supported as a
@@ -167,8 +173,9 @@ cleanup are not SPI. They remain package-private execution mechanics.
 - Journal: `ScenarioEvent`, `FailureEvent`, every framework-owned event record and nested event enum,
   `FailureDetails`, `JournalEntry`, `JournalSequence`, `ScenarioJournalSnapshot`, `CheckpointId`,
   and `DisruptionId`.
-- Observation: `ObservationRequirement`, `EffectiveObservationStatus`, `EvidenceSchemaId`,
-  `EvidenceSnapshot`, `FlowDirection`, `ForwardingDecision`, `SessionId`, `InteractionRef`,
+- Observation: `ObservationRequirement`, `RequiredObservationProfile` and its `Capability` and
+  `Feature` enums, `EffectiveObservationStatus`, `EvidenceSchemaId`,
+  `EvidenceSnapshot`, `FlowDirection`, `ForwardingDecision`, `SessionId`, `InteractionRef`, and
   `RecordedInteraction`.
 - Proof: `ProofSubjectRef`, `CorrelationKeySchema`, `CorrelationKey`, `CorrelationCardinality`,
   `CorrelationResult` and nested `Missing`, `Unique`, and `Ambiguous` results.
@@ -224,6 +231,20 @@ running-environment, metadata, and failure-adapter collaborators are package-pri
   `TestcontainersDriver.networkAlias(...)` are package-private implementation details.
 
 The Testcontainers surface depends on core contracts. Core and driver SPI never depend back on it.
+
+## PostgreSQL whitelist
+
+- Supported API: `PostgresqlProtocolAdapter`, `TransactionRef`,
+  `PostgresqlDurabilityRequirements` and nested `Table`, `PostgresqlDurabilityResult` and nested
+  `Setting` and `RelationStatus`, and `PostgresqlDurabilityVerifier`.
+- Supported extension SPI: `PostgresqlWriteCorrelation` and `PostgresqlWriteInteraction`.
+- Inspectable read-only model: `PostgresqlEvidence` and all nested evidence records/enums, plus
+  `PostgresqlStatementShape` and nested `Kind`.
+- Java-public internal exceptions: none.
+
+`PostgresqlPublicSurfaceTest` pins this exact surface and rejects public parser, session, portal, or
+buffer types. The module's main bytecode is also checked for JUnit, Spring, and Testcontainers
+implementation dependencies.
 
 ## Inventory ownership matrix
 

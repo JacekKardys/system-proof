@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
+import java.util.Optional;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.topology.Connection;
@@ -10,6 +11,7 @@ import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot;
@@ -120,6 +122,10 @@ final class RuntimeConnection<C> {
 
     public ObservationRequirement observationRequirement() {
         return observationRequirement;
+    }
+
+    Optional<RequiredObservationProfile> requiredObservationProfile() {
+        return routing.requiredObservationProfile();
     }
 
     public synchronized boolean directTargetAvailable() {
