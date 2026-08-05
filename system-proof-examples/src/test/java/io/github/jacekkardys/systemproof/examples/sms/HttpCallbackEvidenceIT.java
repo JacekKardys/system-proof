@@ -39,9 +39,12 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.domain.TestSms
 import io.github.jacekkardys.systemproof.http.HttpEvidence;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
 import io.github.jacekkardys.systemproof.http.HttpExchangeRef;
 import io.github.jacekkardys.systemproof.http.HttpProtocolAdapter;
+import io.github.jacekkardys.systemproof.http.HttpRequestCorrelation;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.observation.EffectiveObservationStatus;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
@@ -76,6 +79,32 @@ final class HttpCallbackEvidenceIT {
             for (int repetition = 0; repetition < REPETITIONS; repetition++) {
                 verifyOneCallback(environment);
             }
+        } finally {
+            environment.close();
+        }
+    }
+
+    @Test
+    void shouldFailRequiredObservationWithoutLeakingAPolicyException() throws Exception {
+        String secret = "policy-exception-secret-token";
+        ObservedSmsEnvironment environment = ObservedSmsEnvironment.define(interaction -> {
+            throw new IllegalStateException("policy failed with " + secret);
+        });
+        try {
+            environment.start();
+            environment.smsc().send(TestSms.unique());
+
+            Awaitility.await("HTTP observation failed closed")
+                .atMost(TIMEOUT)
+                .untilAsserted(() -> assertThat(
+                    environment.runtimeConnection(environment.httpConnectionId())
+                        .effectiveObservationStatus()
+                ).isEqualTo(EffectiveObservationStatus.FAILED));
+
+            assertThat(httpEvidence(environment)).isEmpty();
+            assertThat(environment.journalSnapshot().entries().toString())
+                .doesNotContain(secret);
+            assertThat(environment.diagnostics().content()).doesNotContain(secret);
         } finally {
             environment.close();
         }
@@ -122,8 +151,9 @@ final class HttpCallbackEvidenceIT {
             .filter(response -> response.exchange().equals(exchange))
             .toList();
         assertThat(requests).singleElement().satisfies(request -> {
-            assertThat(request.method()).isEqualTo("POST");
-            assertThat(request.path()).isEqualTo("/v1/ingestion/sms");
+            assertThat(request.method()).isEqualTo(RequestMethod.POST);
+            assertThat(request.target())
+                .isEqualTo(RequestTarget.ofPath("/v1/ingestion/sms"));
             assertThat(request.contentType())
                 .contains("application/x-www-form-urlencoded");
             assertThat(request.bodyByteCount()).isPositive();
@@ -288,6 +318,12 @@ final class HttpCallbackEvidenceIT {
         }
 
         private static ObservedSmsEnvironment define() {
+            return define(SmsMessageFingerprint.httpCallbackCorrelation());
+        }
+
+        private static ObservedSmsEnvironment define(
+            HttpRequestCorrelation requestCorrelation
+        ) {
             EnvironmentBuilder builder = new EnvironmentBuilder();
             SmscComponent smsc = builder.component(SmscComponent.class);
             JasminComponent jasmin = builder.component(JasminComponent.class);
@@ -303,7 +339,7 @@ final class HttpCallbackEvidenceIT {
                 .connect(jasmin.redis(), state.redis());
 
             HttpProtocolAdapter adapter = new HttpProtocolAdapter(
-                SmsMessageFingerprint.httpCallbackCorrelation()
+                requestCorrelation
             );
             InteractionGateway gateway = new InteractionGateway();
             ConnectionRouting routing = ConnectionRouting.routed(

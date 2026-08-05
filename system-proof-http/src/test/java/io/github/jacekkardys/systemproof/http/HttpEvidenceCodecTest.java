@@ -8,6 +8,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 
@@ -20,13 +22,20 @@ class HttpEvidenceCodecTest {
         List<HttpEvidence> values = List.of(
             new RequestCompleted(
                 EXCHANGE,
-                "POST",
-                "/v1/ingestion/sms",
+                RequestMethod.POST,
+                RequestTarget.ofPath("/v1/ingestion/sms"),
                 Optional.of("application/x-www-form-urlencoded"),
                 123
             ),
-            new RequestCompleted(EXCHANGE, "GET", "/health", Optional.empty(), 0),
+            new RequestCompleted(
+                EXCHANGE,
+                RequestMethod.OTHER,
+                RequestTarget.ofPath("/health"),
+                Optional.empty(),
+                0
+            ),
             new ResponseCompleted(EXCHANGE, 200, Acknowledgement.POSITIVE, 10),
+            new ResponseCompleted(EXCHANGE, 201, Acknowledgement.INDETERMINATE, 10),
             new ResponseCompleted(EXCHANGE, 500, Acknowledgement.NEGATIVE, 0)
         );
 
@@ -40,6 +49,29 @@ class HttpEvidenceCodecTest {
         EvidenceCodec<HttpExchangeRef> referenceCodec = HttpExchangeRef.codec();
         assertThat(referenceCodec.schemaId().version()).isEqualTo(1);
         assertThat(referenceCodec.decode(referenceCodec.encode(EXCHANGE))).isEqualTo(EXCHANGE);
+    }
+
+
+    @Test
+    void shouldRoundTripTheMaximumLegalContentTypeAndRejectOneByteBeyondIt() {
+        EvidenceCodec<HttpEvidence> codec = new HttpProtocolAdapter().evidenceCodec();
+        String maximum = "a".repeat(HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES);
+        RequestCompleted evidence = new RequestCompleted(
+            EXCHANGE,
+            RequestMethod.POST,
+            RequestTarget.ofPath("/"),
+            Optional.of(maximum),
+            HttpProtocolLimits.MAXIMUM_BODY_BYTES
+        );
+
+        assertThat(codec.decode(codec.encode(evidence))).isEqualTo(evidence);
+        assertThatThrownBy(() -> new RequestCompleted(
+            EXCHANGE,
+            RequestMethod.POST,
+            RequestTarget.ofPath("/"),
+            Optional.of(maximum + "a"),
+            0
+        )).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

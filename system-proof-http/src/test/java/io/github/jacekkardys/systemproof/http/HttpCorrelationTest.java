@@ -7,17 +7,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
+import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
+import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
+import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.SessionId;
+import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
+import io.github.jacekkardys.systemproof.journal.JournalEntry;
+import io.github.jacekkardys.systemproof.journal.JournalSequence;
+import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolLimits;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolStream;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolUnit;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 class HttpCorrelationTest {
     private static final ProtocolLimits LIMITS = new ProtocolLimits(4096, 8192);
@@ -31,6 +42,7 @@ class HttpCorrelationTest {
     void shouldPublishOneDetachedExchangeContributionFromTheEphemeralRequest()
         throws Exception {
         AtomicReference<HttpRequestInteraction> retained = new AtomicReference<>();
+        AtomicReference<HttpRequestInteraction.Body> retainedBody = new AtomicReference<>();
         CorrelationKey key = key("one");
         HttpProtocolAdapter adapter = new HttpProtocolAdapter(interaction -> {
             retained.set(interaction);
@@ -38,8 +50,11 @@ class HttpCorrelationTest {
             assertThat(interaction.path()).isEqualTo("/v1/ingestion/sms");
             assertThat(interaction.contentType())
                 .contains("application/x-www-form-urlencoded");
-            assertThat(StandardCharsets.UTF_8.decode(interaction.bodyBytes()).toString())
-                .isEqualTo("id=one");
+            retainedBody.set(interaction.body());
+            byte[] body = new byte[interaction.body().size()];
+            interaction.body().copyTo(0, body, 0, body.length);
+            assertThat(new String(body, StandardCharsets.UTF_8)).isEqualTo("id=one");
+            assertThat(interaction.body().byteAt(0)).isEqualTo((byte) 'i');
             return Optional.of(key);
         });
 
@@ -53,7 +68,13 @@ class HttpCorrelationTest {
             HttpExchangeRef.codec(),
             ((RequestCompleted) unit.evidence()).exchange()
         ));
-        assertThatThrownBy(() -> retained.get().bodyBytes())
+        assertThatThrownBy(() -> retained.get().body())
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> retainedBody.get().size())
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> retainedBody.get().byteAt(0))
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> retainedBody.get().copyTo(0, new byte[1], 0, 1))
             .isInstanceOf(IllegalStateException.class);
     }
 
@@ -82,6 +103,42 @@ class HttpCorrelationTest {
         assertThat(unit.toString()).doesNotContain(secret);
         assertThat(unit.evidence().toString()).doesNotContain(secret);
         assertThat(unit.correlationContributions().toString()).doesNotContain(secret);
+    }
+
+    @Test
+    void shouldKeepPathBodyAndFormSecretsOutOfEvidenceAndItsEncoding() throws Exception {
+        String secret = "secret-evidence-token";
+        HttpProtocolAdapter adapter = new HttpProtocolAdapter(interaction -> Optional.empty());
+        ProtocolUnit<HttpEvidence> unit = complete(
+            requests(adapter),
+            HttpMessages.request("POST", "/callback/" + secret, "token=" + secret)
+        );
+        byte[] encoded = adapter.evidenceCodec().encode(unit.evidence());
+
+        assertThat(unit.evidence().toString()).doesNotContain(secret);
+        assertThat(unit.toString()).doesNotContain(secret);
+        assertThat(new String(encoded, StandardCharsets.ISO_8859_1)).doesNotContain(secret);
+
+        EvidenceSnapshot snapshot = EvidenceSnapshot.capture(
+            adapter.evidenceCodec(),
+            unit.evidence()
+        );
+        InteractionRef reference = new InteractionRef(
+            new SessionId(ConnectionId.of("client[].api->server[].api"), 1),
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            1
+        );
+        ScenarioJournalSnapshot journal = new ScenarioJournalSnapshot(List.of(
+            new JournalEntry(
+                new JournalSequence(1),
+                Optional.of(Duration.ZERO),
+                new InteractionObservationEvent(reference, snapshot)
+            )
+        ));
+
+        assertThat(snapshot.toString()).doesNotContain(secret);
+        assertThat(journal.entries().toString()).doesNotContain(secret);
+        assertThat(new JournalRenderer().render(journal).content()).doesNotContain(secret);
     }
 
     private static ProtocolStream<HttpEvidence> requests(HttpProtocolAdapter adapter) {

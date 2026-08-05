@@ -45,7 +45,7 @@ public interface JasminConfig
         @ConfigurationSource(
             provider = EnvironmentVariable.class,
             key = "SYSTEM_PROOF_EXAMPLE_JASMIN_IMAGE",
-            defaultValue = "jookies/jasmin:0.11.0"
+            defaultValue = "jookies/jasmin:0.11.0@sha256:3f049692d22fd66ab08a55073f79db96fe442473ede9615e8ac085ac505a1064"
         )
         String image();
 

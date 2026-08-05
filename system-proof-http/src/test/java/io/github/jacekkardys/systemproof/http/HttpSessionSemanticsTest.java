@@ -101,16 +101,26 @@ class HttpSessionSemanticsTest {
     }
 
     @Test
-    void shouldClassifyOnlyExact200AndExactBodyAsPositive() throws Exception {
+    void shouldClassifyTheCharacterizedJasminAcknowledgementAsTriState() throws Exception {
         assertClassification(200, "ACK/Jasmin", Acknowledgement.POSITIVE);
-        for (ResponseCase negative : List.of(
+        for (ResponseCase indeterminate : List.of(
             new ResponseCase(201, "ACK/Jasmin"),
-            new ResponseCase(204, ""),
             new ResponseCase(299, "ACK/Jasmin"),
+            new ResponseCase(302, " ACK/Jasmin\t") ,
+            new ResponseCase(200, "\r\nACK/Jasmin ")
+        )) {
+            assertClassification(
+                indeterminate.status(),
+                indeterminate.body(),
+                Acknowledgement.INDETERMINATE
+            );
+        }
+        for (ResponseCase negative : List.of(
+            new ResponseCase(204, ""),
             new ResponseCase(500, "ACK/Jasmin"),
             new ResponseCase(200, ""),
             new ResponseCase(200, "ack/Jasmin"),
-            new ResponseCase(200, "ACK/Jasmin "),
+            new ResponseCase(200, "ACK /Jasmin"),
             new ResponseCase(200, "xACK/Jasmin")
         )) {
             assertClassification(
@@ -195,6 +205,46 @@ class HttpSessionSemanticsTest {
             .isInstanceOfSatisfying(ProtocolAdapterException.class, failure ->
                 assertThat(failure.kind()).isEqualTo(ProtocolFailureKind.DESYNCHRONIZATION)
             );
+    }
+
+    @Test
+    void shouldPreventRequestsAfterEitherInputHasEnded() throws Exception {
+        Harness responseEndedFirst = harness(new HttpProtocolAdapter());
+        responseEndedFirst.responses().endOfInput(ByteBuffer.allocate(0));
+        assertFailure(
+            responseEndedFirst.requests(),
+            HttpMessages.request("id=one"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+
+        Harness completed = harness(new HttpProtocolAdapter());
+        complete(completed.requests(), HttpMessages.request("id=one"));
+        complete(completed.responses(), HttpMessages.response(200, "ACK/Jasmin"));
+        completed.responses().endOfInput(ByteBuffer.allocate(0));
+        assertFailure(
+            completed.requests(),
+            HttpMessages.request("id=two"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+    }
+
+    @Test
+    void shouldAllowExactlyThePendingResponseAfterRequestInputEnds() throws Exception {
+        Harness harness = harness(new HttpProtocolAdapter());
+        complete(harness.requests(), HttpMessages.request("id=one"));
+        harness.requests().endOfInput(ByteBuffer.allocate(0));
+
+        complete(harness.responses(), HttpMessages.response(200, "ACK/Jasmin"));
+        assertFailure(
+            harness.requests(),
+            HttpMessages.request("id=two"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+        assertFailure(
+            harness.responses(),
+            HttpMessages.response(200, "ACK/Jasmin"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
     }
 
     private static void assertClassification(

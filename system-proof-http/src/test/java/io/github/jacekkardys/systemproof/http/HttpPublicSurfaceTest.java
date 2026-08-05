@@ -21,6 +21,8 @@ class HttpPublicSurfaceTest {
     private static final Set<String> EXPECTED_TYPES = types("""
         HttpEvidence
         HttpEvidence$Acknowledgement
+        HttpEvidence$RequestMethod
+        HttpEvidence$RequestTarget
         HttpEvidence$RequestCompleted
         HttpEvidence$ResponseCompleted
         HttpExchangeRef
@@ -28,6 +30,7 @@ class HttpPublicSurfaceTest {
         HttpProtocolLimits
         HttpRequestCorrelation
         HttpRequestInteraction
+        HttpRequestInteraction$Body
         """);
 
     @Test

@@ -1,6 +1,7 @@
 package io.github.jacekkardys.systemproof.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.ByteBuffer;
@@ -140,6 +141,47 @@ class HttpProtocolFramingTest {
             HttpMessages.request("id=one"),
             ProtocolFailureKind.EXCESSIVE_FRAME_SIZE
         );
+    }
+
+    @Test
+    void shouldAcceptHardLimitBoundariesAndRejectEveryMaximumPlusOne() {
+        assertThatCode(() -> new HttpProtocolLimits(
+            HttpProtocolLimits.MAXIMUM_START_LINE_BYTES,
+            HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES,
+            HttpProtocolLimits.MAXIMUM_HEADER_COUNT,
+            HttpProtocolLimits.MAXIMUM_BODY_BYTES
+        )).doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> new HttpProtocolLimits(
+            HttpProtocolLimits.MAXIMUM_START_LINE_BYTES + 1,
+            HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES,
+            1,
+            0
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HttpProtocolLimits(
+            1,
+            HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES + 1,
+            1,
+            0
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HttpProtocolLimits(
+            1,
+            5,
+            HttpProtocolLimits.MAXIMUM_HEADER_COUNT + 1,
+            0
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HttpProtocolLimits(
+            1,
+            5,
+            1,
+            HttpProtocolLimits.MAXIMUM_BODY_BYTES + 1
+        )).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new HttpProtocolLimits(
+            Integer.MAX_VALUE,
+            Integer.MAX_VALUE,
+            Integer.MAX_VALUE,
+            Integer.MAX_VALUE
+        )).isInstanceOf(IllegalArgumentException.class);
     }
 
     private static void assertEofFailure(ProtocolStream<HttpEvidence> stream, byte[] bytes) {

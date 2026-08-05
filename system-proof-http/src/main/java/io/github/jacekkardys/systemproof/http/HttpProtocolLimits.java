@@ -7,20 +7,34 @@ public record HttpProtocolLimits(
     int maximumHeaderCount,
     int maximumBodyBytes
 ) {
+    public static final int MAXIMUM_START_LINE_BYTES = 16 * 1024;
+    public static final int MAXIMUM_HEADER_SECTION_BYTES = 64 * 1024;
+    public static final int MAXIMUM_HEADER_COUNT = 1024;
+    public static final int MAXIMUM_BODY_BYTES = 16 * 1024 * 1024;
+
     public HttpProtocolLimits {
-        if (maximumStartLineBytes < 1) {
-            throw new IllegalArgumentException("maximumStartLineBytes must be positive");
-        }
-        if (maximumHeaderSectionBytes < maximumStartLineBytes + 4) {
+        if (maximumStartLineBytes < 1
+            || maximumStartLineBytes > MAXIMUM_START_LINE_BYTES) {
             throw new IllegalArgumentException(
-                "maximumHeaderSectionBytes must accommodate the start line"
+                "maximumStartLineBytes must be between 1 and " + MAXIMUM_START_LINE_BYTES
             );
         }
-        if (maximumHeaderCount < 1) {
-            throw new IllegalArgumentException("maximumHeaderCount must be positive");
+        if ((long) maximumHeaderSectionBytes < (long) maximumStartLineBytes + 4
+            || maximumHeaderSectionBytes > MAXIMUM_HEADER_SECTION_BYTES) {
+            throw new IllegalArgumentException(
+                "maximumHeaderSectionBytes must accommodate the start line and not exceed "
+                    + MAXIMUM_HEADER_SECTION_BYTES
+            );
         }
-        if (maximumBodyBytes < 0) {
-            throw new IllegalArgumentException("maximumBodyBytes must not be negative");
+        if (maximumHeaderCount < 1 || maximumHeaderCount > MAXIMUM_HEADER_COUNT) {
+            throw new IllegalArgumentException(
+                "maximumHeaderCount must be between 1 and " + MAXIMUM_HEADER_COUNT
+            );
+        }
+        if (maximumBodyBytes < 0 || maximumBodyBytes > MAXIMUM_BODY_BYTES) {
+            throw new IllegalArgumentException(
+                "maximumBodyBytes must be between 0 and " + MAXIMUM_BODY_BYTES
+            );
         }
     }
 

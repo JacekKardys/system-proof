@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
@@ -23,6 +25,9 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
     );
     private static final byte REQUEST_COMPLETED = 1;
     private static final byte RESPONSE_COMPLETED = 2;
+    private static final int TARGET_DIGEST_BYTES = 32;
+    private static final int MAXIMUM_ENCODED_EVIDENCE_BYTES =
+        HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES + 63;
 
     private HttpEvidenceCodec() {}
 
@@ -55,7 +60,8 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
         if (encodedEvidence == null) {
             throw new NullPointerException("encodedEvidence must not be null");
         }
-        if (encodedEvidence.length < 2 || encodedEvidence.length > 128 * 1024) {
+        if (encodedEvidence.length < 2
+            || encodedEvidence.length > MAXIMUM_ENCODED_EVIDENCE_BYTES) {
             throw new IllegalArgumentException("Invalid encoded HTTP evidence");
         }
         try {
@@ -83,19 +89,19 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
     }
 
     private static byte[] encodeRequest(RequestCompleted request) {
-        byte[] method = request.method().getBytes(StandardCharsets.UTF_8);
-        byte[] path = request.path().getBytes(StandardCharsets.UTF_8);
+        byte[] targetDigest = java.util.HexFormat.of().parseHex(request.target().sha256());
         byte[] contentType = request.contentType()
             .map(value -> value.getBytes(StandardCharsets.UTF_8))
             .orElseGet(() -> new byte[0]);
-        int size = 1 + 16 + 4 + method.length + 4 + path.length
+        int size = 1 + 16 + 1 + 4 + TARGET_DIGEST_BYTES
             + 1 + (request.contentType().isPresent() ? 4 + contentType.length : 0) + 4;
         ByteBuffer encoded = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN)
             .put(REQUEST_COMPLETED)
             .putLong(request.exchange().sessionOrdinal())
-            .putLong(request.exchange().requestOrdinal());
-        putBytes(encoded, method);
-        putBytes(encoded, path);
+            .putLong(request.exchange().requestOrdinal())
+            .put(requestMethodCode(request.method()))
+            .putInt(request.target().byteCount())
+            .put(targetDigest);
         encoded.put((byte) (request.contentType().isPresent() ? 1 : 0));
         if (request.contentType().isPresent()) {
             putBytes(encoded, contentType);
@@ -105,8 +111,14 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
 
     private static RequestCompleted decodeRequest(ByteBuffer encoded) {
         HttpExchangeRef exchange = getRef(encoded);
-        String method = getText(encoded);
-        String path = getText(encoded);
+        RequestMethod method = requestMethod(encoded.get());
+        int targetByteCount = encoded.getInt();
+        byte[] targetDigest = new byte[TARGET_DIGEST_BYTES];
+        encoded.get(targetDigest);
+        RequestTarget target = new RequestTarget(
+            targetByteCount,
+            java.util.HexFormat.of().formatHex(targetDigest)
+        );
         Optional<String> contentType = switch (encoded.get()) {
             case 0 -> Optional.empty();
             case 1 -> Optional.of(getText(encoded));
@@ -114,7 +126,7 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
                 "Invalid encoded HTTP content type marker"
             );
         };
-        return new RequestCompleted(exchange, method, path, contentType, encoded.getInt());
+        return new RequestCompleted(exchange, method, target, contentType, encoded.getInt());
     }
 
     private static HttpExchangeRef getRef(ByteBuffer encoded) {
@@ -147,17 +159,34 @@ final class HttpEvidenceCodec implements EvidenceCodec<HttpEvidence> {
     private static byte acknowledgementCode(Acknowledgement acknowledgement) {
         return switch (acknowledgement) {
             case POSITIVE -> 1;
-            case NEGATIVE -> 2;
+            case INDETERMINATE -> 2;
+            case NEGATIVE -> 3;
         };
     }
 
     private static Acknowledgement acknowledgement(byte code) {
         return switch (code) {
             case 1 -> Acknowledgement.POSITIVE;
-            case 2 -> Acknowledgement.NEGATIVE;
+            case 2 -> Acknowledgement.INDETERMINATE;
+            case 3 -> Acknowledgement.NEGATIVE;
             default -> throw new IllegalArgumentException(
                 "Invalid encoded HTTP acknowledgement"
             );
+        };
+    }
+
+    private static byte requestMethodCode(RequestMethod method) {
+        return switch (method) {
+            case POST -> 1;
+            case OTHER -> 2;
+        };
+    }
+
+    private static RequestMethod requestMethod(byte code) {
+        return switch (code) {
+            case 1 -> RequestMethod.POST;
+            case 2 -> RequestMethod.OTHER;
+            default -> throw new IllegalArgumentException("Invalid encoded HTTP request method");
         };
     }
 }

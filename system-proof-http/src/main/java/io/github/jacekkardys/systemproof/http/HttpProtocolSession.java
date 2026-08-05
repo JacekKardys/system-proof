@@ -1,6 +1,8 @@
 package io.github.jacekkardys.systemproof.http;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
@@ -8,6 +10,8 @@ import java.util.Optional;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
@@ -69,10 +73,11 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         public ProtocolDecodeResult<HttpEvidence> decode(ByteBuffer bufferedBytes)
             throws ProtocolAdapterException {
             Objects.requireNonNull(bufferedBytes, "bufferedBytes must not be null");
-            if (!bufferedBytes.hasRemaining()) {
-                return ProtocolDecodeResult.needMoreData();
-            }
             try {
+                model.requireRequestInputOpen();
+                if (!bufferedBytes.hasRemaining()) {
+                    return ProtocolDecodeResult.needMoreData();
+                }
                 if (model.hasPendingRequest()) {
                     throw failure(
                         ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
@@ -108,8 +113,8 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                     originalBytes,
                     new RequestCompleted(
                         exchange,
-                        frame.method(),
-                        frame.path(),
+                        RequestMethod.fromWire(frame.method()),
+                        RequestTarget.ofPath(frame.path()),
                         frame.contentType(),
                         frame.bodyByteCount()
                     ),
@@ -138,10 +143,11 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         public ProtocolDecodeResult<HttpEvidence> decode(ByteBuffer bufferedBytes)
             throws ProtocolAdapterException {
             Objects.requireNonNull(bufferedBytes, "bufferedBytes must not be null");
-            if (!bufferedBytes.hasRemaining()) {
-                return ProtocolDecodeResult.needMoreData();
-            }
             try {
+                model.requireResponseInputOpen();
+                if (!bufferedBytes.hasRemaining()) {
+                    return ProtocolDecodeResult.needMoreData();
+                }
                 if (!model.hasPendingRequest()) {
                     throw failure(
                         ProtocolFailureKind.DESYNCHRONIZATION,
@@ -154,14 +160,11 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                 }
                 byte[] originalBytes = framer.copyOriginal(bufferedBytes, frame);
                 HttpExchangeRef exchange = model.completeResponse();
-                Acknowledgement acknowledgement = frame.statusCode() == 200
-                    && framer.bodyEquals(
-                        originalBytes,
-                        frame,
-                        POSITIVE_ACKNOWLEDGEMENT
-                    )
-                    ? Acknowledgement.POSITIVE
-                    : Acknowledgement.NEGATIVE;
+                Acknowledgement acknowledgement = classifyAcknowledgement(
+                    frame.statusCode(),
+                    originalBytes,
+                    frame
+                );
                 return ProtocolDecodeResult.complete(new ProtocolUnit<>(
                     originalBytes,
                     new ResponseCompleted(
@@ -189,6 +192,76 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         }
     }
 
+    private Acknowledgement classifyAcknowledgement(
+        int statusCode,
+        byte[] response,
+        HttpMessageFramer.ResponseFrame frame
+    ) {
+        if (statusCode >= 400) {
+            return Acknowledgement.NEGATIVE;
+        }
+        if (framer.bodyEquals(response, frame, POSITIVE_ACKNOWLEDGEMENT)) {
+            return statusCode == 200
+                ? Acknowledgement.POSITIVE
+                : Acknowledgement.INDETERMINATE;
+        }
+        return jasminAcceptsAfterStrip(response, frame)
+            ? Acknowledgement.INDETERMINATE
+            : Acknowledgement.NEGATIVE;
+    }
+
+    private static boolean jasminAcceptsAfterStrip(
+        byte[] response,
+        HttpMessageFramer.ResponseFrame frame
+    ) {
+        ByteBuffer body = ByteBuffer.wrap(
+            response,
+            frame.headerByteCount(),
+            frame.bodyByteCount()
+        ).slice();
+        String value;
+        try {
+            value = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(body)
+                .toString();
+        } catch (CharacterCodingException failure) {
+            return false;
+        }
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int codePoint = value.codePointAt(start);
+            if (!pythonWhitespace(codePoint)) {
+                break;
+            }
+            start += Character.charCount(codePoint);
+        }
+        while (end > start) {
+            int codePoint = value.codePointBefore(end);
+            if (!pythonWhitespace(codePoint)) {
+                break;
+            }
+            end -= Character.charCount(codePoint);
+        }
+        return value.substring(start, end).equals("ACK/Jasmin");
+    }
+
+    private static boolean pythonWhitespace(int codePoint) {
+        return codePoint >= 0x0009 && codePoint <= 0x000d
+            || codePoint >= 0x001c && codePoint <= 0x0020
+            || codePoint == 0x0085
+            || codePoint == 0x00a0
+            || codePoint == 0x1680
+            || codePoint >= 0x2000 && codePoint <= 0x200a
+            || codePoint == 0x2028
+            || codePoint == 0x2029
+            || codePoint == 0x202f
+            || codePoint == 0x205f
+            || codePoint == 0x3000;
+    }
+
     private static ProtocolAdapterException failure(
         ProtocolFailureKind kind,
         String message
@@ -201,6 +274,8 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         private long nextRequestOrdinal = 1;
         private HttpExchangeRef pending;
         private boolean terminal;
+        private boolean requestInputEnded;
+        private boolean responseInputEnded;
 
         private SessionModel(long sessionOrdinal) {
             this.sessionOrdinal = sessionOrdinal;
@@ -214,6 +289,12 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         private synchronized HttpExchangeRef beginRequest()
             throws ProtocolAdapterException {
             requireActive();
+            if (requestInputEnded || responseInputEnded) {
+                throw failure(
+                    ProtocolFailureKind.DESYNCHRONIZATION,
+                    "HTTP request cannot begin after either input ended"
+                );
+            }
             if (pending != null) {
                 throw failure(
                     ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
@@ -232,6 +313,12 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         private synchronized HttpExchangeRef completeResponse()
             throws ProtocolAdapterException {
             requireActive();
+            if (responseInputEnded) {
+                throw failure(
+                    ProtocolFailureKind.DESYNCHRONIZATION,
+                    "HTTP response input has ended"
+                );
+            }
             if (pending == null) {
                 throw failure(
                     ProtocolFailureKind.DESYNCHRONIZATION,
@@ -245,16 +332,40 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
 
         private synchronized void requestInputEnded() throws ProtocolAdapterException {
             requireActive();
+            requestInputEnded = true;
         }
 
         private synchronized void responseInputEnded() throws ProtocolAdapterException {
             requireActive();
+            responseInputEnded = true;
             if (pending != null) {
                 terminal = true;
                 pending = null;
                 throw failure(
                     ProtocolFailureKind.DESYNCHRONIZATION,
                     "HTTP response input ended while a request was pending"
+                );
+            }
+        }
+
+        private synchronized void requireRequestInputOpen()
+            throws ProtocolAdapterException {
+            requireActive();
+            if (requestInputEnded || responseInputEnded) {
+                throw failure(
+                    ProtocolFailureKind.DESYNCHRONIZATION,
+                    "HTTP request input is closed"
+                );
+            }
+        }
+
+        private synchronized void requireResponseInputOpen()
+            throws ProtocolAdapterException {
+            requireActive();
+            if (responseInputEnded) {
+                throw failure(
+                    ProtocolFailureKind.DESYNCHRONIZATION,
+                    "HTTP response input is closed"
                 );
             }
         }
@@ -277,6 +388,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
     private static final class EphemeralRequest implements HttpRequestInteraction {
         private HttpMessageFramer.RequestFrame frame;
         private byte[] originalBytes;
+        private final Body body = new EphemeralBody(this);
 
         private EphemeralRequest(
             HttpMessageFramer.RequestFrame frame,
@@ -305,19 +417,9 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         }
 
         @Override
-        public int bodySize() {
+        public Body body() {
             requireActive();
-            return frame.bodyByteCount();
-        }
-
-        @Override
-        public ByteBuffer bodyBytes() {
-            requireActive();
-            return ByteBuffer.wrap(
-                originalBytes,
-                frame.headerByteCount(),
-                frame.bodyByteCount()
-            ).slice().asReadOnlyBuffer();
+            return body;
         }
 
         private void invalidate() {
@@ -338,6 +440,47 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                 : "HttpRequestInteraction[method=" + frame.method()
                     + ", pathLength=" + frame.path().length()
                     + ", bodyByteCount=" + frame.bodyByteCount() + "]";
+        }
+    }
+
+    private static final class EphemeralBody implements HttpRequestInteraction.Body {
+        private final EphemeralRequest owner;
+
+        private EphemeralBody(EphemeralRequest owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public int size() {
+            owner.requireActive();
+            return owner.frame.bodyByteCount();
+        }
+
+        @Override
+        public byte byteAt(int index) {
+            owner.requireActive();
+            Objects.checkIndex(index, owner.frame.bodyByteCount());
+            return owner.originalBytes[owner.frame.headerByteCount() + index];
+        }
+
+        @Override
+        public void copyTo(
+            int sourceOffset,
+            byte[] destination,
+            int destinationOffset,
+            int length
+        ) {
+            owner.requireActive();
+            Objects.requireNonNull(destination, "destination must not be null");
+            Objects.checkFromIndexSize(sourceOffset, length, owner.frame.bodyByteCount());
+            Objects.checkFromIndexSize(destinationOffset, length, destination.length);
+            System.arraycopy(
+                owner.originalBytes,
+                owner.frame.headerByteCount() + sourceOffset,
+                destination,
+                destinationOffset,
+                length
+            );
         }
     }
 }

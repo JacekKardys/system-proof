@@ -1,6 +1,5 @@
 package io.github.jacekkardys.systemproof.http;
 
-import java.nio.ByteBuffer;
 import java.util.Optional;
 
 /**
@@ -16,8 +15,15 @@ public interface HttpRequestInteraction {
     /** Returns the normalized Content-Type field value, when present. */
     Optional<String> contentType();
 
-    int bodySize();
+    /** Returns scoped indexed access that expires with this interaction. */
+    Body body();
 
-    /** Returns a read-only body view valid only for the current callback. */
-    ByteBuffer bodyBytes();
+    /** Read-only body access whose every operation checks callback activity. */
+    interface Body {
+        int size();
+
+        byte byteAt(int index);
+
+        void copyTo(int sourceOffset, byte[] destination, int destinationOffset, int length);
+    }
 }

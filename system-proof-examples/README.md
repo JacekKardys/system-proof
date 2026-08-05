@@ -58,7 +58,12 @@ Default dependency images:
 - `postgres:17.6-alpine`
 - `rabbitmq:4.1.2-management-alpine`
 - `redis:8.0.3-alpine`
-- `jookies/jasmin:0.11.0`
+- `jookies/jasmin:0.11.0@sha256:3f049692d22fd66ab08a55073f79db96fe442473ede9615e8ac085ac505a1064`
+
+The Jasmin manifest labels map this digest to version `0.11.0` and source revision
+`8455c1b875d5f22069759e8fbefcb7437c47db4b`. The default bootstrap diagnostic reports only safe
+connector identifiers, method, callback-configured state, and SMPP bind state; it never lists the
+configured callback URL.
 
 The reference SUT lives under `apps/`:
 

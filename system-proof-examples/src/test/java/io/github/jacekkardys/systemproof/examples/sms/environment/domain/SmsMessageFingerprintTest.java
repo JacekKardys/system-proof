@@ -271,32 +271,48 @@ class SmsMessageFingerprintTest {
         String method,
         String path,
         Optional<String> contentType,
-        byte[] body
+        byte[] bodyBytes
     ) implements HttpRequestInteraction {
         private FakeHttpRequest {
-            body = body.clone();
+            bodyBytes = bodyBytes.clone();
         }
 
         @Override
-        public int bodySize() {
-            return body.length;
-        }
+        public Body body() {
+            return new Body() {
+                @Override
+                public int size() {
+                    return bodyBytes.length;
+                }
 
-        @Override
-        public ByteBuffer bodyBytes() {
-            return ByteBuffer.wrap(body).asReadOnlyBuffer();
-        }
+                @Override
+                public byte byteAt(int index) {
+                    return bodyBytes[index];
+                }
 
-        @Override
-        public byte[] body() {
-            return body.clone();
+                @Override
+                public void copyTo(
+                    int sourceOffset,
+                    byte[] destination,
+                    int destinationOffset,
+                    int length
+                ) {
+                    System.arraycopy(
+                        bodyBytes,
+                        sourceOffset,
+                        destination,
+                        destinationOffset,
+                        length
+                    );
+                }
+            };
         }
 
         @Override
         public String toString() {
             return "FakeHttpRequest[method=" + method
                 + ", pathLength=" + path.length()
-                + ", bodyByteCount=" + body.length + "]";
+                + ", bodyByteCount=" + bodyBytes.length + "]";
         }
     }
 }

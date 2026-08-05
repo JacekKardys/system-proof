@@ -26,7 +26,7 @@ system-proof-examples/fixtures
   interaction gateway routes.
 - `system-proof-postgresql`: bounded plaintext PostgreSQL v3 observation, exact explicit-commit
   control, typed transaction evidence, write correlation, and independent durability preflight.
-- `system-proof-http`: bounded plaintext HTTP/1.1 callback observation, exact Jasmin
+- `system-proof-http`: bounded plaintext HTTP/1.1 callback observation, tri-state Jasmin
   acknowledgement evidence, request correlation, and response control.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples, including
   real PostgreSQL and HTTP evidence flows.
@@ -45,7 +45,7 @@ commit-success definition, plaintext/TLS boundary, memory limits, and durability
 attribution or claim the final T1 proof.
 
 The HTTP adapter is likewise a characterized, fail-closed subset rather than a general HTTP
-proxy. Its framing limits, exact `200` plus `ACK/Jasmin` acknowledgement contract, local exchange
+proxy. Its framing limits, tri-state `ACK/Jasmin` acknowledgement contract, local exchange
 identity, correlation boundary, and unsupported cases are in the
 [`system-proof-http` module](system-proof-http/README.md) and
 [`ADR 0006`](docs/adr/0006-http-callback-evidence.md). This evidence is one input to a later

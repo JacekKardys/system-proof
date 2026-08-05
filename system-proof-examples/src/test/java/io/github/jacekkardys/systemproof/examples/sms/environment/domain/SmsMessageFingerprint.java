@@ -90,7 +90,7 @@ public final class SmsMessageFingerprint {
             ).isEmpty()) {
             return Optional.empty();
         }
-        Optional<Map<String, byte[]>> decoded = decodeForm(interaction.bodyBytes());
+        Optional<Map<String, byte[]>> decoded = decodeForm(interaction.body());
         if (decoded.isEmpty()) {
             return Optional.empty();
         }
@@ -149,10 +149,11 @@ public final class SmsMessageFingerprint {
                 || actual[0] == Character.forDigit(expected, 10));
     }
 
-    private static Optional<Map<String, byte[]>> decodeForm(ByteBuffer body) {
-        ByteBuffer source = body.asReadOnlyBuffer();
-        byte[] bytes = new byte[source.remaining()];
-        source.get(bytes);
+    private static Optional<Map<String, byte[]>> decodeForm(
+        HttpRequestInteraction.Body body
+    ) {
+        byte[] bytes = new byte[body.size()];
+        body.copyTo(0, bytes, 0, bytes.length);
         Map<String, byte[]> fields = new LinkedHashMap<>();
         int offset = 0;
         while (offset <= bytes.length) {

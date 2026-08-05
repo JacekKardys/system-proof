@@ -26,13 +26,15 @@ control.
 - `HttpExchangeRef` identifies one request/response pair by adapter-session ordinal and request
   ordinal. The value is local to one adapter instance. Gateway connection and physical-session
   provenance is additionally required for native-flow composition.
-- `HttpEvidence.RequestCompleted` records the exchange reference, method, path, optional content
-  type, and body byte count. It never records headers or body bytes.
+- `HttpEvidence.RequestCompleted` records the exchange reference, an allowlisted method category,
+  a request-target SHA-256 digest and byte count, optional content type, and body byte count. It
+  never records the raw target, headers, or body bytes.
 - `HttpEvidence.ResponseCompleted` records the exchange reference, status, conservative
   acknowledgement classification, and body byte count. It never records response bytes.
 - `HttpRequestCorrelation` receives an ephemeral `HttpRequestInteraction` only while one complete
-  request is decoded. The view expires on callback return; only an optional digest-based
-  `CorrelationKey` and detached `HttpExchangeRef` contribution can survive.
+  request is decoded. Its scoped body accessor checks activity on every indexed read or copy and
+  expires on callback return; only an optional digest-based `CorrelationKey` and detached
+  `HttpExchangeRef` contribution can survive.
 
 ## Supported subset
 
@@ -46,9 +48,11 @@ control.
 - response statuses from 200 onward, including bodyless 204 and 304 responses when their
   `Content-Length` is absent or zero.
 
-The characterized positive acknowledgement is exactly status `200` plus exactly the ten ASCII
-bytes `ACK/Jasmin`. No trimming, case folding, status range, or arbitrary 2xx rule is applied. Every
-other complete supported response is negative evidence.
+Acknowledgement is intentionally tri-state. Exact status `200` plus exactly the ten ASCII bytes
+`ACK/Jasmin` is `POSITIVE`. A sub-400 status with a UTF-8 body accepted only after Jasmin's
+`content.strip()` behavior, including `201`/`299` with the exact body or `200` with surrounding
+whitespace, is `INDETERMINATE`. Statuses at least 400, an empty or wrong body, and invalid text are
+`NEGATIVE`. Truncated or malformed responses emit no response evidence and fail closed.
 
 TLS, `CONNECT`, `HEAD`, `Upgrade`, `Expect`, transfer codings, close-delimited responses,
 informational responses, general pipelining, malformed or conflicting lengths, ambiguous
@@ -56,8 +60,10 @@ request/response association, and premature EOF fail closed without positive evi
 traffic is a gateway observation failure, not an `UNKNOWN` evidence value.
 
 Default HTTP limits are an 8 KiB start line, 32 KiB combined start-line/header section, 100
-headers, and a 1 MiB body. `ProtocolLimits` independently bounds the complete frame and aggregate
-directional buffer. The adapter does not own sockets or retain a second payload registry.
+headers, and a 1 MiB body. Hard maxima are 16 KiB, 64 KiB, 1024 fields, and 16 MiB respectively;
+the evidence codec derives its bound from the same maxima. `ProtocolLimits` independently bounds
+the complete frame and aggregate directional buffer. The adapter does not own sockets or retain a
+second payload registry.
 
 ## Correlation and control
 
