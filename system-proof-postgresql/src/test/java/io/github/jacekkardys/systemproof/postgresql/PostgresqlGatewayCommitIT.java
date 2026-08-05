@@ -58,7 +58,6 @@ import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
-import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Prerequisite;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityRequirements.Table;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.CommitAttempt;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.CommitSucceeded;
@@ -125,9 +124,8 @@ class PostgresqlGatewayCommitIT {
                 PostgresqlDurabilityRequirements requirements =
                     new PostgresqlDurabilityRequirements(Set.of(
                         new Table("public", "proof_entry")
-                    ));
+                ));
                 PostgresqlDurabilityResult durability = PostgresqlDurabilityVerifier.verify(
-                    sut,
                     verification,
                     requirements
                 );
@@ -135,12 +133,10 @@ class PostgresqlGatewayCommitIT {
                     .isEqualTo(PostgresqlDurabilityResult.Setting.ON);
                 assertThat(durability.fsync())
                     .isEqualTo(PostgresqlDurabilityResult.Setting.ON);
-                assertThat(durability.independentSession()).isTrue();
-                assertThat(durability.verificationConsistent()).isTrue();
-                assertThat(durability.tables())
+                assertThat(durability.relations())
                     .containsEntry(
                         new Table("public", "proof_entry"),
-                        PostgresqlDurabilityResult.TablePersistence.PERMANENT
+                        PostgresqlDurabilityResult.RelationStatus.PERMANENT_TABLE
                     );
                 assertThat(durability.requireSatisfied()).isSameAs(durability);
 
@@ -197,13 +193,6 @@ class PostgresqlGatewayCommitIT {
                             throw failure;
                         }
                     }
-                    assertThat(PostgresqlDurabilityVerifier.verify(
-                        sut,
-                        verification,
-                        requirements,
-                        protocol,
-                        connectionId
-                    ).requireSatisfied()).isNotNull();
                     int receiverAttemptsBefore = database.probe().commitAttempts();
                     Future<?> commit = commits.submit(() -> {
                         try {
@@ -378,10 +367,8 @@ class PostgresqlGatewayCommitIT {
                 Optional.of(TransactionRef.codec().schemaId()),
                 Set.of(
                     Capability.CORRELATION_CONTRIBUTIONS,
-                    Capability.SEMANTIC_CONTROL,
-                    Capability.DURABLE_SUCCESS
+                    Capability.SEMANTIC_CONTROL
                 ),
-                Set.of(Prerequisite.EXACT_SESSION_DURABILITY),
                 Set.of()
             );
         }

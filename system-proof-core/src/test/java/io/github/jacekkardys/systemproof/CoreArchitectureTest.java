@@ -185,7 +185,6 @@ class CoreArchitectureTest {
         observation.RequiredObservationProfile
         observation.RequiredObservationProfile$Capability
         observation.RequiredObservationProfile$Feature
-        observation.RequiredObservationProfile$Prerequisite
         observation.RecordedInteraction
         observation.SessionId
         proof.CorrelationCardinality
@@ -231,11 +230,9 @@ class CoreArchitectureTest {
         control.SemanticHoldState#RELEASING:control.SemanticHoldState
         control.SemanticHoldState#TIMED_OUT:control.SemanticHoldState
         observation.RequiredObservationProfile$Capability#CORRELATION_CONTRIBUTIONS:observation.RequiredObservationProfile$Capability
-        observation.RequiredObservationProfile$Capability#DURABLE_SUCCESS:observation.RequiredObservationProfile$Capability
         observation.RequiredObservationProfile$Capability#SEMANTIC_CONTROL:observation.RequiredObservationProfile$Capability
         observation.RequiredObservationProfile$Feature#ENCRYPTED_TRANSPORT:observation.RequiredObservationProfile$Feature
         observation.RequiredObservationProfile$Feature#GENERAL_PIPELINING:observation.RequiredObservationProfile$Feature
-        observation.RequiredObservationProfile$Prerequisite#EXACT_SESSION_DURABILITY:observation.RequiredObservationProfile$Prerequisite
         configuration.ConfigurationSource#UNSET:java.lang.String
         environment.state.ConnectionState#DECLARED:environment.state.ConnectionState
         environment.state.ConnectionState#FAILED:environment.state.ConnectionState

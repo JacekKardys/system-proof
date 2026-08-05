@@ -16,8 +16,8 @@ Public composition API:
   `ProtocolLimits`: protocol-neutral, bounded framing, typed-evidence, and immutable declarative
   correlation-contribution SPI.
 - `ProtocolObservationContract`: the adapter-provided profile for protocol ID/scheme, endpoint
-  value type, evidence and native-reference schemas, capabilities, prerequisites, and unsupported
-  modes. Observed route preparation compares it with both the logical port contract and the
+  value type, evidence and native-reference schemas, capabilities, and positively declared
+  supported features. Observed route preparation compares it with both the logical port contract and the
   scenario-owned core `RequiredObservationProfile` for the exact `ConnectionId` before opening a
   listener; required observation fails closed when any declaration is missing or mismatched.
 - component-scoped `DriverContext`: typed dependency resolution, journal-backed diagnostics, and

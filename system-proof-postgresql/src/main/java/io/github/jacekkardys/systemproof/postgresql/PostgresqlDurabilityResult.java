@@ -4,23 +4,11 @@ import java.util.Map;
 import java.util.Objects;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityRequirements.Table;
 
-/**
- * Immutable secret-safe PostgreSQL durability prerequisite result.
- *
- * @param synchronousCommit typed value of {@code synchronous_commit}
- * @param fsync typed value of {@code fsync}
- * @param independentSession whether SUT and verification connections use different backends
- * @param verificationConsistent whether exact-SUT and independent checks returned the same facts
- * @param tables persistence classification for every required table
- * @param tableTriggers enabled user-trigger classification for every required table
- */
+/** Immutable secret-safe PostgreSQL durability preflight result. */
 public record PostgresqlDurabilityResult(
     Setting synchronousCommit,
     Setting fsync,
-    boolean independentSession,
-    boolean verificationConsistent,
-    Map<Table, TablePersistence> tables,
-    Map<Table, TableTriggers> tableTriggers
+    Map<Table, RelationStatus> relations
 ) {
     public enum Setting {
         /** The setting is exactly {@code on}. */
@@ -31,24 +19,23 @@ public record PostgresqlDurabilityResult(
         OTHER
     }
 
-    public enum TablePersistence {
-        /** A permanent, WAL-logged relation. */
-        PERMANENT,
-        /** An unlogged relation. */
-        UNLOGGED,
-        /** A temporary relation. */
-        TEMPORARY,
+    /** Typed, fail-closed classification of one requested relation. */
+    public enum RelationStatus {
+        /** An ordinary permanent WAL-logged table. */
+        PERMANENT_TABLE,
+        /** An ordinary unlogged table. */
+        UNLOGGED_TABLE,
+        /** An ordinary temporary table. */
+        TEMPORARY_TABLE,
+        VIEW,
+        MATERIALIZED_VIEW,
+        FOREIGN_TABLE,
+        SEQUENCE,
+        PARTITIONED_TABLE,
+        /** A relation kind outside the explicitly classified set. */
+        OTHER_RELATION_KIND,
         /** No matching relation exists. */
-        MISSING,
-        /** PostgreSQL returned an unknown persistence class. */
-        OTHER
-    }
-
-    public enum TableTriggers {
-        /** No enabled non-internal trigger can execute during a proof write or deferred commit. */
-        NONE_ENABLED,
-        /** At least one enabled non-internal trigger exists. */
-        ENABLED
+        MISSING
     }
 
     public PostgresqlDurabilityResult {
@@ -57,41 +44,24 @@ public record PostgresqlDurabilityResult(
             "synchronousCommit must not be null"
         );
         fsync = Objects.requireNonNull(fsync, "fsync must not be null");
-        Objects.requireNonNull(tables, "tables must not be null");
-        if (tables.entrySet().stream().anyMatch(entry ->
-            entry.getKey() == null || entry.getValue() == null
-        )) {
-            throw new NullPointerException("tables must not contain null keys or values");
-        }
-        tables = Map.copyOf(tables);
-        Objects.requireNonNull(tableTriggers, "tableTriggers must not be null");
-        if (tableTriggers.entrySet().stream().anyMatch(entry ->
+        Objects.requireNonNull(relations, "relations must not be null");
+        if (relations.entrySet().stream().anyMatch(entry ->
             entry.getKey() == null || entry.getValue() == null
         )) {
             throw new NullPointerException(
-                "tableTriggers must not contain null keys or values"
+                "relations must not contain null keys or values"
             );
         }
-        tableTriggers = Map.copyOf(tableTriggers);
-        if (!tables.keySet().equals(tableTriggers.keySet())) {
-            throw new IllegalArgumentException(
-                "tables and tableTriggers must describe the same relations"
-            );
-        }
+        relations = Map.copyOf(relations);
     }
 
-    /** Returns whether every mandatory prerequisite is satisfied. */
+    /** Returns whether every mandatory preflight fact is satisfied. */
     public boolean satisfied() {
         return synchronousCommit == Setting.ON
             && fsync == Setting.ON
-            && independentSession
-            && verificationConsistent
-            && !tables.isEmpty()
-            && tables.values().stream().allMatch(
-                persistence -> persistence == TablePersistence.PERMANENT
-            )
-            && tableTriggers.values().stream().allMatch(
-                triggers -> triggers == TableTriggers.NONE_ENABLED
+            && !relations.isEmpty()
+            && relations.values().stream().allMatch(
+                status -> status == RelationStatus.PERMANENT_TABLE
             );
     }
 

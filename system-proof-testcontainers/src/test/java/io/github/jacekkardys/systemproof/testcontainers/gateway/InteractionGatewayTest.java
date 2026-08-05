@@ -70,7 +70,6 @@ import io.github.jacekkardys.systemproof.observation.ObservationRequirement;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
-import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Prerequisite;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
@@ -146,8 +145,7 @@ class InteractionGatewayTest {
                         declared.evidenceSchema(),
                         declared.nativeFlowReferenceSchema(),
                         declared.capabilities(),
-                        declared.prerequisites(),
-                        declared.unsupportedModes()
+                        declared.supportedFeatures()
                     ));
                 }
 
@@ -197,7 +195,7 @@ class InteractionGatewayTest {
         );
 
         assertRequiredProfileRejected(
-            requiredLengthProfile(otherSchema, baseCapabilities, Set.of(), Set.of()),
+            requiredLengthProfile(otherSchema, baseCapabilities, Set.of()),
             "required evidence schema"
         );
         assertRequiredProfileRejected(
@@ -205,7 +203,6 @@ class InteractionGatewayTest {
                 LengthPrefixedProtocolAdapter.CODEC.schemaId(),
                 Optional.of(otherSchema),
                 baseCapabilities,
-                Set.of(),
                 Set.of()
             ),
             "required native-flow schema"
@@ -213,34 +210,68 @@ class InteractionGatewayTest {
         assertRequiredProfileRejected(
             requiredLengthProfile(
                 LengthPrefixedProtocolAdapter.CODEC.schemaId(),
-                Set.of(
-                    Capability.CORRELATION_CONTRIBUTIONS,
-                    Capability.SEMANTIC_CONTROL,
-                    Capability.DURABLE_SUCCESS
-                ),
-                Set.of(Prerequisite.EXACT_SESSION_DURABILITY),
-                Set.of()
-            ),
-            "required capabilities"
-        );
-        assertRequiredProfileRejected(
-            requiredLengthProfile(
-                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
                 baseCapabilities,
-                Set.of(Prerequisite.EXACT_SESSION_DURABILITY),
-                Set.of()
-            ),
-            "required prerequisites"
-        );
-        assertRequiredProfileRejected(
-            requiredLengthProfile(
-                LengthPrefixedProtocolAdapter.CODEC.schemaId(),
-                baseCapabilities,
-                Set.of(),
                 Set.of(Feature.ENCRYPTED_TRANSPORT)
             ),
             "required protocol features"
         );
+    }
+
+    @Test
+    void shouldAcceptOnlyAnExplicitlySupportedRequiredFeature() {
+        LengthPrefixedProtocolAdapter delegate = new LengthPrefixedProtocolAdapter();
+        ProtocolAdapter<LengthPrefixedProtocolAdapter.FrameEvidence> supporting =
+            new ProtocolAdapter<>() {
+                @Override
+                public Optional<ProtocolObservationContract> observationContract() {
+                    ProtocolObservationContract declared = delegate.observationContract()
+                        .orElseThrow();
+                    return Optional.of(new ProtocolObservationContract(
+                        declared.protocolId(),
+                        declared.protocolScheme(),
+                        declared.endpointType(),
+                        declared.evidenceSchema(),
+                        declared.nativeFlowReferenceSchema(),
+                        declared.capabilities(),
+                        Set.of(Feature.ENCRYPTED_TRANSPORT)
+                    ));
+                }
+
+                @Override
+                public io.github.jacekkardys.systemproof.observation.EvidenceCodec<
+                    LengthPrefixedProtocolAdapter.FrameEvidence
+                > evidenceCodec() {
+                    return delegate.evidenceCodec();
+                }
+
+                @Override
+                public ProtocolSession<LengthPrefixedProtocolAdapter.FrameEvidence> openSession(
+                    ProtocolLimits limits
+                ) {
+                    return delegate.openSession(limits);
+                }
+            };
+        RequiredObservationProfile profile = requiredLengthProfile(
+            LengthPrefixedProtocolAdapter.CODEC.schemaId(),
+            Set.of(
+                Capability.CORRELATION_CONTRIBUTIONS,
+                Capability.SEMANTIC_CONTROL
+            ),
+            Set.of(Feature.ENCRYPTED_TRANSPORT)
+        );
+        RoutedEnvironment environment = observedEnvironment(
+            ObservationRequirement.REQUIRED,
+            ControllableGatewayListener.scripted(32144),
+            supporting,
+            profile
+        );
+
+        try {
+            environment.start();
+            assertThat(environment.isRunning()).isTrue();
+        } finally {
+            environment.close();
+        }
     }
 
     @Test
@@ -1513,7 +1544,6 @@ class InteractionGatewayTest {
                 Capability.CORRELATION_CONTRIBUTIONS,
                 Capability.SEMANTIC_CONTROL
             ),
-            Set.of(),
             Set.of()
         );
     }
@@ -1521,14 +1551,12 @@ class InteractionGatewayTest {
     private static RequiredObservationProfile requiredLengthProfile(
         EvidenceSchemaId evidenceSchema,
         Set<Capability> capabilities,
-        Set<Prerequisite> prerequisites,
         Set<Feature> requiredFeatures
     ) {
         return new RequiredObservationProfile(
             evidenceSchema,
             Optional.of(LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC.schemaId()),
             capabilities,
-            prerequisites,
             requiredFeatures
         );
     }

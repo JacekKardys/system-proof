@@ -24,7 +24,7 @@ system-proof-examples/fixtures
 - `system-proof-testcontainers`: container-backed drivers, runtime port bindings, and test-JVM
   interaction gateway routes.
 - `system-proof-postgresql`: bounded plaintext PostgreSQL v3 observation, exact explicit-commit
-  control, typed transaction evidence, write correlation, and durability prerequisite checks.
+  control, typed transaction evidence, write correlation, and independent durability preflight.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
 - `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
 - `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
@@ -35,7 +35,7 @@ Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
 [`docs/adr/0001-t1-proof-contract.md`](docs/adr/0001-t1-proof-contract.md).
 
 The PostgreSQL adapter is intentionally not a general proxy. Its characterized pgJDBC subset,
-commit-success definition, plaintext/TLS boundary, memory limits, and durability checks are in the
+commit-success definition, plaintext/TLS boundary, memory limits, and durability preflight are in the
 [`system-proof-postgresql` module](system-proof-postgresql/README.md) and
 [`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). This evidence does not yet implement AML
 attribution or claim the final T1 proof.
@@ -246,8 +246,8 @@ relaying undecided bytes. Requested observation is `PENDING` before route prepar
 cleanly stopped formerly active route is `INACTIVE`.
 
 A required observation profile belongs to the scenario/routing rule, not the adapter. It declares
-protocol-neutral evidence and native-reference schema IDs, capabilities, prerequisites, and
-features for one selected `ConnectionId`. Route preparation compares it with the adapter-provided
+protocol-neutral evidence and native-reference schema IDs, capabilities, and required features for
+one selected `ConnectionId`. Route preparation compares it with the adapter-provided
 profile before a listener or protocol session is opened. Different connections using one provider
 may require different profiles.
 

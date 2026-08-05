@@ -32,6 +32,13 @@ public final class PostgresTestcontainersDriver
             .withDatabaseName(componentConfiguration.database())
             .withUsername(componentConfiguration.username())
             .withPassword(componentConfiguration.password().reveal())
+            .withCommand(
+                "postgres",
+                "-c",
+                "fsync=on",
+                "-c",
+                "synchronous_commit=on"
+            )
             .withStartupTimeout(configuration.startupTimeout());
         return ContainerPlan.container(container)
             .provides(

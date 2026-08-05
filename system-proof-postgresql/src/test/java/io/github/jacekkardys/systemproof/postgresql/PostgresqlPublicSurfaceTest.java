@@ -25,9 +25,8 @@ class PostgresqlPublicSurfaceTest {
         PostgresqlDurabilityRequirements
         PostgresqlDurabilityRequirements$Table
         PostgresqlDurabilityResult
+        PostgresqlDurabilityResult$RelationStatus
         PostgresqlDurabilityResult$Setting
-        PostgresqlDurabilityResult$TablePersistence
-        PostgresqlDurabilityResult$TableTriggers
         PostgresqlDurabilityVerifier
         PostgresqlEvidence
         PostgresqlEvidence$AutocommitWrite

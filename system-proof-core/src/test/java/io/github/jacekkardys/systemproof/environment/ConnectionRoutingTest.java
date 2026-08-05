@@ -413,7 +413,6 @@ class ConnectionRoutingTest {
             new EvidenceSchemaId("system-proof-test", evidenceName, 1),
             Optional.empty(),
             Set.of(),
-            Set.of(),
             Set.of()
         );
     }
@@ -423,7 +422,6 @@ class ConnectionRoutingTest {
             new EvidenceSchemaId("system-proof-test", "semantic-evidence", 1),
             Optional.empty(),
             Set.of(Capability.SEMANTIC_CONTROL),
-            Set.of(),
             Set.of()
         );
     }

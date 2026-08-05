@@ -10,66 +10,51 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityRequirements.Table;
+import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityResult.RelationStatus;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityResult.Setting;
-import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityResult.TablePersistence;
-import io.github.jacekkardys.systemproof.postgresql.PostgresqlDurabilityResult.TableTriggers;
 
 class PostgresqlDurabilityVerifierIT {
     @Test
-    void shouldRequireOnSettingsPermanentTablesAndAnIndependentBackend() throws Exception {
+    void shouldRequireOnSettingsAndPermanentOrdinaryTables() throws Exception {
         try (PostgreSQLContainer<?> postgres = durablePostgres()) {
             postgres.start();
-            try (Connection sut = connection(postgres);
-                 Connection verification = connection(postgres);
+            try (Connection verification = connection(postgres);
                  Statement statement = verification.createStatement()) {
                 statement.execute("CREATE TABLE proof_entry (id bigint primary key)");
-                PostgresqlDurabilityRequirements requirements =
-                    new PostgresqlDurabilityRequirements(Set.of(
-                        new Table("public", "proof_entry")
-                    ));
+                Table table = new Table("public", "proof_entry");
 
                 PostgresqlDurabilityResult result = PostgresqlDurabilityVerifier.verify(
-                    sut,
                     verification,
-                    requirements
+                    new PostgresqlDurabilityRequirements(Set.of(table))
                 );
 
                 assertThat(result.synchronousCommit()).isEqualTo(Setting.ON);
                 assertThat(result.fsync()).isEqualTo(Setting.ON);
-                assertThat(result.independentSession()).isTrue();
-                assertThat(result.verificationConsistent()).isTrue();
-                assertThat(result.tables()).containsEntry(
-                    new Table("public", "proof_entry"),
-                    TablePersistence.PERMANENT
-                );
-                assertThat(result.tableTriggers()).containsEntry(
-                    new Table("public", "proof_entry"),
-                    TableTriggers.NONE_ENABLED
-                );
+                assertThat(result.relations())
+                    .containsEntry(table, RelationStatus.PERMANENT_TABLE);
                 assertThat(result.requireSatisfied()).isSameAs(result);
             }
         }
     }
 
     @Test
-    void shouldFailClosedForOffSettingUnloggedTableAndSameBackend() throws Exception {
+    void shouldFailClosedForOffSettingAndUnloggedTable() throws Exception {
         try (PostgreSQLContainer<?> postgres = durablePostgres()) {
             postgres.start();
-            try (Connection connection = connection(postgres);
-                 Statement statement = connection.createStatement()) {
+            try (Connection verification = connection(postgres);
+                 Statement statement = verification.createStatement()) {
                 statement.execute("SET synchronous_commit = off");
                 statement.execute("CREATE UNLOGGED TABLE transient_entry (id bigint)");
                 Table table = new Table("public", "transient_entry");
 
                 PostgresqlDurabilityResult result = PostgresqlDurabilityVerifier.verify(
-                    connection,
-                    connection,
+                    verification,
                     new PostgresqlDurabilityRequirements(Set.of(table))
                 );
 
                 assertThat(result.synchronousCommit()).isEqualTo(Setting.OFF);
-                assertThat(result.independentSession()).isFalse();
-                assertThat(result.tables()).containsEntry(table, TablePersistence.UNLOGGED);
+                assertThat(result.relations())
+                    .containsEntry(table, RelationStatus.UNLOGGED_TABLE);
                 assertThat(result.satisfied()).isFalse();
                 assertThatThrownBy(result::requireSatisfied)
                     .isInstanceOf(IllegalStateException.class)
@@ -79,73 +64,77 @@ class PostgresqlDurabilityVerifierIT {
     }
 
     @Test
-    void shouldReadSynchronousCommitFromTheExactSutSession() throws Exception {
-        try (PostgreSQLContainer<?> postgres = durablePostgres()) {
-            postgres.start();
-            try (Connection sut = connection(postgres);
-                 Connection verification = connection(postgres);
-                 Statement sutStatement = sut.createStatement();
-                 Statement setup = verification.createStatement()) {
-                sutStatement.execute("SET synchronous_commit = off");
-                setup.execute("CREATE TABLE proof_entry (id bigint primary key)");
-
-                PostgresqlDurabilityResult result = PostgresqlDurabilityVerifier.verify(
-                    sut,
-                    verification,
-                    new PostgresqlDurabilityRequirements(Set.of(
-                        new Table("public", "proof_entry")
-                    ))
-                );
-
-                assertThat(result.synchronousCommit()).isEqualTo(Setting.OFF);
-                assertThat(result.fsync()).isEqualTo(Setting.ON);
-                assertThat(result.satisfied()).isFalse();
-            }
-        }
-    }
-
-    @Test
-    void shouldRejectEnabledUserTriggersThatCanChangeCommitSettings()
+    void shouldClassifyEveryUnsupportedRelationKindAndMissingRelation()
         throws Exception {
         try (PostgreSQLContainer<?> postgres = durablePostgres()) {
             postgres.start();
-            try (Connection sut = connection(postgres);
-                 Connection verification = connection(postgres);
-                 Statement setup = verification.createStatement()) {
-                setup.execute("CREATE TABLE proof_entry (id bigint primary key)");
-                setup.execute("""
-                    CREATE FUNCTION change_commit_setting() RETURNS trigger
-                    LANGUAGE plpgsql AS $$
-                    BEGIN
-                        PERFORM set_config('synchronous_commit', 'off', true);
-                        RETURN NEW;
-                    END
-                    $$
+            try (Connection verification = connection(postgres);
+                 Statement statement = verification.createStatement()) {
+                statement.execute("CREATE TABLE base_entry (id bigint)");
+                statement.execute("CREATE TEMP TABLE temporary_entry (id bigint)");
+                statement.execute("CREATE VIEW proof_view AS SELECT 1 AS id");
+                statement.execute("CREATE MATERIALIZED VIEW proof_materialized AS SELECT 1 AS id");
+                statement.execute("CREATE SEQUENCE proof_sequence");
+                statement.execute("""
+                    CREATE TABLE proof_partitioned (id bigint)
+                    PARTITION BY RANGE (id)
                     """);
-                setup.execute("""
-                    CREATE CONSTRAINT TRIGGER proof_entry_commit_setting
-                    AFTER INSERT ON proof_entry
-                    DEFERRABLE INITIALLY DEFERRED
-                    FOR EACH ROW EXECUTE FUNCTION change_commit_setting()
+                statement.execute("CREATE INDEX proof_index ON base_entry (id)");
+                statement.execute("CREATE EXTENSION file_fdw");
+                statement.execute("CREATE SERVER proof_file_server FOREIGN DATA WRAPPER file_fdw");
+                statement.execute("""
+                    CREATE FOREIGN TABLE proof_foreign (id bigint)
+                    SERVER proof_file_server
+                    OPTIONS (filename '/tmp/system-proof-unused.csv', format 'csv')
                     """);
-                Table table = new Table("public", "proof_entry");
+                Set<Table> requested = Set.of(
+                    new Table("pg_temp", "temporary_entry"),
+                    table("proof_view"),
+                    table("proof_materialized"),
+                    table("proof_foreign"),
+                    table("proof_sequence"),
+                    table("proof_partitioned"),
+                    table("proof_index"),
+                    table("missing_entry")
+                );
 
                 PostgresqlDurabilityResult result = PostgresqlDurabilityVerifier.verify(
-                    sut,
                     verification,
-                    new PostgresqlDurabilityRequirements(Set.of(table))
+                    new PostgresqlDurabilityRequirements(requested)
                 );
 
-                assertThat(result.tableTriggers()).containsEntry(
-                    table,
-                    TableTriggers.ENABLED
-                );
+                assertThat(result.relations())
+                    .containsEntry(
+                        new Table("pg_temp", "temporary_entry"),
+                        RelationStatus.TEMPORARY_TABLE
+                    )
+                    .containsEntry(table("proof_view"), RelationStatus.VIEW)
+                    .containsEntry(
+                        table("proof_materialized"),
+                        RelationStatus.MATERIALIZED_VIEW
+                    )
+                    .containsEntry(table("proof_foreign"), RelationStatus.FOREIGN_TABLE)
+                    .containsEntry(table("proof_sequence"), RelationStatus.SEQUENCE)
+                    .containsEntry(
+                        table("proof_partitioned"),
+                        RelationStatus.PARTITIONED_TABLE
+                    )
+                    .containsEntry(
+                        table("proof_index"),
+                        RelationStatus.OTHER_RELATION_KIND
+                    )
+                    .containsEntry(table("missing_entry"), RelationStatus.MISSING);
                 assertThat(result.satisfied()).isFalse();
             }
         }
     }
 
-    private static Connection connection(PostgreSQLContainer<?> postgres) throws Exception {
+    private static Table table(String name) {
+        return new Table("public", name);
+    }
+
+    private static Connection connection(PostgreSQLContainer<?> postgres)
+        throws Exception {
         return DriverManager.getConnection(
             postgres.getJdbcUrl(),
             postgres.getUsername(),

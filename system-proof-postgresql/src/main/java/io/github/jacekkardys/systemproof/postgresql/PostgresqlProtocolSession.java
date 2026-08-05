@@ -14,7 +14,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.function.Predicate;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.AutocommitWrite;
@@ -50,32 +49,22 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
 
     private final ProtocolLimits limits;
     private final PostgresqlWriteCorrelation writeCorrelation;
-    private final PostgresqlProtocolAdapter.SessionDurability durability;
     private final SessionModel model;
+    private Integer backendPid;
     private boolean frontendOpened;
     private boolean backendOpened;
 
     PostgresqlProtocolSession(
         long sessionOrdinal,
         ProtocolLimits limits,
-        PostgresqlWriteCorrelation writeCorrelation,
-        PostgresqlProtocolAdapter.SessionDurability durability
+        PostgresqlWriteCorrelation writeCorrelation
     ) {
         this.limits = Objects.requireNonNull(limits, "limits must not be null");
         this.writeCorrelation = Objects.requireNonNull(
             writeCorrelation,
             "writeCorrelation must not be null"
         );
-        this.durability = Objects.requireNonNull(
-            durability,
-            "durability must not be null"
-        );
-        model = new SessionModel(
-            sessionOrdinal,
-            durability::authorized,
-            durability::revoke,
-            durability::terminal
-        );
+        model = new SessionModel(sessionOrdinal);
     }
 
     @Override
@@ -378,14 +367,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
             }
             FrontendOutcome outcome = model.frontend(command);
             List<CorrelationContribution<?>> contributions = List.of();
-            if (command == CommandKind.DURABILITY_CHALLENGE
-                && outcome.transaction().isPresent()
-                && executedBind != null) {
-                durability.claimChallenge(
-                    durabilityChallengeToken(executedBind),
-                    outcome.transaction().orElseThrow()
-                );
-            }
             if (command == CommandKind.INSERT
                 && outcome.transaction().isPresent()
                 && executed != null) {
@@ -407,30 +388,7 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
         private boolean returnsRowsOrIsUnknown(CommandKind command) {
             return command == CommandKind.SELECT
                 || command == CommandKind.SHOW
-                || command == CommandKind.DURABILITY_CHALLENGE
                 || command == CommandKind.OTHER;
-        }
-
-        private String durabilityChallengeToken(BindParameters parameters)
-            throws ProtocolAdapterException {
-            if (parameters.parameters().size() != 1) {
-                throw failure(
-                    ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
-                    "PostgreSQL durability challenge requires one parameter"
-                );
-            }
-            ParameterSlice parameter = parameters.parameters().getFirst();
-            if (parameter.length() < 0 || parameter.format() != ParameterFormat.TEXT) {
-                throw failure(
-                    ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
-                    "PostgreSQL durability challenge requires one text value"
-                );
-            }
-            return decodeUtf8(
-                parameters.unit(),
-                parameter.offset(),
-                parameter.length()
-            );
         }
 
         private List<CorrelationContribution<?>> correlate(
@@ -629,7 +587,17 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
             int backendPid = ByteBuffer.wrap(frame)
                 .order(ByteOrder.BIG_ENDIAN)
                 .getInt(5);
-            durability.observeBackendPid(backendPid);
+            if (backendPid <= 0) {
+                throw malformed("Invalid PostgreSQL backend identity");
+            }
+            if (PostgresqlProtocolSession.this.backendPid != null
+                && PostgresqlProtocolSession.this.backendPid != backendPid) {
+                throw failure(
+                    ProtocolFailureKind.DESYNCHRONIZATION,
+                    "PostgreSQL backend identity changed within one session"
+                );
+            }
+            PostgresqlProtocolSession.this.backendPid = backendPid;
             return new ProtocolMessage(ProtocolMessageKind.BACKEND_KEY_DATA);
         }
 
@@ -648,9 +616,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
 
     private static final class SessionModel {
         private final long sessionOrdinal;
-        private final Predicate<TransactionRef> durabilityAuthorized;
-        private final Runnable revokeDurability;
-        private final Runnable terminalAction;
         private long nextTransactionOrdinal = 1;
         private long transactionGeneration;
         private TransactionRef transaction;
@@ -658,25 +623,8 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
         private final ArrayDeque<ExpectedCycle> expected = new ArrayDeque<>(2);
         private boolean startupReady;
 
-        private SessionModel(
-            long sessionOrdinal,
-            Predicate<TransactionRef> durabilityAuthorized,
-            Runnable revokeDurability,
-            Runnable terminalAction
-        ) {
+        private SessionModel(long sessionOrdinal) {
             this.sessionOrdinal = sessionOrdinal;
-            this.durabilityAuthorized = Objects.requireNonNull(
-                durabilityAuthorized,
-                "durabilityAuthorized must not be null"
-            );
-            this.revokeDurability = Objects.requireNonNull(
-                revokeDurability,
-                "revokeDurability must not be null"
-            );
-            this.terminalAction = Objects.requireNonNull(
-                terminalAction,
-                "terminalAction must not be null"
-            );
         }
 
         private synchronized FrontendOutcome frontend(CommandKind command)
@@ -692,9 +640,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                     ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
                     "PostgreSQL pipelining is unsupported for this adapter"
                 );
-            }
-            if (command != CommandKind.COMMIT) {
-                revokeDurability.run();
             }
             expected.addLast(new ExpectedCycle(command));
             PostgresqlEvidence evidence;
@@ -729,7 +674,7 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                         evidence = new Rollback(transaction);
                     }
                 }
-                case OTHER, SELECT, SHOW, CREATE, DROP, DURABILITY_CHALLENGE ->
+                case OTHER, SELECT, SHOW, CREATE, DROP ->
                     evidence = new ProtocolMessage(ProtocolMessageKind.OTHER);
                 default -> throw new AssertionError("Unsupported command kind");
             }
@@ -873,10 +818,7 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
             if (completedTransaction != null) {
                 transactionGeneration++;
             }
-            boolean durableCommitSucceeded = commitSucceeded
-                && durabilityAuthorized.test(completedTransaction);
-            revokeDurability.run();
-            return durableCommitSucceeded
+            return commitSucceeded
                 ? new CommitSucceeded(completedTransaction)
                 : new ReadyForQuery(
                     TransactionStatus.IDLE,
@@ -902,7 +844,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                 case ROLLBACK -> CommandTag.ROLLBACK;
                 case SELECT -> CommandTag.SELECT;
                 case SHOW -> CommandTag.SHOW;
-                case DURABILITY_CHALLENGE -> CommandTag.SELECT;
                 case CREATE -> CommandTag.CREATE;
                 case DROP -> CommandTag.DROP;
                 case OTHER -> null;
@@ -936,7 +877,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
             expected.clear();
             transaction = null;
             transactionGeneration++;
-            terminalAction.run();
         }
     }
 
@@ -969,7 +909,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
         SHOW,
         CREATE,
         DROP,
-        DURABILITY_CHALLENGE,
         OTHER
     }
 
@@ -1016,7 +955,6 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                 case INSERT -> throw new IllegalArgumentException(
                     "PostgreSQL INSERT parameter count requires a statement shape"
                 );
-                case DURABILITY_CHALLENGE -> 1;
                 case SELECT, SHOW, CREATE, DROP, OTHER -> -1;
             };
         }
@@ -1150,8 +1088,8 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
         private static StatementDefinition parse(String rawSql)
             throws ProtocolAdapterException {
             String sql = requireSingleStatement(rawSql);
-            if (sql.equals("SELECT $1::text")) {
-                return new StatementDefinition(CommandKind.DURABILITY_CHALLENGE, null);
+            if (changesSynchronousCommitThroughSetConfig(sql)) {
+                throw unsupportedSynchronousCommitChange();
             }
             Tokenizer tokenizer = new Tokenizer(sql);
             String first = tokenizer.word();
@@ -1173,8 +1111,16 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                 case "CREATE" -> new StatementDefinition(CommandKind.CREATE, null);
                 case "DROP" -> new StatementDefinition(CommandKind.DROP, null);
                 case "SET" -> setting(tokenizer);
+                case "RESET" -> reset(tokenizer);
                 default -> new StatementDefinition(CommandKind.OTHER, null);
             };
+        }
+
+        private static boolean changesSynchronousCommitThroughSetConfig(String sql) {
+            return sql.matches(
+                "(?is)SELECT\\s+(?:pg_catalog\\.)?set_config\\s*\\(\\s*"
+                    + "'synchronous_commit'\\s*,.*"
+            );
         }
 
         private static StatementDefinition setting(Tokenizer tokenizer)
@@ -1185,10 +1131,16 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
                 setting = tokenizer.requireIdentifier();
             }
             if (setting.equalsIgnoreCase("synchronous_commit")) {
-                throw failure(
-                    ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
-                    "Changing PostgreSQL synchronous_commit is unsupported"
-                );
+                throw unsupportedSynchronousCommitChange();
+            }
+            return new StatementDefinition(CommandKind.OTHER, null);
+        }
+
+        private static StatementDefinition reset(Tokenizer tokenizer)
+            throws ProtocolAdapterException {
+            String setting = tokenizer.requireIdentifier();
+            if (setting.equalsIgnoreCase("synchronous_commit")) {
+                throw unsupportedSynchronousCommitChange();
             }
             return new StatementDefinition(CommandKind.OTHER, null);
         }
@@ -1633,6 +1585,13 @@ final class PostgresqlProtocolSession implements ProtocolSession<PostgresqlEvide
         return new ProtocolAdapterException(
             ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
             "PostgreSQL SQL shape is outside the characterized subset"
+        );
+    }
+
+    private static ProtocolAdapterException unsupportedSynchronousCommitChange() {
+        return new ProtocolAdapterException(
+            ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+            "Changing PostgreSQL synchronous_commit is unsupported"
         );
     }
 

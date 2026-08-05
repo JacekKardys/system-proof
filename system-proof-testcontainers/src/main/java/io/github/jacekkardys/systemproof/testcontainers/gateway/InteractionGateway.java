@@ -224,12 +224,7 @@ public final class InteractionGateway {
             if (!contract.capabilities().containsAll(required.capabilities())) {
                 throw incompatibleAdapter(connection, "required capabilities");
             }
-            if (!contract.prerequisites().containsAll(required.prerequisites())) {
-                throw incompatibleAdapter(connection, "required prerequisites");
-            }
-            if (required.requiredFeatures().stream().anyMatch(
-                contract.unsupportedModes()::contains
-            )) {
+            if (!contract.supportedFeatures().containsAll(required.requiredFeatures())) {
                 throw incompatibleAdapter(connection, "required protocol features");
             }
         });

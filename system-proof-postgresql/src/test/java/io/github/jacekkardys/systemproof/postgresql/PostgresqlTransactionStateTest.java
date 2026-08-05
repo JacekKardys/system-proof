@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
+import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.AutocommitWrite;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.BackendError;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlEvidence.CommandComplete;
@@ -41,10 +42,6 @@ class PostgresqlTransactionStateTest {
         io.github.jacekkardys.systemproof.topology.ConnectionId.of(
             "client[].jdbc->postgres[].jdbc"
         );
-    private static final io.github.jacekkardys.systemproof.topology.ConnectionId OTHER_CONNECTION =
-        io.github.jacekkardys.systemproof.topology.ConnectionId.of(
-            "other[].jdbc->other-postgres[].jdbc"
-        );
     private static final ProtocolLimits LIMITS = new ProtocolLimits(16 * 1024, 32 * 1024);
     private static final CorrelationKeySchema KEY_SCHEMA = new CorrelationKeySchema(
         "system-proof.test",
@@ -66,6 +63,11 @@ class PostgresqlTransactionStateTest {
             .contains(Capability.CORRELATION_CONTRIBUTIONS);
         assertThat(correlating.nativeFlowReferenceSchema())
             .contains(TransactionRef.codec().schemaId());
+        assertThat(plain.supportedFeatures())
+            .doesNotContain(
+                Feature.ENCRYPTED_TRANSPORT,
+                Feature.GENERAL_PIPELINING
+            );
     }
 
     @Test
@@ -92,8 +94,6 @@ class PostgresqlTransactionStateTest {
         assertThatThrownBy(expiredViews.getFirst()::shape)
             .isInstanceOf(IllegalStateException.class);
         finishInsertInTransaction(harness);
-        authorizeDurability(adapter, harness);
-
         byte[] commitBytes = commitUnit("commit_1");
         ProtocolUnit<PostgresqlEvidence> attempt = complete(harness.frontend, commitBytes);
         assertThat(attempt.originalBytes()).containsExactly(commitBytes);
@@ -115,7 +115,7 @@ class PostgresqlTransactionStateTest {
     }
 
     @Test
-    void shouldNotEmitDurableSuccessWithoutExactSessionAuthorization()
+    void shouldEmitCommitSuccessFromTheMatchingProtocolConfirmationAlone()
         throws Exception {
         PostgresqlProtocolAdapter adapter = new PostgresqlProtocolAdapter();
         Harness harness = started(adapter);
@@ -124,57 +124,40 @@ class PostgresqlTransactionStateTest {
         complete(harness.backend, PostgresqlFrames.commandComplete("COMMIT"));
 
         assertThat(complete(harness.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(transaction)
-            ));
+            .isEqualTo(new CommitSucceeded(transaction));
     }
 
     @Test
-    void shouldRejectSessionLocalSynchronousCommitChangeBeforeCommit()
+    void shouldRejectDirectSynchronousCommitChanges()
         throws Exception {
+        for (String statement : List.of(
+            "SET synchronous_commit = off",
+            "SET LOCAL synchronous_commit = off",
+            "SET SESSION synchronous_commit = off",
+            "RESET synchronous_commit"
+        )) {
+            Harness harness = started(new PostgresqlProtocolAdapter());
+            begin(harness);
+            assertUnsupported(harness.frontend, PostgresqlFrames.query(statement));
+        }
+    }
+
+    @Test
+    void shouldRejectSafelyRecognizableSetConfigChanges() throws Exception {
+        for (String statement : List.of(
+            "SELECT set_config('synchronous_commit', 'off', false)",
+            "SELECT pg_catalog.set_config('synchronous_commit', $1, true)"
+        )) {
+            Harness harness = started(new PostgresqlProtocolAdapter());
+            begin(harness);
+            assertUnsupported(harness.frontend, PostgresqlFrames.query(statement));
+        }
+    }
+
+    @Test
+    void shouldNotClaimToAnalyzeProcedureBodies() throws Exception {
         Harness harness = started(new PostgresqlProtocolAdapter());
-        begin(harness);
-
-        assertUnsupported(
-            harness.frontend,
-            PostgresqlFrames.query("SET LOCAL synchronous_commit = off")
-        );
-    }
-
-    @Test
-    void shouldRevokeDurabilityAfterSetConfigBeforeCommit() throws Exception {
-        PostgresqlProtocolAdapter adapter = new PostgresqlProtocolAdapter();
-        Harness harness = started(adapter);
         TransactionRef transaction = begin(harness);
-        authorizeDurability(adapter, harness);
-
-        complete(
-            harness.frontend,
-            PostgresqlFrames.query(
-                "SELECT set_config('synchronous_commit', 'off', false)"
-            )
-        );
-        complete(harness.backend, PostgresqlFrames.commandComplete("SELECT 1"));
-        complete(harness.backend, PostgresqlFrames.ready('T'));
-        complete(harness.frontend, commitUnit("commit_after_set_config"));
-        complete(harness.backend, PostgresqlFrames.parseComplete());
-        complete(harness.backend, PostgresqlFrames.bindComplete());
-        complete(harness.backend, PostgresqlFrames.commandComplete("COMMIT"));
-
-        assertThat(complete(harness.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(transaction)
-            ));
-    }
-
-    @Test
-    void shouldRevokeDurabilityAfterProcedureCallBeforeCommit() throws Exception {
-        PostgresqlProtocolAdapter adapter = new PostgresqlProtocolAdapter();
-        Harness harness = started(adapter);
-        TransactionRef transaction = begin(harness);
-        authorizeDurability(adapter, harness);
 
         complete(
             harness.frontend,
@@ -188,67 +171,7 @@ class PostgresqlTransactionStateTest {
         complete(harness.backend, PostgresqlFrames.commandComplete("COMMIT"));
 
         assertThat(complete(harness.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(transaction)
-            ));
-    }
-
-    @Test
-    void shouldBindChallengeToExactRouteSessionInsteadOfBackendPid() throws Exception {
-        PostgresqlProtocolAdapter adapter = new PostgresqlProtocolAdapter();
-        Harness expected = started(adapter, CONNECTION, 123);
-        Harness wrongRoute = started(adapter, OTHER_CONNECTION, 123);
-        TransactionRef expectedTransaction = begin(expected);
-        TransactionRef wrongTransaction = begin(wrongRoute);
-
-        try (PostgresqlProtocolAdapter.DurabilityChallenge challenge =
-                 adapter.beginDurabilityChallenge(CONNECTION)) {
-            executeChallenge(wrongRoute, challenge.token());
-            assertThat(adapter.applyDurability(challenge, true)).isFalse();
-        }
-
-        complete(expected.frontend, commitUnit("expected_commit"));
-        complete(expected.backend, PostgresqlFrames.parseComplete());
-        complete(expected.backend, PostgresqlFrames.bindComplete());
-        complete(expected.backend, PostgresqlFrames.commandComplete("COMMIT"));
-        assertThat(complete(expected.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(expectedTransaction)
-            ));
-        complete(wrongRoute.frontend, commitUnit("wrong_route_commit"));
-        complete(wrongRoute.backend, PostgresqlFrames.parseComplete());
-        complete(wrongRoute.backend, PostgresqlFrames.bindComplete());
-        complete(wrongRoute.backend, PostgresqlFrames.commandComplete("COMMIT"));
-        assertThat(complete(wrongRoute.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(wrongTransaction)
-            ));
-    }
-
-    @Test
-    void shouldNotAuthorizeAnUnobservedConnectionWithMatchingBackendPid()
-        throws Exception {
-        PostgresqlProtocolAdapter adapter = new PostgresqlProtocolAdapter();
-        Harness observed = started(adapter, CONNECTION, 321);
-        TransactionRef transaction = begin(observed);
-
-        try (PostgresqlProtocolAdapter.DurabilityChallenge challenge =
-                 adapter.beginDurabilityChallenge(CONNECTION)) {
-            assertThat(adapter.applyDurability(challenge, true)).isFalse();
-        }
-
-        complete(observed.frontend, commitUnit("unclaimed_commit"));
-        complete(observed.backend, PostgresqlFrames.parseComplete());
-        complete(observed.backend, PostgresqlFrames.bindComplete());
-        complete(observed.backend, PostgresqlFrames.commandComplete("COMMIT"));
-        assertThat(complete(observed.backend, PostgresqlFrames.ready('I')).evidence())
-            .isEqualTo(new ReadyForQuery(
-                TransactionStatus.IDLE,
-                Optional.of(transaction)
-            ));
+            .isEqualTo(new CommitSucceeded(transaction));
     }
 
     @Test
@@ -756,32 +679,6 @@ class PostgresqlTransactionStateTest {
         complete(backend, PostgresqlFrames.backendKeyData(backendPid));
         complete(backend, PostgresqlFrames.ready('I'));
         return new Harness(frontend, backend);
-    }
-
-    private static void authorizeDurability(
-        PostgresqlProtocolAdapter adapter,
-        Harness harness
-    ) throws Exception {
-        try (PostgresqlProtocolAdapter.DurabilityChallenge challenge =
-                 adapter.beginDurabilityChallenge(CONNECTION)) {
-            executeChallenge(harness, challenge.token());
-            assertThat(adapter.applyDurability(challenge, true)).isTrue();
-            assertThat(adapter.applyDurability(challenge, true)).isFalse();
-        }
-    }
-
-    private static void executeChallenge(Harness harness, String token)
-        throws Exception {
-        complete(harness.frontend, PostgresqlFrames.concat(
-            PostgresqlFrames.parse("durability", "SELECT $1::text"),
-            PostgresqlFrames.bind("", "durability", token),
-            PostgresqlFrames.execute(""),
-            PostgresqlFrames.sync()
-        ));
-        complete(harness.backend, PostgresqlFrames.parseComplete());
-        complete(harness.backend, PostgresqlFrames.bindComplete());
-        complete(harness.backend, PostgresqlFrames.commandComplete("SELECT 1"));
-        complete(harness.backend, PostgresqlFrames.ready('T'));
     }
 
     @SuppressWarnings("unchecked")

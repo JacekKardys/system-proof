@@ -6,9 +6,11 @@ import java.util.Set;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
-import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Prerequisite;
 
-/** Immutable adapter-provided observation profile for one protocol implementation. */
+/**
+ * Immutable adapter-provided observation profile for one protocol implementation.
+ * Features are supported only when they are present in {@link #supportedFeatures()}.
+ */
 public record ProtocolObservationContract(
     String protocolId,
     String protocolScheme,
@@ -16,8 +18,7 @@ public record ProtocolObservationContract(
     EvidenceSchemaId evidenceSchema,
     Optional<EvidenceSchemaId> nativeFlowReferenceSchema,
     Set<Capability> capabilities,
-    Set<Prerequisite> prerequisites,
-    Set<Feature> unsupportedModes
+    Set<Feature> supportedFeatures
 ) {
     public ProtocolObservationContract {
         protocolId = requireText(protocolId, "protocolId");
@@ -34,22 +35,13 @@ public record ProtocolObservationContract(
         capabilities = Set.copyOf(
             Objects.requireNonNull(capabilities, "capabilities must not be null")
         );
-        prerequisites = Set.copyOf(
-            Objects.requireNonNull(prerequisites, "prerequisites must not be null")
-        );
-        unsupportedModes = Set.copyOf(
-            Objects.requireNonNull(unsupportedModes, "unsupportedModes must not be null")
+        supportedFeatures = Set.copyOf(
+            Objects.requireNonNull(supportedFeatures, "supportedFeatures must not be null")
         );
         if (capabilities.contains(Capability.CORRELATION_CONTRIBUTIONS)
             != nativeFlowReferenceSchema.isPresent()) {
             throw new IllegalArgumentException(
                 "Correlation capability and native-flow reference schema must be declared together"
-            );
-        }
-        if (capabilities.contains(Capability.DURABLE_SUCCESS)
-            && !prerequisites.contains(Prerequisite.EXACT_SESSION_DURABILITY)) {
-            throw new IllegalArgumentException(
-                "Durable success requires exact-session durability verification"
             );
         }
     }

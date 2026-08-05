@@ -167,8 +167,13 @@ public sealed interface PostgresqlEvidence
     }
 
     /**
-     * Final success for one commit after its forwarded unit, CommandComplete(COMMIT), and the
-     * immediately following ReadyForQuery(I) without an intervening terminal condition.
+     * Proves that PostgreSQL successfully confirmed the correlated explicit transaction on the
+     * observed physical protocol session.
+     *
+     * <p>This evidence requires the complete commit unit to have been forwarded, followed by the
+     * matching {@code CommandComplete(COMMIT)} and terminal {@code ReadyForQuery(I)}, without an
+     * intervening error or terminal protocol condition. It does not independently prove physical
+     * storage durability or inspect the resulting application data.
      */
     record CommitSucceeded(
         TransactionRef transaction,

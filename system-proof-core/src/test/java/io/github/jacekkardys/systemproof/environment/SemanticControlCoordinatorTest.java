@@ -802,7 +802,6 @@ class SemanticControlCoordinatorTest {
                 Capability.CORRELATION_CONTRIBUTIONS,
                 Capability.SEMANTIC_CONTROL
             ),
-            Set.of(),
             Set.of()
         );
     }

@@ -14,17 +14,11 @@ public record RequiredObservationProfile(
     EvidenceSchemaId evidenceSchema,
     Optional<EvidenceSchemaId> nativeFlowReferenceSchema,
     Set<Capability> capabilities,
-    Set<Prerequisite> prerequisites,
     Set<Feature> requiredFeatures
 ) {
     public enum Capability {
         CORRELATION_CONTRIBUTIONS,
-        SEMANTIC_CONTROL,
-        DURABLE_SUCCESS
-    }
-
-    public enum Prerequisite {
-        EXACT_SESSION_DURABILITY
+        SEMANTIC_CONTROL
     }
 
     public enum Feature {
@@ -44,9 +38,6 @@ public record RequiredObservationProfile(
         capabilities = Set.copyOf(
             Objects.requireNonNull(capabilities, "capabilities must not be null")
         );
-        prerequisites = Set.copyOf(
-            Objects.requireNonNull(prerequisites, "prerequisites must not be null")
-        );
         requiredFeatures = Set.copyOf(
             Objects.requireNonNull(requiredFeatures, "requiredFeatures must not be null")
         );
@@ -54,12 +45,6 @@ public record RequiredObservationProfile(
             != nativeFlowReferenceSchema.isPresent()) {
             throw new IllegalArgumentException(
                 "Correlation capability and native-flow reference schema must be required together"
-            );
-        }
-        if (capabilities.contains(Capability.DURABLE_SUCCESS)
-            && !prerequisites.contains(Prerequisite.EXACT_SESSION_DURABILITY)) {
-            throw new IllegalArgumentException(
-                "Durable success requires exact-session durability verification"
             );
         }
     }

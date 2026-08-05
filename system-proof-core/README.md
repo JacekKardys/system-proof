@@ -157,7 +157,7 @@ details without creating a second history.
 `ObservationRequirement.DISABLED | OPTIONAL | REQUIRED` to a route rule. A route must report a
 compatible `EffectiveObservationStatus`; required observation cannot bind a transparent route.
 The required-profile routing overloads bind protocol-neutral evidence and native-reference schema
-IDs, capabilities, prerequisites, and required transport features to the exact selected
+IDs, capabilities, and required transport features to the exact selected
 `ConnectionId`. A provider consumes that profile during route preparation; core contains no
 adapter-specific reference type.
 Observation is `PENDING` before route preparation and `INACTIVE` after clean shutdown of a formerly

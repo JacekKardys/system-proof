@@ -2,80 +2,54 @@
 
 - Status: Accepted
 - Date: 2026-08-04
+- Updated: 2026-08-05
 - Issue: [#11](https://github.com/JacekKardys/system-proof/issues/11)
 
 ## Context
 
-System Proof needs one real protocol adapter that can stop the exact commit of a correlated explicit
-transaction before PostgreSQL receives any byte, then distinguish that attempt from credible
-backend success. This ADR records only protocol states and message classes. It intentionally omits
-credentials, SQL text, bind values, message payloads, cancellation keys, database endpoints, and
-raw frames.
+System Proof needs a real protocol adapter that can stop the exact commit of a semantically
+correlated explicit transaction before PostgreSQL receives any byte, then distinguish that attempt
+from PostgreSQL's successful confirmation. Environmental durability prerequisites are a separate
+test concern; the adapter must not require the SUT's internal JDBC connection or inject
+administrative queries into its session.
 
-The controlled characterization used the repository's real stack without query-mode shortcuts:
+This ADR records only protocol states and message classes. It omits credentials, SQL text, bind
+values, message payloads, cancellation keys, database endpoints, and raw frames.
 
-- PostgreSQL `17.6-alpine`;
-- pgJDBC `42.7.7` with its default extended mode and `prepareThreshold=5`;
-- Spring Boot `3.5.9`, `JdbcTemplate`, `@Transactional`, Flyway, and the default datasource
-  configuration from `application.yaml`;
-- the complete reference ingestion service plus its readiness endpoint.
+The controlled characterization uses:
 
-The protocol interpretation follows the PostgreSQL 17
-[message flow](https://www.postgresql.org/docs/17/protocol-flow.html), PostgreSQL 17
-[message formats](https://www.postgresql.org/docs/17/protocol-message-formats.html), and the pgJDBC
-[connection documentation](https://jdbc.postgresql.org/documentation/use/).
+- PostgreSQL `17.6-alpine`, explicitly configured with `fsync=on` and
+  `synchronous_commit=on`;
+- pgJDBC `42.7.7` with default extended mode and `prepareThreshold=5`;
+- Spring Boot `3.5.9`, `JdbcTemplate`, `@Transactional`, Flyway, and the default datasource;
+- the complete reference SMSC, Jasmin, ingestion, PostgreSQL, RabbitMQ, and Redis topology.
 
-## Sanitized observed transcript
-
-Connection startup was:
+## Sanitized observed flow
 
 ```text
 frontend: SSLRequest
 backend:  N
 frontend: StartupMessage(version 3)
-backend:  Authentication/SASL challenge
-frontend: authentication payload
-backend:  Authentication/SASL continuation and completion
-backend:  ParameterStatus*
-backend:  BackendKeyData
-backend:  ReadyForQuery(idle)
-```
+backend:  Authentication/SASL exchanges
+backend:  ParameterStatus*, BackendKeyData, ReadyForQuery(idle)
 
-Authentication payloads were forwarded unchanged but reduced to a payload-free evidence class.
-The `N` response preserved plaintext observation. No datasource option was changed to suppress SSL
-negotiation. A server response of `S` therefore has a distinct fail-closed outcome before opaque TLS
-traffic starts.
-
-Explicit transaction traffic was:
-
-```text
-frontend: simple transaction-start Query
+frontend: explicit transaction start
 frontend: optional bounded lookahead of one extended operation
 backend:  transaction-start completion, ReadyForQuery(transaction)
 
 frontend: Parse, Bind, optional Describe, Execute, Sync
-backend:  parse/bind completions, optional NoData, write completion, ReadyForQuery(transaction)
+backend:  parse/bind completions, optional NoData, write completion,
+          ReadyForQuery(transaction)
 
 frontend: complete extended commit unit ending in Sync
-backend:  parse/bind completions, commit completion, ReadyForQuery(idle)
+backend:  parse/bind completions, CommandComplete(COMMIT), ReadyForQuery(idle)
 ```
 
-pgJDBC may send transaction start followed by the first operation before receiving the
-transaction-start result. The
-adapter admits exactly that two-cycle lookahead and keeps backend outcomes in causal FIFO order. It
-does not admit general pipelining. pgJDBC also used a positive Execute row limit for an update; this
-is accepted only for recognized non-row-returning commands. Flyway used canonical lowercase quoted
-identifiers in a prepared write.
-
-Before the prepare threshold, prepared operations used unnamed Parse/Bind/Execute/Sync units. At
-the default threshold, a named statement was parsed and bound. Later operations reused that named
-statement with Bind/Execute/Sync and no new Parse. The physical connection remained the same when
-the pool reused it, while each terminal transaction received the next transaction ordinal.
-
-Rollback characterization included backend ErrorResponse, failed transaction status, a rollback
-unit, rollback completion, and idle transaction status. Flyway startup opened multiple physical
-connections and completed its migration traffic. The service then completed datasource health and
-readiness traffic through the same observed route.
+pgJDBC may send transaction start and its first operation before the start result. The adapter
+accepts exactly that two-cycle lookahead and keeps backend outcomes in causal FIFO order. It does
+not accept general pipelining. Named statement reuse after the prepare threshold and pooled
+physical-session reuse preserve the physical session ordinal while each new transaction advances
+its transaction ordinal.
 
 ## Decision
 
@@ -85,53 +59,60 @@ Add `system-proof-postgresql` with dependency direction:
 system-proof-postgresql -> system-proof-testcontainers -> system-proof-core
 ```
 
-One `ProtocolSession` owns one synchronized bidirectional state model. A `TransactionRef` is
-allocated when a recognized explicit transaction-start query enters that physical adapter session.
-It becomes active when the causally matching transaction-start completion and transactional
-ReadyForQuery status arrive. The reference is
-retired on terminal idle, rollback, or session abandonment. The next transaction on a pooled
-session advances the transaction ordinal; reconnect creates a new session ordinal.
+One `ProtocolSession` owns one synchronized bidirectional state model. It allocates a
+`TransactionRef` for a recognized explicit transaction start. Terminal idle, rollback, error,
+desynchronization, disconnect, or session abandonment retires that reference. Reconnect creates a
+new physical session ordinal.
 
 The complete supported commit unit is one gateway control unit. `CommitAttempt` is recorded before
-the forwarding permit, so a semantic hold stops every byte of the unit. Release authorizes one
-write/flush attempt of the exact original bytes. `CommitSucceeded` is emitted only for the same
-transaction after its commit unit, matching commit completion, and following idle ReadyForQuery
-status with no intervening error, disconnect, reconnect, or desynchronization.
-The success evidence is additionally gated by a satisfied durability result bound to the exact
-logical route, physical protocol session, and active transaction. The verifier sends a one-shot
-opaque challenge through the SUT JDBC connection; only the session opened for the requested
-`ConnectionId` may claim it. Backend PID is retained only as a diagnostic fact. Reconnect starts
-unauthorized, and authorization is never inherited across a physical session boundary.
+the forwarding permit, so a semantic hold stops every byte. Release authorizes one write/flush of
+the exact original bytes. `CommitSucceeded` is emitted only for the same `TransactionRef` after the
+complete unit was forwarded, matching `CommandComplete(COMMIT)` arrived, and the same physical
+session returned terminal `ReadyForQuery(I)` without an invalidating condition.
+
+`CommitSucceeded` proves PostgreSQL protocol confirmation. It does not independently prove
+physical storage durability and does not inspect application rows.
 
 A synchronous correlation callback sees only the structured supported write shape and temporary
-read-only bind slices. Its view is invalidated on return. Only a safe `CorrelationKey` and typed
-`TransactionRef` contribution survive. AML/SMS attribution remains future work for #24.
-Supported INSERT placeholders are exactly `$1..$N` in column order. The callback sees each Bind
-parameter's text/binary format and optional Parse type OID; reordered placeholders and unknown
-formats fail closed.
+read-only bind slices. It expires on return. Only a digest-based `CorrelationKey` and typed
+`TransactionRef` contribution survive. Supported INSERT placeholders are exactly `$1..$N` in
+column order.
 
-Durable-commit claims additionally require an independent JDBC verification connection,
-`synchronous_commit=on` and `fsync=on` on the exact SUT session, a different backend PID from the
-verification connection, agreement between both connections on server/relation facts, permanent
-logged required tables, and no enabled non-internal trigger on those tables. Failure of any check
-prevents declaring durable commit proof.
+The reference example owns the RAW-write policy. It recognizes only the exact unqualified
+`raw_sms_event` INSERT with columns `id`, `external_message_id`, `source_address`,
+`destination_address`, and `content`. Source, destination, and content are mapped explicitly. A
+length-delimited SHA-256 message fingerprint binds the test workload to the observed write without
+retaining the high-entropy discriminator, message content, SQL, or bind values. Jasmin's generated
+external message ID is not used for correlation.
 
-The route-bound authorization is applied after the checks and must be followed immediately by the
-matching commit. Every intervening SQL statement revokes it. This includes configuration functions
-such as `set_config(...)` and arbitrary function/procedure calls, without relying on SQL substring
-recognition. Direct changes to `synchronous_commit` remain unsupported. Because server-side code
-can change transaction-local settings during deferred execution, enabled user triggers on required
-relations are rejected conservatively rather than interpreted.
+Durability is a pre-proof environmental verification on an independent test-owned connection. It
+checks `fsync=on`, configured/default `synchronous_commit=on`, and each required schema-qualified
+relation. Only ordinary permanent logged tables (`relkind='r'`, `relpersistence='p'`) satisfy the
+result. Missing, unlogged, temporary, view, materialized-view, foreign-table, sequence,
+partitioned-table, and other relation kinds are typed unsatisfied results. `requireSatisfied()`
+fails closed.
 
-## Limits and consequences
+The adapter rejects directly visible changes to `synchronous_commit` through `SET`, `SET LOCAL`,
+`SET SESSION`, `RESET`, and the safely recognized direct `set_config` form. It does not parse
+stored procedures, functions, triggers, extensions, or startup options and does not inject a
+same-session probe.
 
-This is a plaintext, fail-closed, bounded adapter for the observed stack, not a general PostgreSQL
-proxy. TLS termination, general pipelining, multi-statement units, partial row-returning portals,
-COPY/replication flows, general SQL parsing, CDC, HA/failover, and AML attribution are outside the
-supported subset. Autocommit writes are explicit negative evidence and cannot become
-`CommitSucceeded`.
+The durable interpretation of `CommitSucceeded` requires a successful durability preflight and
+assumes that the controlled SUT does not alter `synchronous_commit` through unobservable session
+startup options, server-side functions, procedures, extensions, or triggers after preflight
+validation.
 
-Protocol buffers remain bounded by `ProtocolLimits`; statement, portal, object-name, bind-count,
-and causal-lookahead limits are also fixed. Raw SQL and bind bytes exist only at the active protocol
-decode boundary and are neither retained nor rendered. This adapter establishes PostgreSQL commit
-evidence and a precise control point; it does not by itself establish the final T1 invariant.
+## Consequences and limits
+
+The reference integration test starts the unchanged containerized SUT, observes unrelated Flyway
+transaction traffic, arms a proof subject before each external SMS, derives a semantic RAW-write
+correlation, holds the subject-bound commit before its first byte, proves RAW and Outbox absence
+through an independent connection, releases exactly once, observes matching `CommitSucceeded`, and
+then proves exactly one linked RAW/Outbox result. The scenario repeats five times. Completion of
+the SMS submission is used only as a liveness check.
+
+This remains a bounded plaintext adapter, not a general PostgreSQL proxy or SQL engine. TLS
+termination, general pipelining, multi-statement units, partial row-returning portals,
+COPY/replication, arbitrary SQL analysis, CDC, HA/failover, HTTP/SMPP ACK correlation, and the final
+cross-connection T1 proof remain outside this decision. Cross-connection order cannot be inferred
+from timestamps, journal append order, socket order, sleeps, or test await order.

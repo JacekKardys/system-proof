@@ -173,8 +173,8 @@ cleanup are not SPI. They remain package-private execution mechanics.
 - Journal: `ScenarioEvent`, `FailureEvent`, every framework-owned event record and nested event enum,
   `FailureDetails`, `JournalEntry`, `JournalSequence`, `ScenarioJournalSnapshot`, `CheckpointId`,
   and `DisruptionId`.
-- Observation: `ObservationRequirement`, `RequiredObservationProfile` and its `Capability`,
-  `Prerequisite`, and `Feature` enums, `EffectiveObservationStatus`, `EvidenceSchemaId`,
+- Observation: `ObservationRequirement`, `RequiredObservationProfile` and its `Capability` and
+  `Feature` enums, `EffectiveObservationStatus`, `EvidenceSchemaId`,
   `EvidenceSnapshot`, `FlowDirection`, `ForwardingDecision`, `SessionId`, `InteractionRef`, and
   `RecordedInteraction`.
 - Proof: `ProofSubjectRef`, `CorrelationKeySchema`, `CorrelationKey`, `CorrelationCardinality`,
@@ -236,7 +236,7 @@ The Testcontainers surface depends on core contracts. Core and driver SPI never 
 
 - Supported API: `PostgresqlProtocolAdapter`, `TransactionRef`,
   `PostgresqlDurabilityRequirements` and nested `Table`, `PostgresqlDurabilityResult` and nested
-  `Setting` and `TablePersistence`, and `PostgresqlDurabilityVerifier`.
+  `Setting` and `RelationStatus`, and `PostgresqlDurabilityVerifier`.
 - Supported extension SPI: `PostgresqlWriteCorrelation` and `PostgresqlWriteInteraction`.
 - Inspectable read-only model: `PostgresqlEvidence` and all nested evidence records/enums, plus
   `PostgresqlStatementShape` and nested `Kind`.

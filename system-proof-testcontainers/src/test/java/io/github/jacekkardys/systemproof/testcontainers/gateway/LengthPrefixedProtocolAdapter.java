@@ -18,7 +18,6 @@ import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
-import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Feature;
 
 /** Test-only four-byte length-prefixed protocol. */
 final class LengthPrefixedProtocolAdapter
@@ -81,11 +80,7 @@ final class LengthPrefixedProtocolAdapter
                 Capability.CORRELATION_CONTRIBUTIONS,
                 Capability.SEMANTIC_CONTROL
             ),
-            Set.of(),
-            Set.of(
-                Feature.ENCRYPTED_TRANSPORT,
-                Feature.GENERAL_PIPELINING
-            )
+            Set.of()
         ));
     }
 

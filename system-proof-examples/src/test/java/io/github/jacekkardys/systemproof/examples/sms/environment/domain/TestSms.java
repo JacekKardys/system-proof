@@ -21,6 +21,22 @@ public record TestSms(
         return new TestSms(id, "999000000001", "99001", id);
     }
 
+    /** Creates one logical proof message carrying a caller-owned high-entropy discriminator. */
+    public static TestSms forProof(String proofDiscriminator) {
+        proofDiscriminator = requireText(proofDiscriminator, "proof discriminator");
+        if (proofDiscriminator.length() < 32) {
+            throw new IllegalArgumentException(
+                "proof discriminator must contain at least 32 characters"
+            );
+        }
+        return new TestSms(
+            "proof-sms-" + UUID.randomUUID(),
+            "999000000001",
+            "99001",
+            "SYSTEM-PROOF-PERSISTENCE-" + proofDiscriminator
+        );
+    }
+
     private static String requireText(String value, String description) {
         Objects.requireNonNull(value, description + " must not be null");
         if (value.isBlank()) {
