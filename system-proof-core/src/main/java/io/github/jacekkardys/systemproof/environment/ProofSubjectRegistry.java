@@ -14,6 +14,8 @@ import io.github.jacekkardys.systemproof.proof.ProofSubjects;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
+import io.github.jacekkardys.systemproof.observation.SessionId;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /** Environment-owned linearizable subject registry and current-state journal index. */
 final class ProofSubjectRegistry implements ProofSubjects {
@@ -189,42 +191,61 @@ final class ProofSubjectRegistry implements ProofSubjects {
         }
     }
 
-    synchronized Optional<EvidenceSnapshot> soleUniqueNativeReference(
+    synchronized Optional<NativeFlowResolution> soleUniqueNativeFlow(
         ProofSubjectRef subject,
         CorrelationKey key
     ) {
         SubjectState selected = requireSubject(subject);
-        Resolution resolution = selected.resolutions.get(
-            Objects.requireNonNull(key, "key must not be null")
+        CorrelationKey selectedKey = Objects.requireNonNull(
+            key,
+            "key must not be null"
         );
+        Resolution resolution = selected.resolutions.get(selectedKey);
         if (!(resolution instanceof Unique selectedUnique)) {
             return Optional.empty();
         }
-        for (Map.Entry<ProofSubjectRef, SubjectState> entry : subjects.entrySet()) {
-            if (entry.getKey().equals(subject)) {
-                continue;
-            }
-            boolean sameNativeReference = entry.getValue().resolutions.values().stream()
-                .filter(Unique.class::isInstance)
-                .map(Unique.class::cast)
-                .anyMatch(unique -> unique.nativeReference.equals(
-                    selectedUnique.nativeReference
-                ));
-            if (sameNativeReference) {
-                return Optional.empty();
-            }
+        NativeFlowResolution selectedFlow = new NativeFlowResolution(
+            subject,
+            selectedKey,
+            selectedUnique.interactionRef,
+            selectedUnique.interactionRef.sessionId(),
+            selectedUnique.interactionRef.connectionId(),
+            selectedUnique.nativeReference
+        );
+        if (anotherSubjectOwnsSameNativeFlow(subject, selectedFlow)) {
+            return Optional.empty();
         }
-        return Optional.of(selectedUnique.nativeReference);
+        return Optional.of(selectedFlow);
     }
 
-    synchronized boolean isSoleUniqueNativeReference(
-        ProofSubjectRef subject,
-        CorrelationKey key,
-        EvidenceSnapshot expected
+    synchronized boolean remainsSoleUniqueNativeFlow(
+        NativeFlowResolution expected
     ) {
-        return soleUniqueNativeReference(subject, key).filter(
-            Objects.requireNonNull(expected, "expected must not be null")::equals
-        ).isPresent();
+        expected = Objects.requireNonNull(expected, "expected must not be null");
+        SubjectState selected = requireSubject(expected.subject);
+        Resolution current = selected.resolutions.get(expected.key);
+        return current instanceof Unique unique
+            && expected.sameOriginatingCandidate(unique)
+            && !anotherSubjectOwnsSameNativeFlow(expected.subject, expected);
+    }
+
+    private boolean anotherSubjectOwnsSameNativeFlow(
+        ProofSubjectRef selectedSubject,
+        NativeFlowResolution selectedFlow
+    ) {
+        for (Map.Entry<ProofSubjectRef, SubjectState> entry : subjects.entrySet()) {
+            if (entry.getKey().equals(selectedSubject)) {
+                continue;
+            }
+            boolean sameNativeFlow = entry.getValue().resolutions.values().stream()
+                .filter(Unique.class::isInstance)
+                .map(Unique.class::cast)
+                .anyMatch(selectedFlow::sameSessionAndReference);
+            if (sameNativeFlow) {
+                return true;
+            }
+        }
+        return false;
     }
 
     synchronized boolean isSoleUniqueSubjectFor(
@@ -359,6 +380,67 @@ final class ProofSubjectRegistry implements ProofSubjects {
         ) {
             return interactionRef.equals(candidateInteraction)
                 && nativeReference.equals(candidateReference);
+        }
+    }
+
+    /** Immutable internal provenance retained for one sole unique native flow. */
+    record NativeFlowResolution(
+        ProofSubjectRef subject,
+        CorrelationKey key,
+        InteractionRef originatingInteraction,
+        SessionId originatingSession,
+        ConnectionId originatingConnection,
+        EvidenceSnapshot nativeReference
+    ) {
+        NativeFlowResolution {
+            subject = Objects.requireNonNull(subject, "subject must not be null");
+            key = Objects.requireNonNull(key, "key must not be null");
+            originatingInteraction = Objects.requireNonNull(
+                originatingInteraction,
+                "originatingInteraction must not be null"
+            );
+            originatingSession = Objects.requireNonNull(
+                originatingSession,
+                "originatingSession must not be null"
+            );
+            originatingConnection = Objects.requireNonNull(
+                originatingConnection,
+                "originatingConnection must not be null"
+            );
+            nativeReference = Objects.requireNonNull(
+                nativeReference,
+                "nativeReference must not be null"
+            );
+            if (!originatingInteraction.sessionId().equals(originatingSession)
+                || !originatingInteraction.connectionId().equals(originatingConnection)) {
+                throw new IllegalArgumentException(
+                    "Native-flow provenance must match the originating interaction"
+                );
+            }
+        }
+
+        boolean containsCandidate(InteractionRef candidate) {
+            Objects.requireNonNull(candidate, "candidate must not be null");
+            return originatingConnection.equals(candidate.connectionId())
+                && originatingSession.equals(candidate.sessionId());
+        }
+
+        private boolean sameOriginatingCandidate(Unique candidate) {
+            return originatingInteraction.equals(candidate.interactionRef)
+                && nativeReference.equals(candidate.nativeReference);
+        }
+
+        private boolean sameSessionAndReference(Unique candidate) {
+            return originatingSession.equals(candidate.interactionRef.sessionId())
+                && nativeReference.equals(candidate.nativeReference);
+        }
+
+        @Override
+        public String toString() {
+            return "NativeFlowResolution[originatingInteraction="
+                + originatingInteraction
+                + ", nativeReferenceSchema=" + nativeReference.schemaId()
+                + ", encodedBytes=" + nativeReference.encodedSize() + "]";
         }
     }
 

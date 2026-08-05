@@ -236,6 +236,18 @@ Only `CorrelationResult.Unique<T>` exposes the recorded `InteractionRef` and dec
 reference. Missing and ambiguous result types expose no candidate. No path selects first, last,
 latest, earliest, next, or arrival-order candidates.
 
+Native-flow semantic composition additionally preserves the originating `InteractionRef`, its
+exact `SessionId` and `ConnectionId`, and its immutable snapshot. A held candidate may join that
+contribution only on the same logical connection and physical gateway session; the two directions
+may differ. Equal snapshot bytes on another connection or session do not establish identity.
+
+A reached native-flow hold stores the exact resolution that caused the match. `release()` checks it
+again under the correlation registry synchronization boundary immediately before changing the hold
+to `RELEASING`; that check is the release linearization point. If the resolution is no longer sole
+and unique, the hold fails with `CORRELATION_INVALIDATED`, requests `CLOSE_SESSION`, forwards no
+held byte, and completes release exceptionally. A publication after that point cannot revoke an
+already authorized release.
+
 Core encodes and copies evidence before append; the caller-owned value, codec, and returned array
 are not retained. Decoding is typed, schema-checked, and receives another copy, so snapshot access
 cannot mutate storage. The core renderer handles each envelope explicitly and renders only

@@ -218,6 +218,7 @@ class CoreArchitectureTest {
         component.ComponentState#STOPPED:component.ComponentState
         component.ComponentState#STOPPING:component.ComponentState
         control.SemanticHoldFailure#AMBIGUOUS_MATCH:control.SemanticHoldFailure
+        control.SemanticHoldFailure#CORRELATION_INVALIDATED:control.SemanticHoldFailure
         control.SemanticHoldFailure#INTERNAL_FAILURE:control.SemanticHoldFailure
         control.SemanticHoldFailure#SELECTOR_EVALUATION:control.SemanticHoldFailure
         control.SemanticHoldFailure#SESSION_ABANDONED:control.SemanticHoldFailure

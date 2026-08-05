@@ -295,10 +295,13 @@ hold.release().toCompletableFuture().join();
 
 The selector matches an exact `ConnectionId`, exact `FlowDirection`, evidence schema, typed value,
 and optionally one uniquely correlated `ProofSubjectRef`. `through(...)` allows the hold to be
-armed before traffic and joins later evidence to the subject's sole unique native reference,
-without requiring both facts to share one `InteractionRef`. Its codecs, predicate, and extractor run synchronously
-and therefore must be pure, fast, non-blocking, and side-effect free. A selector exception or
-overlapping matching holds fails closed; missing or ambiguous subject correlation does not match.
+armed before traffic and joins later evidence to the subject's sole unique native reference only
+when the contribution and held candidate belong to the same logical connection and exact physical
+gateway session. Their directions may differ; equal native-reference bytes on another connection
+or session never join. The two facts need not share one `InteractionRef`. Its codecs, predicate,
+and extractor run synchronously and therefore must be pure, fast, non-blocking, and side-effect
+free. A selector exception or overlapping matching holds fails closed; missing or ambiguous
+subject correlation does not match.
 
 Arming is accepted only for an exact connection owned by this environment whose routing rule
 declares semantic-control capability: `ROUTED`, `REQUIRED` observation, a complete-unit protocol
@@ -317,6 +320,14 @@ retained unit or degrading an otherwise healthy route. `release()` completes onl
 reports the result of its single write/flush attempt. Checked and unchecked output failures are
 reported exactly once, never retried, and never produce a false `FORWARDED`, but the framework cannot
 prove that the remote endpoint received no partial bytes.
+
+For a reached `through(...)` hold, `release()` revalidates the exact subject, key, originating
+`InteractionRef`, gateway session, connection, and native-reference snapshot that caused the match.
+This synchronized registry check immediately before the `RELEASING` transition is the release
+linearization point. If the candidate is no longer the subject's sole unique native flow, release
+fails with `CORRELATION_INVALIDATED`, closes that physical session, forwards no held byte, and
+completes exceptionally. A contribution published after the linearization point does not revoke an
+already authorized release.
 
 One directional pump processes units sequentially, so later same-session, same-direction units
 cannot overtake a held unit. Opposite directions, other sessions, and other connections have their

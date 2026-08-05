@@ -78,7 +78,9 @@ public final class SemanticHoldSelector<T> {
      *
      * <p>The correlation key must already be armed for the selected proof subject. The extractor
      * is evaluated against the current typed evidence and its result is compared with the unique
-     * native reference previously contributed for that subject and key.
+     * native reference previously contributed for that subject and key. The originating
+     * contribution and candidate must share the exact logical connection and physical gateway
+     * session; opposite protocol directions on that session remain composable.
      */
     public <R> SemanticHoldSelector<T> through(
         CorrelationKey correlationKey,

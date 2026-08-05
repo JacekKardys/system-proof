@@ -7,6 +7,8 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 
 /**
  * Stable identity of one explicit transaction on one physical PostgreSQL adapter session.
+ * Ordinals are scoped to one {@link PostgresqlProtocolAdapter} instance; equal values from
+ * separate adapters are not global transaction identity.
  *
  * @param sessionOrdinal identity allocated when the adapter opens a physical protocol session
  * @param transactionOrdinal identity allocated for each explicit transaction on that session

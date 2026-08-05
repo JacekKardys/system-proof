@@ -473,6 +473,82 @@ class InteractionGatewayTest {
     }
 
     @Test
+    void shouldCloseHeldSessionWithoutForwardingWhenCorrelationInvalidatesBeforeRelease()
+        throws Exception {
+        CorrelationKey key = LengthPrefixedProtocolAdapter.correlationKey(
+            "release-invalidation-key"
+        );
+        SubjectGatewayFixture fixture = subjectGateway(
+            new InteractionGateway(port -> {}),
+            LengthPrefixedProtocolAdapter.correlating(key)
+        );
+        String heldPayload = "held-native-flow-secret";
+        String invalidatingPayload = "distinct-native-flow-secret";
+        ProofSubjectRef subject = fixture.environment().proofSubjects().create();
+        fixture.environment().proofSubjects().arm(subject, key);
+        SemanticHold hold = fixture.environment().controls().arm(
+            SemanticHoldSelector.matching(
+                fixture.connectionId(),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                LengthPrefixedProtocolAdapter.CODEC,
+                evidence -> evidence.payloadSha256().equals(
+                    LengthPrefixedProtocolAdapter.sha256(heldPayload.getBytes(UTF_8))
+                )
+            ).forSubject(subject).through(
+                key,
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC,
+                evidence -> new LengthPrefixedProtocolAdapter.FrameNativeReference(
+                    evidence.direction(),
+                    evidence.payloadBytes(),
+                    evidence.payloadSha256()
+                )
+            ),
+            Duration.ofSeconds(5)
+        );
+
+        try {
+            fixture.environment().start();
+            try (Socket held = connect(fixture.listenerAddresses().getFirst());
+                 Socket invalidating = connect(fixture.listenerAddresses().getFirst())) {
+                held.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(heldPayload)
+                );
+                held.getOutputStream().flush();
+                hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                fixture.frameServer().get().assertNoBytes();
+
+                invalidating.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(invalidatingPayload)
+                );
+                invalidating.getOutputStream().flush();
+                awaitAmbiguousCorrelation(fixture.environment(), subject, key);
+
+                var release = hold.release();
+
+                assertThat(hold.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(SemanticHoldState.FAILED);
+                assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+                assertPeerClosed(held);
+                fixture.frameServer().get().assertClosedWithoutPayload();
+                assertThat(fixture.environment().journalSnapshot().entries().stream()
+                    .map(entry -> entry.event())
+                    .filter(SemanticHoldEvent.class::isInstance)
+                    .map(SemanticHoldEvent.class::cast)
+                    .filter(event -> event.state() == SemanticHoldState.FAILED))
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.failure())
+                        .contains(SemanticHoldFailure.CORRELATION_INVALIDATED));
+                assertThat(new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
+                    .render(fixture.environment().journalSnapshot())
+                    .content())
+                    .doesNotContain(heldPayload, invalidatingPayload);
+            }
+        } finally {
+            fixture.environment().close();
+        }
+    }
+
+    @Test
     void shouldFailReleasedHoldOnFullGatewayWriteFailureWithoutRetry()
         throws Exception {
         assertFullGatewayForwardingFailure(ForwardingFailurePoint.WRITE);
@@ -1599,6 +1675,27 @@ class InteractionGatewayTest {
         assertThat(observationStatus(environment, requirement)).isEqualTo(expected);
     }
 
+    private static void awaitAmbiguousCorrelation(
+        Environment environment,
+        ProofSubjectRef subject,
+        CorrelationKey key
+    ) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        CorrelationResult<?> result;
+        do {
+            result = environment.proofSubjects().correlation(
+                subject,
+                key,
+                LengthPrefixedProtocolAdapter.NATIVE_REFERENCE_CODEC
+            );
+            if (result instanceof CorrelationResult.Ambiguous<?>) {
+                return;
+            }
+            Thread.onSpinWait();
+        } while (System.nanoTime() < deadline);
+        assertThat(result).isInstanceOf(CorrelationResult.Ambiguous.class);
+    }
+
     private static Server server(
         List<String> lifecycle,
         AtomicInteger providerCloses
@@ -1986,6 +2083,19 @@ class InteractionGatewayTest {
             try {
                 assertThat(catchThrowable(() -> client.getInputStream().read()))
                     .isInstanceOf(java.net.SocketTimeoutException.class);
+            } finally {
+                client.setSoTimeout(0);
+            }
+        }
+
+        private void assertClosedWithoutPayload() throws Exception {
+            Socket client = connectedClient.get();
+            client.setSoTimeout(5_000);
+            try {
+                assertThat(client.getInputStream().read())
+                    .as("held upstream session closed without forwarding a byte")
+                    .isEqualTo(-1);
+                assertThat(payload.get()).isNull();
             } finally {
                 client.setSoTimeout(0);
             }

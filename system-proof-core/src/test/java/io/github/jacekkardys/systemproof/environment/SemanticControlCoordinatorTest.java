@@ -33,8 +33,11 @@ import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.
 import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
+import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
+import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
 import org.junit.jupiter.api.Test;
 
 class SemanticControlCoordinatorTest {
@@ -590,6 +593,164 @@ class SemanticControlCoordinatorTest {
     }
 
     @Test
+    void shouldRejectEqualNativeReferenceFromAnotherConnection() throws Exception {
+        Fixture fixture = fixture(
+            SemanticControlCapabilityRegistry.Availability.DECLARED,
+            OTHER_CONNECTION
+        );
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(3);
+        fixture.proofSubjects.arm(subject, key);
+        fixture.proofSubjects.publish(
+            interactionRef(CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 1, 1),
+            CorrelationContribution.capture(key, CODEC, "same-native-reference")
+        );
+        SemanticHold hold = fixture.coordinator.arm(
+            selector(OTHER_CONNECTION, "same-native-reference")
+                .forSubject(subject)
+                .through(key, CODEC, evidence -> evidence),
+            MAXIMUM_HOLD
+        );
+
+        assertImmediate(fixture.coordinator.permit(interaction(
+            OTHER_CONNECTION,
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            CODEC,
+            "same-native-reference",
+            1,
+            1
+        )));
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldRejectEqualNativeReferenceFromAnotherSession() throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(4);
+        fixture.proofSubjects.arm(subject, key);
+        fixture.proofSubjects.publish(
+            interactionRef(CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 1, 1),
+            CorrelationContribution.capture(key, CODEC, "same-native-reference")
+        );
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("same-native-reference").forSubject(subject).through(
+                key,
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        );
+
+        assertImmediate(fixture.coordinator.permit(interaction(
+            CONNECTION,
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            CODEC,
+            "same-native-reference",
+            2,
+            1
+        )));
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldIgnoreEqualReferencesOwnedByOtherSubjectsOnDifferentProvenance()
+        throws Exception {
+        Fixture fixture = fixture(
+            SemanticControlCapabilityRegistry.Availability.DECLARED,
+            OTHER_CONNECTION
+        );
+        ProofSubjectRef selected = fixture.proofSubjects.create();
+        ProofSubjectRef otherConnection = fixture.proofSubjects.create();
+        ProofSubjectRef otherSession = fixture.proofSubjects.create();
+        CorrelationKey selectedKey = correlationKey(5);
+        CorrelationKey otherConnectionKey = correlationKey(6);
+        CorrelationKey otherSessionKey = correlationKey(7);
+        fixture.proofSubjects.arm(selected, selectedKey);
+        fixture.proofSubjects.arm(otherConnection, otherConnectionKey);
+        fixture.proofSubjects.arm(otherSession, otherSessionKey);
+        fixture.proofSubjects.publish(
+            interactionRef(CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 1, 1),
+            CorrelationContribution.capture(selectedKey, CODEC, "colliding-bytes")
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(OTHER_CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 1, 1),
+            CorrelationContribution.capture(
+                otherConnectionKey,
+                CODEC,
+                "colliding-bytes"
+            )
+        );
+        fixture.proofSubjects.publish(
+            interactionRef(CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 2, 1),
+            CorrelationContribution.capture(otherSessionKey, CODEC, "colliding-bytes")
+        );
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("colliding-bytes").forSubject(selected).through(
+                selectedKey,
+                CODEC,
+                evidence -> evidence
+            ),
+            MAXIMUM_HOLD
+        );
+
+        ForwardingPermit permit = fixture.coordinator.permit(interaction(
+            CONNECTION,
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            CODEC,
+            "colliding-bytes",
+            1,
+            2
+        ));
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(hold.cancel()).isTrue();
+        assertThat(permit.awaitDecision()).isEqualTo(ForwardingDecision.CLOSE_SESSION);
+    }
+
+    @Test
+    void shouldComposeOppositeDirectionsOnTheSamePhysicalSession() throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(8);
+        fixture.proofSubjects.arm(subject, key);
+        fixture.proofSubjects.publish(
+            interactionRef(CONNECTION, FlowDirection.CONSUMER_TO_PROVIDER, 1, 1),
+            CorrelationContribution.capture(key, CODEC, "bidirectional-native")
+        );
+        SemanticHold hold = fixture.coordinator.arm(
+            SemanticHoldSelector.matching(
+                CONNECTION,
+                FlowDirection.PROVIDER_TO_CONSUMER,
+                CODEC,
+                "commit:bidirectional-native"::equals
+            ).forSubject(subject).through(
+                key,
+                CODEC,
+                evidence -> evidence.substring("commit:".length())
+            ),
+            MAXIMUM_HOLD
+        );
+
+        ForwardingPermit permit = fixture.coordinator.permit(interaction(
+            CONNECTION,
+            FlowDirection.PROVIDER_TO_CONSUMER,
+            CODEC,
+            "commit:bidirectional-native",
+            1,
+            1
+        ));
+
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(hold.cancel()).isTrue();
+        assertThat(permit.awaitDecision()).isEqualTo(ForwardingDecision.CLOSE_SESSION);
+    }
+
+    @Test
     void shouldKeepNativeFlowReferenceIsolatedAcrossSubjects() throws Exception {
         Fixture fixture = fixture();
         ProofSubjectRef selected = fixture.proofSubjects.create();
@@ -673,6 +834,114 @@ class SemanticControlCoordinatorTest {
         assertThat(rightPermit.awaitDecision()).isEqualTo(
             ForwardingDecision.CLOSE_SESSION
         );
+    }
+
+    @Test
+    void shouldFailReleaseWhenReachedNativeFlowBecomesAmbiguous() throws Exception {
+        ReachedNativeFlow reached = reachedNativeFlow(9);
+
+        reached.fixture.proofSubjects.publish(
+            interactionRef(3),
+            reached.contribution
+        );
+        var release = reached.hold.release();
+
+        assertThat(reached.permit.awaitDecision())
+            .isEqualTo(ForwardingDecision.CLOSE_SESSION);
+        assertThat(reached.hold.state()).isEqualTo(SemanticHoldState.FAILED);
+        assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+        assertThat(reached.fixture.proofSubjects.correlation(
+            reached.subject,
+            reached.key,
+            CODEC
+        )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(events(reached.fixture).getLast().failure())
+            .contains(SemanticHoldFailure.CORRELATION_INVALIDATED);
+        assertThat(rendered(reached.fixture))
+            .doesNotContain("native-flow-secret-9");
+    }
+
+    @Test
+    void shouldAllowReleaseAfterAnIdempotentRepeatOfTheOriginatingContribution()
+        throws Exception {
+        ReachedNativeFlow reached = reachedNativeFlow(10);
+
+        reached.fixture.proofSubjects.publish(
+            reached.originatingInteraction,
+            reached.contribution
+        );
+        var release = reached.hold.release();
+
+        assertThat(reached.permit.awaitDecision()).isEqualTo(ForwardingDecision.FORWARD);
+        reached.permit.forwarded();
+        assertThat(release.toCompletableFuture()).isCompletedWithValue(null);
+        assertThat(reached.fixture.proofSubjects.correlation(
+            reached.subject,
+            reached.key,
+            CODEC
+        )).isInstanceOf(CorrelationResult.Unique.class);
+    }
+
+    @RepeatedTest(20)
+    void shouldLinearizeReleaseAgainstCorrelationInvalidationInBothOrders(
+        RepetitionInfo repetition
+    ) throws Exception {
+        ReachedNativeFlow reached = reachedNativeFlow(20 + repetition.getCurrentRepetition());
+        boolean invalidationFirst = repetition.getCurrentRepetition() % 2 == 1;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch firstLinearized = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<java.util.concurrent.CompletionStage<Void>> releasing = executor.submit(() -> {
+                awaitLatch(start);
+                if (invalidationFirst) {
+                    awaitLatch(firstLinearized);
+                }
+                java.util.concurrent.CompletionStage<Void> release = reached.hold.release();
+                if (!invalidationFirst) {
+                    firstLinearized.countDown();
+                }
+                return release;
+            });
+            Future<?> invalidating = executor.submit(() -> {
+                awaitLatch(start);
+                if (!invalidationFirst) {
+                    awaitLatch(firstLinearized);
+                }
+                reached.fixture.proofSubjects.publish(
+                    interactionRef(3),
+                    reached.contribution
+                );
+                if (invalidationFirst) {
+                    firstLinearized.countDown();
+                }
+                return null;
+            });
+
+            start.countDown();
+            java.util.concurrent.CompletionStage<Void> release = releasing.get(
+                10,
+                TimeUnit.SECONDS
+            );
+            invalidating.get(10, TimeUnit.SECONDS);
+
+            if (invalidationFirst) {
+                assertThat(reached.permit.awaitDecision())
+                    .isEqualTo(ForwardingDecision.CLOSE_SESSION);
+                assertThat(reached.hold.state()).isEqualTo(SemanticHoldState.FAILED);
+                assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+            } else {
+                assertThat(reached.permit.awaitDecision())
+                    .isEqualTo(ForwardingDecision.FORWARD);
+                reached.permit.forwarded();
+                assertThat(release.toCompletableFuture()).isCompletedWithValue(null);
+            }
+            assertThat(reached.fixture.proofSubjects.correlation(
+                reached.subject,
+                reached.key,
+                CODEC
+            )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        }
     }
 
     @Test
@@ -763,6 +1032,13 @@ class SemanticControlCoordinatorTest {
     private static Fixture fixture(
         SemanticControlCapabilityRegistry.Availability availability
     ) {
+        return fixture(availability, new ConnectionId[0]);
+    }
+
+    private static Fixture fixture(
+        SemanticControlCapabilityRegistry.Availability availability,
+        ConnectionId... additionalConnections
+    ) {
         ScenarioJournal journal = ScenarioJournal.withoutDiagnosticTime();
         EnvironmentEventPublisher events = new EnvironmentEventPublisher(
             journal,
@@ -777,6 +1053,13 @@ class SemanticControlCoordinatorTest {
             () -> availability,
             Optional.of(requiredObservationProfile())
         );
+        for (ConnectionId connection : additionalConnections) {
+            capabilities.register(
+                connection,
+                () -> availability,
+                Optional.of(requiredObservationProfile())
+            );
+        }
         return new Fixture(
             new SemanticControlCoordinator(
                 events,
@@ -835,17 +1118,83 @@ class SemanticControlCoordinatorTest {
         String evidence,
         long ordinal
     ) {
+        return interaction(connectionId, direction, codec, evidence, 1, ordinal);
+    }
+
+    private static RecordedInteraction interaction(
+        ConnectionId connectionId,
+        FlowDirection direction,
+        EvidenceCodec<String> codec,
+        String evidence,
+        long session,
+        long ordinal
+    ) {
         return new RecordedInteraction(
-            new InteractionRef(new SessionId(connectionId, 1), direction, ordinal),
+            new InteractionRef(new SessionId(connectionId, session), direction, ordinal),
             EvidenceSnapshot.capture(codec, evidence)
         );
     }
 
     private static InteractionRef interactionRef(long ordinal) {
-        return new InteractionRef(
-            new SessionId(CONNECTION, 1),
+        return interactionRef(
+            CONNECTION,
             FlowDirection.CONSUMER_TO_PROVIDER,
+            1,
             ordinal
+        );
+    }
+
+    private static InteractionRef interactionRef(
+        ConnectionId connection,
+        FlowDirection direction,
+        long session,
+        long ordinal
+    ) {
+        return new InteractionRef(
+            new SessionId(connection, session),
+            direction,
+            ordinal
+        );
+    }
+
+    private static ReachedNativeFlow reachedNativeFlow(int seed) {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(seed);
+        String nativeReference = "native-flow-secret-" + seed;
+        CorrelationContribution<String> contribution = CorrelationContribution.capture(
+            key,
+            CODEC,
+            nativeReference
+        );
+        InteractionRef originatingInteraction = interactionRef(1);
+        fixture.proofSubjects.arm(subject, key);
+        fixture.proofSubjects.publish(originatingInteraction, contribution);
+        SemanticHold hold = fixture.coordinator.arm(
+            SemanticHoldSelector.matching(
+                CONNECTION,
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                CODEC,
+                ("commit:" + nativeReference)::equals
+            ).forSubject(subject).through(
+                key,
+                CODEC,
+                evidence -> evidence.substring("commit:".length())
+            ),
+            MAXIMUM_HOLD
+        );
+        ForwardingPermit permit = fixture.coordinator.permit(
+            interaction("commit:" + nativeReference, 2)
+        );
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        return new ReachedNativeFlow(
+            fixture,
+            subject,
+            key,
+            originatingInteraction,
+            contribution,
+            hold,
+            permit
         );
     }
 
@@ -928,6 +1277,16 @@ class SemanticControlCoordinatorTest {
         ProofSubjectRegistry proofSubjects,
         ScenarioJournal journal,
         ManualTimeoutScheduler scheduler
+    ) {}
+
+    private record ReachedNativeFlow(
+        Fixture fixture,
+        ProofSubjectRef subject,
+        CorrelationKey key,
+        InteractionRef originatingInteraction,
+        CorrelationContribution<String> contribution,
+        SemanticHold hold,
+        ForwardingPermit permit
     ) {}
 
     private static final class ImmediateTimeoutScheduler

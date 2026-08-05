@@ -62,13 +62,26 @@ system-proof-postgresql -> system-proof-testcontainers -> system-proof-core
 One `ProtocolSession` owns one synchronized bidirectional state model. It allocates a
 `TransactionRef` for a recognized explicit transaction start. Terminal idle, rollback, error,
 desynchronization, disconnect, or session abandonment retires that reference. Reconnect creates a
-new physical session ordinal.
+new physical session ordinal. Session and transaction ordinals are local to one
+`PostgresqlProtocolAdapter` instance; gateway `ConnectionId` and `SessionId` provenance prevents
+equal ordinal pairs produced by separate adapters or routes from being treated as one flow.
 
 The complete supported commit unit is one gateway control unit. `CommitAttempt` is recorded before
 the forwarding permit, so a semantic hold stops every byte. Release authorizes one write/flush of
 the exact original bytes. `CommitSucceeded` is emitted only for the same `TransactionRef` after the
 complete unit was forwarded, matching `CommandComplete(COMMIT)` arrived, and the same physical
 session returned terminal `ReadyForQuery(I)` without an invalidating condition.
+
+Native-flow composition requires the contribution and held commit candidate to share the same
+logical gateway connection and exact physical session; their directions may differ. A reached hold
+stores that exact provenance and snapshot. Release revalidates it under the correlation registry
+boundary immediately before authorizing `FORWARD`. If it is no longer the sole unique resolution,
+release fails closed with `CORRELATION_INVALIDATED`, closes the session, and forwards no held byte.
+This revalidation is the release linearization point.
+
+The gateway retains the bounded raw commit unit only while the forwarding decision and possible
+single write are pending. Raw bytes never enter evidence, correlation state, the journal, rendered
+diagnostics, or the adapter's retained transaction state.
 
 `CommitSucceeded` proves PostgreSQL protocol confirmation. It does not independently prove
 physical storage durability and does not inspect application rows.

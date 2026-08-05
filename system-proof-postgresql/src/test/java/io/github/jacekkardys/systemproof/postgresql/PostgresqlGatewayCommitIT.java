@@ -44,6 +44,7 @@ import io.github.jacekkardys.systemproof.configuration.DriverConfig;
 import io.github.jacekkardys.systemproof.configuration.Secret;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
@@ -81,6 +82,7 @@ import io.github.jacekkardys.systemproof.topology.StartupPrerequisite;
 
 class PostgresqlGatewayCommitIT {
     private static final int REPETITIONS = 10;
+    private static final int COLLISION_REPETITIONS = 10;
     private static final ProtocolLimits LIMITS = new ProtocolLimits(
         1024 * 1024,
         2 * 1024 * 1024
@@ -222,7 +224,8 @@ class PostgresqlGatewayCommitIT {
                     assertThat(database.probe().lastCommitDigest())
                         .containsExactly(gatewayCommitDigest);
                     assertThat(rowCount(verification, repetition)).isEqualTo(1);
-                    assertThat(commitSucceeded(environment, adapter, transaction)).isTrue();
+                    assertThat(commitSuccessCount(environment, adapter, transaction))
+                        .isEqualTo(1);
 
                     CorrelationResult<TransactionRef> correlation =
                         environment.proofSubjects().correlation(
@@ -250,7 +253,134 @@ class PostgresqlGatewayCommitIT {
         }
     }
 
-    private static boolean commitSucceeded(
+    @Test
+    void shouldNotJoinCollidingTransactionRefsFromSeparateAdaptersTenTimes()
+        throws Exception {
+        PostgresqlProtocolAdapter firstProtocol = new PostgresqlProtocolAdapter(
+            interaction -> {
+                if (!interaction.shape().table().equals("proof_entry")) {
+                    return Optional.empty();
+                }
+                int markerIndex = interaction.shape().columns().indexOf("marker");
+                if (markerIndex < 0 || interaction.parameterIsNull(markerIndex)) {
+                    return Optional.empty();
+                }
+                return Optional.of(key(interaction.parameterBytes(markerIndex)));
+            }
+        );
+        PostgresqlProtocolAdapter secondProtocol = new PostgresqlProtocolAdapter(
+            ignored -> Optional.empty()
+        );
+        FailureCapturingAdapter firstAdapter = new FailureCapturingAdapter(firstProtocol);
+        FailureCapturingAdapter secondAdapter = new FailureCapturingAdapter(secondProtocol);
+        GatewayEnvironment environment = GatewayEnvironment.define(
+            firstAdapter,
+            secondAdapter
+        );
+        ExecutorService commits = Executors.newSingleThreadExecutor();
+        try {
+            environment.start();
+            try (Connection verification = environment.database().connectDirect();
+                 Statement setup = verification.createStatement()) {
+                setup.execute("""
+                    CREATE TABLE proof_entry (
+                        id bigint PRIMARY KEY,
+                        marker varchar(128) NOT NULL
+                    )
+                    """);
+                ConnectionId secondConnectionId = environment.connectionFrom(
+                    environment.clientComponent().secondaryJdbc()
+                ).id();
+
+                for (int repetition = 1;
+                     repetition <= COLLISION_REPETITIONS;
+                     repetition++) {
+                    String marker = "cross-route-collision-" + repetition;
+                    CorrelationKey correlationKey = key(ByteBuffer.wrap(
+                        marker.getBytes(StandardCharsets.UTF_8)
+                    ));
+                    ProofSubjectRef subject = environment.proofSubjects().create();
+                    environment.proofSubjects().arm(subject, correlationKey);
+
+                    try (Connection first = environment.client().connect();
+                         Connection second = environment.client().connectSecondary()) {
+                        first.setAutoCommit(false);
+                        try (PreparedStatement write = first.prepareStatement(
+                            "INSERT INTO proof_entry (id, marker) VALUES (?, ?)"
+                        )) {
+                            write.setLong(1, 10_000L + repetition);
+                            write.setString(2, marker);
+                            assertThat(write.executeUpdate()).isEqualTo(1);
+                        }
+                        CorrelationResult<TransactionRef> correlation =
+                            environment.proofSubjects().correlation(
+                                subject,
+                                correlationKey,
+                                TransactionRef.codec()
+                            );
+                        assertThat(correlation)
+                            .isInstanceOf(CorrelationResult.Unique.class);
+                        TransactionRef firstTransaction =
+                            ((CorrelationResult.Unique<TransactionRef>) correlation)
+                                .nativeReference();
+                        if (repetition == 1) {
+                            assertThat(firstTransaction)
+                                .isEqualTo(new TransactionRef(1, 1));
+                        }
+
+                        SemanticHold wrongRouteHold = environment.controls().arm(
+                            SemanticHoldSelector.matching(
+                                secondConnectionId,
+                                FlowDirection.CONSUMER_TO_PROVIDER,
+                                secondAdapter.evidenceCodec(),
+                                CommitAttempt.class::isInstance
+                            ).forSubject(subject).through(
+                                correlationKey,
+                                TransactionRef.codec(),
+                                evidence -> ((CommitAttempt) evidence).transaction()
+                            ),
+                            Duration.ofSeconds(10)
+                        );
+
+                        second.setAutoCommit(false);
+                        try (Statement transactionStart = second.createStatement();
+                             ResultSet result = transactionStart.executeQuery("SELECT 1")) {
+                            assertThat(result.next()).isTrue();
+                            assertThat(result.getInt(1)).isEqualTo(1);
+                        }
+                        Future<?> commit = commits.submit(() -> {
+                            try {
+                                second.commit();
+                            } catch (Exception failure) {
+                                throw new IllegalStateException("JDBC commit failed", failure);
+                            }
+                        });
+                        commit.get(10, TimeUnit.SECONDS);
+                        TransactionRef secondTransaction = secondAdapter
+                            .awaitCommitDigest()
+                            .transaction();
+
+                        assertThat(secondTransaction).isEqualTo(firstTransaction);
+                        assertThat(wrongRouteHold.state())
+                            .isEqualTo(SemanticHoldState.ARMED);
+                        assertThat(wrongRouteHold.cancel()).isTrue();
+                        assertThat(commitSuccessCount(
+                            environment,
+                            secondAdapter,
+                            secondTransaction
+                        )).isEqualTo(1);
+                        first.rollback();
+                    }
+                }
+            }
+        } finally {
+            commits.shutdownNow();
+            assertThat(commits.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            environment.close();
+        }
+    }
+
+    private static long commitSuccessCount(
         GatewayEnvironment environment,
         ProtocolAdapter<PostgresqlEvidence> adapter,
         TransactionRef transaction
@@ -263,8 +393,9 @@ class PostgresqlGatewayCommitIT {
                 adapter.evidenceCodec().schemaId()
             ))
             .map(event -> event.evidence().decode(adapter.evidenceCodec()))
-            .anyMatch(evidence -> evidence instanceof CommitSucceeded succeeded
-                && succeeded.transaction().equals(transaction));
+            .filter(evidence -> evidence instanceof CommitSucceeded succeeded
+                && succeeded.transaction().equals(transaction))
+            .count();
     }
 
     private static int rowCount(Connection verification, long id) throws Exception {
@@ -328,6 +459,16 @@ class PostgresqlGatewayCommitIT {
         }
 
         private static GatewayEnvironment define(ProtocolAdapter<PostgresqlEvidence> adapter) {
+            return define(
+                adapter,
+                new PostgresqlProtocolAdapter(ignored -> Optional.empty())
+            );
+        }
+
+        private static GatewayEnvironment define(
+            ProtocolAdapter<PostgresqlEvidence> adapter,
+            ProtocolAdapter<PostgresqlEvidence> secondaryAdapter
+        ) {
             EnvironmentBuilder builder = new EnvironmentBuilder().logging(
                 EnvironmentLogging.logs()
                     .frameworkLevel(LogLevel.OFF)
@@ -336,7 +477,9 @@ class PostgresqlGatewayCommitIT {
             );
             DatabaseComponent database = builder.component(DatabaseComponent.class);
             ClientComponent client = builder.component(ClientComponent.class);
-            builder.connect(client.jdbc(), database.jdbc());
+            builder
+                .connect(client.jdbc(), database.jdbc())
+                .connect(client.secondaryJdbc(), database.secondaryJdbc());
             InteractionGateway gateway = new InteractionGateway();
             ConnectionRouting routing = ConnectionRouting.routed(
                 client.jdbc().contract(),
@@ -347,6 +490,17 @@ class PostgresqlGatewayCommitIT {
                         PostgresqlGatewayCommitIT::replaceAddress
                     ),
                     adapter,
+                    LIMITS
+                )
+            ).withRoute(
+                client.secondaryJdbc().contract(),
+                requiredObservationProfile(secondaryAdapter),
+                gateway.tcp(
+                    endpoint(
+                        PostgresqlGatewayCommitIT::jdbcAddress,
+                        PostgresqlGatewayCommitIT::replaceAddress
+                    ),
+                    secondaryAdapter,
                     LIMITS
                 )
             );
@@ -521,10 +675,18 @@ class PostgresqlGatewayCommitIT {
         @Communication.JdbcPostgresql
         private ProvidedPort<JdbcEndpoint> jdbc;
 
+        @PortContract("jdbc-secondary")
+        @Communication.JdbcPostgresql
+        private ProvidedPort<JdbcEndpoint> secondaryJdbc;
+
         private DatabaseComponent() {}
 
         private ProvidedPort<JdbcEndpoint> jdbc() {
             return jdbc;
+        }
+
+        private ProvidedPort<JdbcEndpoint> secondaryJdbc() {
+            return secondaryJdbc;
         }
     }
 
@@ -560,6 +722,7 @@ class PostgresqlGatewayCommitIT {
             AutoCloseable resource = () -> closeDatabase(probe, postgres);
             return ComponentRuntime.<DatabaseOperations>runtime(resource)
                 .provides(database.jdbc(), binding(internal, external))
+                .provides(database.secondaryJdbc(), binding(internal, external))
                 .operations(new DatabaseOperations(
                     postgres.getJdbcUrl(),
                     postgres.getUsername(),
@@ -631,10 +794,19 @@ class PostgresqlGatewayCommitIT {
         @StartupPrerequisite
         private RequiredPort<JdbcEndpoint> jdbc;
 
+        @PortContract("jdbc-secondary")
+        @Communication.JdbcPostgresql
+        @StartupPrerequisite
+        private RequiredPort<JdbcEndpoint> secondaryJdbc;
+
         private ClientComponent() {}
 
         private RequiredPort<JdbcEndpoint> jdbc() {
             return jdbc;
+        }
+
+        private RequiredPort<JdbcEndpoint> secondaryJdbc() {
+            return secondaryJdbc;
         }
     }
 
@@ -649,14 +821,26 @@ class PostgresqlGatewayCommitIT {
         ) {
             ClientComponent client = (ClientComponent) component;
             JdbcEndpoint endpoint = context.resolve(client.jdbc());
+            JdbcEndpoint secondaryEndpoint = context.resolve(client.secondaryJdbc());
             return ComponentRuntime.<ClientOperations>runtime()
-                .operations(new ClientOperations(endpoint))
+                .operations(new ClientOperations(endpoint, secondaryEndpoint))
                 .build();
         }
     }
 
-    private record ClientOperations(JdbcEndpoint endpoint) {
+    private record ClientOperations(
+        JdbcEndpoint endpoint,
+        JdbcEndpoint secondaryEndpoint
+    ) {
         private Connection connect() throws Exception {
+            return connect(endpoint);
+        }
+
+        private Connection connectSecondary() throws Exception {
+            return connect(secondaryEndpoint);
+        }
+
+        private static Connection connect(JdbcEndpoint endpoint) throws Exception {
             JdbcEndpoint localGateway = replaceAddress(
                 endpoint,
                 "127.0.0.1",

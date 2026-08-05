@@ -19,7 +19,9 @@ fingerprinting and reference-table policy remain in the examples module.
 
 - `PostgresqlProtocolAdapter` implements the gateway `ProtocolAdapter` SPI.
 - `TransactionRef` identifies one explicit transaction by physical adapter-session ordinal and
-  transaction ordinal. Its versioned codec is the native-reference codec used by correlation.
+  transaction ordinal. Both ordinals are local to one `PostgresqlProtocolAdapter` instance; equal
+  values produced by separate adapters are not global identity. Its versioned codec is the
+  native-reference codec used by correlation.
 - `PostgresqlEvidence` is a closed, secret-safe evidence hierarchy. `CommitAttempt` marks the
   complete frontend commit unit before forwarding. `CommitSucceeded` proves that PostgreSQL
   successfully confirmed that transaction on the observed physical protocol session.
@@ -29,10 +31,12 @@ fingerprinting and reference-table policy remain in the examples module.
 - `PostgresqlDurabilityVerifier` runs a pre-proof environmental preflight on a test-owned JDBC
   connection. It does not access or administer a SUT JDBC connection.
 
-The adapter never retains or renders SQL text, bind values, credentials, database URLs, usernames,
-authentication payloads, cancellation keys, or raw frames. Statement evidence contains only typed
-classes and transaction references. The structured write shape renders only kind,
-schema-qualification presence, and column count.
+PostgreSQL evidence, correlation state, journal entries, renderers, and diagnostics never retain or
+render SQL text, bind values, credentials, database URLs, usernames, authentication payloads,
+cancellation keys, or raw frames. The gateway retains a bounded raw protocol unit only while it is
+pending a forwarding decision and write; it is released afterwards and never enters the journal or
+diagnostics. Statement evidence contains only typed classes and transaction references. The
+structured write shape renders only kind, schema-qualification presence, and column count.
 
 ## Commit semantics
 
@@ -59,6 +63,12 @@ application data. The proof-specific RAW/Outbox visibility assertion belongs to 
 The gateway holds the entire supported extended commit unit. It never forwards a Parse, Bind,
 Execute, or Sync prefix before release. Release causes one write/flush attempt of the adapter's
 exact original bytes; a failed write is not retried.
+
+Proof-subject composition also requires the correlation contribution and held commit to share the
+same logical gateway connection and exact physical session. Opposite protocol directions may
+compose. Equal `TransactionRef` values from different adapter instances, routes, connections, or
+sessions never compose. Release revalidates that exact native-flow resolution before authorizing
+the write and fails closed if later evidence made it non-unique.
 
 ## Durability preflight
 

@@ -60,7 +60,7 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /** Correlates and controls the unchanged containerized reference ingestion transaction. */
 @Tag("docker")
-final class PostgresqlObservedIngestionStartupIT {
+final class PostgresqlCorrelatedCommitIT {
     private static final int REPETITIONS = 5;
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final ProtocolLimits LIMITS = new ProtocolLimits(
@@ -150,7 +150,8 @@ final class PostgresqlObservedIngestionStartupIT {
             .atMost(TIMEOUT)
             .untilAsserted(() -> assertThat(
                 commitSuccesses(environment, environment.adapter())
-            ).anyMatch(success -> success.transaction().equals(transaction)));
+            ).filteredOn(success -> success.transaction().equals(transaction))
+                .hasSize(1));
 
         SmsPersistence persisted = environment.database().await()
             .rawAndOutboxVisible(message);
@@ -162,6 +163,9 @@ final class PostgresqlObservedIngestionStartupIT {
         assertThat(persisted.content()).isEqualTo(message.content());
 
         submission.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        assertThat(commitSuccesses(environment, environment.adapter()))
+            .filteredOn(success -> success.transaction().equals(transaction))
+            .hasSize(1);
     }
 
     private static List<CommitSucceeded> commitSuccesses(
@@ -266,8 +270,8 @@ final class PostgresqlObservedIngestionStartupIT {
                 ),
                 gateway.tcp(
                     endpoint(
-                        PostgresqlObservedIngestionStartupIT::address,
-                        PostgresqlObservedIngestionStartupIT::replaceAddress
+                        PostgresqlCorrelatedCommitIT::address,
+                        PostgresqlCorrelatedCommitIT::replaceAddress
                     ),
                     adapter,
                     LIMITS
