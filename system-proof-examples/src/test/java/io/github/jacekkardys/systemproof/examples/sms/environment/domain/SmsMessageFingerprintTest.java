@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.http.HttpRequestInteraction;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlStatementShape;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction.ParameterFormat;
@@ -79,6 +80,113 @@ class SmsMessageFingerprintTest {
             .isEmpty();
         assertThat(SmsMessageFingerprint.rawWriteCorrelation().correlate(wrongColumns))
             .isEmpty();
+    }
+
+    @Test
+    void shouldShareIdentityWithTheExactJasminHttpCallback() {
+        TestSms message = TestSms.forProof(UUID.randomUUID().toString());
+        String body = form(message, "0");
+        FakeHttpRequest callback = new FakeHttpRequest(
+            "POST",
+            "/v1/ingestion/sms",
+            Optional.of("application/x-www-form-urlencoded"),
+            body.getBytes(StandardCharsets.US_ASCII)
+        );
+
+        assertThat(SmsMessageFingerprint.httpCallbackCorrelation().correlate(callback))
+            .contains(SmsMessageFingerprint.of(message));
+        assertThat(SmsMessageFingerprint.httpCallbackCorrelation().correlate(
+            request(form(TestSms.unique(), "0"))
+        )).isPresent().get().isNotEqualTo(SmsMessageFingerprint.of(message));
+        assertThat(callback.toString())
+            .doesNotContain(message.content())
+            .doesNotContain(body);
+    }
+
+    @Test
+    void shouldDecodeTheCharacterizedUcs2CallbackRepresentation() {
+        TestSms message = TestSms.forProof(UUID.randomUUID().toString());
+        byte[] utf16 = message.content().getBytes(StandardCharsets.UTF_16BE);
+        String body = "id=one&from=" + encode(message.sourceAddress())
+            + "&to=" + encode(message.destinationAddress())
+            + "&origin-connector=smpp-client&content=" + encode(utf16)
+            + "&binary=" + java.util.HexFormat.of().formatHex(utf16)
+            + "&coding=%08";
+
+        assertThat(SmsMessageFingerprint.httpCallbackCorrelation().correlate(
+            request(body)
+        )).contains(SmsMessageFingerprint.of(message));
+    }
+
+    @Test
+    void shouldRejectCallbacksOutsideTheExactRepresentation() {
+        TestSms message = TestSms.forProof(UUID.randomUUID().toString());
+        String valid = form(message, "0");
+
+        assertThat(correlate(new FakeHttpRequest(
+            "GET",
+            "/v1/ingestion/sms",
+            Optional.of("application/x-www-form-urlencoded"),
+            valid.getBytes(StandardCharsets.US_ASCII)
+        ))).isEmpty();
+        assertThat(correlate(new FakeHttpRequest(
+            "POST",
+            "/other",
+            Optional.of("application/x-www-form-urlencoded"),
+            valid.getBytes(StandardCharsets.US_ASCII)
+        ))).isEmpty();
+        assertThat(correlate(new FakeHttpRequest(
+            "POST",
+            "/v1/ingestion/sms",
+            Optional.of("application/json"),
+            valid.getBytes(StandardCharsets.US_ASCII)
+        ))).isEmpty();
+        assertThat(correlate(request(valid.replace("&to=", "&from=duplicate&to="))))
+            .isEmpty();
+        assertThat(correlate(request(valid.replace("&binary=", "&unknown=x&binary="))))
+            .isEmpty();
+        assertThat(correlate(request(valid.replace("id=one&", "")))).isEmpty();
+        assertThat(correlate(request(valid.replace("&binary=", "&binary=00"))))
+            .isEmpty();
+        assertThat(correlate(request(valid.replace("id=one", "id=%GG")))).isEmpty();
+    }
+
+    private static Optional<?> correlate(HttpRequestInteraction request) {
+        return SmsMessageFingerprint.httpCallbackCorrelation().correlate(request);
+    }
+
+    private static FakeHttpRequest request(String body) {
+        return new FakeHttpRequest(
+            "POST",
+            "/v1/ingestion/sms",
+            Optional.of("application/x-www-form-urlencoded"),
+            body.getBytes(StandardCharsets.US_ASCII)
+        );
+    }
+
+    private static String form(TestSms message, String coding) {
+        byte[] content = message.content().getBytes(StandardCharsets.UTF_8);
+        return "id=one&from=" + encode(message.sourceAddress())
+            + "&to=" + encode(message.destinationAddress())
+            + "&origin-connector=smpp-client&content=" + encode(message.content())
+            + "&binary=" + java.util.HexFormat.of().formatHex(content)
+            + "&coding=" + coding;
+    }
+
+    private static String encode(String value) {
+        return java.net.URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private static String encode(byte[] value) {
+        StringBuilder encoded = new StringBuilder(value.length * 3);
+        for (byte current : value) {
+            encoded.append('%').append(String.format(
+                java.util.Locale.ROOT,
+                "%02X",
+                Byte.toUnsignedInt(current)
+            ));
+        }
+        return encoded.toString();
     }
 
     private static FakeWrite rawWrite(
@@ -156,6 +264,39 @@ class SmsMessageFingerprintTest {
 
         private byte[] parameter(int index) {
             return parameters.get(index);
+        }
+    }
+
+    private record FakeHttpRequest(
+        String method,
+        String path,
+        Optional<String> contentType,
+        byte[] body
+    ) implements HttpRequestInteraction {
+        private FakeHttpRequest {
+            body = body.clone();
+        }
+
+        @Override
+        public int bodySize() {
+            return body.length;
+        }
+
+        @Override
+        public ByteBuffer bodyBytes() {
+            return ByteBuffer.wrap(body).asReadOnlyBuffer();
+        }
+
+        @Override
+        public byte[] body() {
+            return body.clone();
+        }
+
+        @Override
+        public String toString() {
+            return "FakeHttpRequest[method=" + method
+                + ", pathLength=" + path.length()
+                + ", bodyByteCount=" + body.length + "]";
         }
     }
 }

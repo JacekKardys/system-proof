@@ -86,9 +86,10 @@ The gateway owns sockets, listeners, route lifecycle, `SessionId`, ordinals, and
 It passes the exact logical `ConnectionId` when opening an adapter session so route-scoped protocol
 authorization cannot fall back to endpoint-local identifiers. Native reference types remain
 adapter-local and cross the existing
-schema-checked `EvidenceSnapshot` copy boundary. Real HTTP, SMPP, and PostgreSQL adapters are not
-included. Semantic holds,
-releases, TLS termination, fault mutation, and causal proof are also outside this milestone. One
+schema-checked `EvidenceSnapshot` copy boundary. Real bounded PostgreSQL and HTTP adapters are
+provided by their own downstream modules; an SMPP adapter is not yet included. Semantic hold and
+one-shot release use the generic forwarding-permit boundary described above. TLS termination,
+fault mutation, cross-connection causal proof, and the final verdict remain outside this module. One
 gateway can serve different contract types concurrently without a gateway registry or global
 protocol selector. Consumer containers that resolve a routed endpoint must enable Testcontainers
 host access with `withAccessToHost(true)`.
