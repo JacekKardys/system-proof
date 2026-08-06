@@ -53,6 +53,13 @@ complete positive response before its first forwarded byte. The scenario repeats
 also proves that missing and ambiguous correlation do not select unrelated responses. This remains
 HTTP evidence only, not a final cross-connection T1 proof.
 
+`SmppEvidenceIT` routes the Jasmin/SMSCsim session through REQUIRED SMPP observation. It binds the
+same canonical fingerprint to one `SmppExchangeRef`, verifies the exact `deliver_sm` and positive
+`deliver_sm_resp` association, and uses the generic subject-bound semantic hold to stop the
+complete response before its first forwarded byte. The scenario repeats five times and also proves
+that unrelated and ambiguous correlation do not select a response. This remains SMPP evidence
+only, not a final cross-connection T1 proof.
+
 Default dependency images:
 
 - `postgres:17.6-alpine`
@@ -134,8 +141,8 @@ Run both examples with Docker:
 The adapted fixture retains upstream's intentionally small SMPP 3.4 subset and does not validate
 incoming PDUs. Its control plane exposes `GET /` and the `POST /` MO form on port `12775`; SMPP is
 on port `2775`. The POST finishes after writing `deliver_sm`, not after a correlated response.
-`deliver_sm_resp` remains diagnostic until a later SMPP adapter contributes structured evidence.
-The gateway now also supports typed PostgreSQL and HTTP observation through their bounded protocol
-modules. See
+The simulator log remains diagnostic. The bounded SMPP adapter now contributes structured session,
+exchange, sequence, status, and acknowledgement evidence. The gateway also supports typed
+PostgreSQL and HTTP observation through their bounded protocol modules. See
 [`docs/third-party.md`](../docs/third-party.md) for the MIT attribution, exact pin, patch, and
 complete limitations.
