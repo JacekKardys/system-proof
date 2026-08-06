@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminComponent.SmppBindMode;
 
 class JasminCliClientTest {
     private static final byte IAC = (byte) 255;
@@ -52,6 +53,27 @@ class JasminCliClientTest {
                 executor.shutdownNow();
             }
         }
+    }
+
+    @Test
+    void keepsTheCallbackEndpointOutOfDefaultBootstrapDiagnostics() {
+        String secret = "endpoint-secret-token";
+        JasminBootstrap bootstrap = new JasminBootstrap(
+            "jasmin",
+            8990,
+            "smsc",
+            2776,
+            "http://ingestion:8080/callback/" + secret,
+            "system-id",
+            "smpp-password-" + secret,
+            SmppBindMode.TRANSCEIVER,
+            "admin",
+            "admin-password-" + secret
+        );
+
+        assertThat(bootstrap.diagnosticSummary())
+            .contains("callbackConfigured=true", "smppState=BOUND_TRX")
+            .doesNotContain(secret, "http://", "password");
     }
 
     private static byte[] serveJasminLogin(ServerSocket server) throws IOException {

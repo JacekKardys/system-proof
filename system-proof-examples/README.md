@@ -1,6 +1,6 @@
 # System Proof Examples
 
-This module contains two executable examples of System Proof's public API.
+This module contains executable examples of System Proof's public API and protocol evidence.
 
 ## PostgreSQL example
 
@@ -42,12 +42,28 @@ plane success as an SMPP acknowledgement. The accepted T1 evidence and success b
 defined in
 [`docs/adr/0001-t1-proof-contract.md`](../docs/adr/0001-t1-proof-contract.md).
 
+`PostgresqlCorrelatedCommitIT` routes the ingestion JDBC connection through REQUIRED PostgreSQL
+observation, correlates the canonical SMS fingerprint to one transaction, holds its explicit commit,
+and confirms the matching commit response and persisted RAW/Outbox rows.
+
+`HttpCallbackEvidenceIT` routes the Jasmin callback through REQUIRED HTTP observation. It binds the
+same canonical fingerprint to one `HttpExchangeRef`, proves the exact status-200 plus
+`ACK/Jasmin` response classification, and uses the generic subject-bound semantic hold to stop the
+complete positive response before its first forwarded byte. The scenario repeats five times and
+also proves that missing and ambiguous correlation do not select unrelated responses. This remains
+HTTP evidence only, not a final cross-connection T1 proof.
+
 Default dependency images:
 
 - `postgres:17.6-alpine`
 - `rabbitmq:4.1.2-management-alpine`
 - `redis:8.0.3-alpine`
-- `jookies/jasmin:0.11.0`
+- `jookies/jasmin:0.11.0@sha256:3f049692d22fd66ab08a55073f79db96fe442473ede9615e8ac085ac505a1064`
+
+The Jasmin manifest labels map this digest to version `0.11.0` and source revision
+`8455c1b875d5f22069759e8fbefcb7437c47db4b`. The default bootstrap diagnostic reports only safe
+connector identifiers, method, callback-configured state, and SMPP bind state; it never lists the
+configured callback URL.
 
 The reference SUT lives under `apps/`:
 
@@ -118,7 +134,8 @@ Run both examples with Docker:
 The adapted fixture retains upstream's intentionally small SMPP 3.4 subset and does not validate
 incoming PDUs. Its control plane exposes `GET /` and the `POST /` MO form on port `12775`; SMPP is
 on port `2775`. The POST finishes after writing `deliver_sm`, not after a correlated response.
-`deliver_sm_resp` remains diagnostic until later protocol adapters contribute structured evidence;
-the current `InteractionGateway` proves transparent TCP reachability and lifecycle only. See
+`deliver_sm_resp` remains diagnostic until a later SMPP adapter contributes structured evidence.
+The gateway now also supports typed PostgreSQL and HTTP observation through their bounded protocol
+modules. See
 [`docs/third-party.md`](../docs/third-party.md) for the MIT attribution, exact pin, patch, and
 complete limitations.

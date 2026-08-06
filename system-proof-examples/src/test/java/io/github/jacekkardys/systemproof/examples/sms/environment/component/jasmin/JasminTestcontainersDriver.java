@@ -82,7 +82,7 @@ public final class JasminTestcontainersDriver
             component.configuration().adminUsername(),
             component.configuration().adminPassword().reveal()
         ).configure();
-        context.log(component, LogLevel.INFO, "Jasmin bootstrap completed\n" + result);
+        context.log(component, LogLevel.INFO, "Jasmin bootstrap completed " + result);
     }
 
     private String jasminConfiguration(

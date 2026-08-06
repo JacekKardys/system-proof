@@ -8,6 +8,7 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 ```text
 system-proof-examples -> system-proof-junit5        -> system-proof-core
         |------------> system-proof-postgresql      -> system-proof-testcontainers -> system-proof-core
+        |------------> system-proof-http            -> system-proof-testcontainers -> system-proof-core
         |------------> system-proof-testcontainers  -> system-proof-core
         `-------------------------------------------> system-proof-core
 
@@ -25,7 +26,10 @@ system-proof-examples/fixtures
   interaction gateway routes.
 - `system-proof-postgresql`: bounded plaintext PostgreSQL v3 observation, exact explicit-commit
   control, typed transaction evidence, write correlation, and independent durability preflight.
-- `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples.
+- `system-proof-http`: bounded plaintext HTTP/1.1 callback observation, tri-state Jasmin
+  acknowledgement evidence, request correlation, and response control.
+- `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples, including
+  real PostgreSQL and HTTP evidence flows.
 - `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
 - `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
 
@@ -39,6 +43,13 @@ commit-success definition, plaintext/TLS boundary, memory limits, and durability
 [`system-proof-postgresql` module](system-proof-postgresql/README.md) and
 [`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). This evidence does not yet implement AML
 attribution or claim the final T1 proof.
+
+The HTTP adapter is likewise a characterized, fail-closed subset rather than a general HTTP
+proxy. Its framing limits, tri-state `ACK/Jasmin` acknowledgement contract, local exchange
+identity, correlation boundary, and unsupported cases are in the
+[`system-proof-http` module](system-proof-http/README.md) and
+[`ADR 0006`](docs/adr/0006-http-callback-evidence.md). This evidence is one input to a later
+cross-connection proof; it is not the final T1 proof.
 
 ## Minimal test
 

@@ -24,48 +24,55 @@ final class JasminBootstrap {
     private final String jcliPassword;
 
     public String configure() {
-        withClient(client -> {
-            client.commandToleratingFailure("httpccm -r " + HTTP_CONNECTOR_ID);
-            client.interactive("httpccm -a", List.of(
-                "cid " + HTTP_CONNECTOR_ID,
-                "url " + callbackUrl,
-                "method POST",
-                "ok"
-            ));
-            client.commandToleratingFailure("morouter -f");
-            client.interactive("morouter -a", List.of(
-                "type DefaultRoute",
-                "connector http(" + HTTP_CONNECTOR_ID + ")",
-                "ok"
-            ));
-            client.commandToleratingFailure("smppccm -0 " + SMPP_CONNECTOR_ID);
-            client.commandToleratingFailure("smppccm -r " + SMPP_CONNECTOR_ID);
-            client.interactive("smppccm -a", List.of(
-                "cid " + SMPP_CONNECTOR_ID,
-                "host " + smppHost,
-                "port " + smppPort,
-                "username " + smppSystemId,
-                "password " + smppPassword,
-                "bind " + bindMode.jasminValue(),
-                "bind_to 10",
-                "elink_interval 10",
-                "res_to 5",
-                "con_loss_retry yes",
-                "con_loss_delay 2",
-                "con_fail_retry yes",
-                "con_fail_delay 2",
-                "requeue_delay 2",
-                "ok"
-            ));
-            client.command("smppccm -1 " + SMPP_CONNECTOR_ID);
-            client.command("persist");
-        });
-        awaitBound();
-        return queryWithClient(client -> String.join("\n", List.of(
-            client.command("httpccm -l"),
-            client.command("morouter -l"),
-            client.command("smppccm -l")
-        )));
+        try {
+            withClient(client -> {
+                client.commandToleratingFailure("httpccm -r " + HTTP_CONNECTOR_ID);
+                client.interactive("httpccm -a", List.of(
+                    "cid " + HTTP_CONNECTOR_ID,
+                    "url " + callbackUrl,
+                    "method POST",
+                    "ok"
+                ));
+                client.commandToleratingFailure("morouter -f");
+                client.interactive("morouter -a", List.of(
+                    "type DefaultRoute",
+                    "connector http(" + HTTP_CONNECTOR_ID + ")",
+                    "ok"
+                ));
+                client.commandToleratingFailure("smppccm -0 " + SMPP_CONNECTOR_ID);
+                client.commandToleratingFailure("smppccm -r " + SMPP_CONNECTOR_ID);
+                client.interactive("smppccm -a", List.of(
+                    "cid " + SMPP_CONNECTOR_ID,
+                    "host " + smppHost,
+                    "port " + smppPort,
+                    "username " + smppSystemId,
+                    "password " + smppPassword,
+                    "bind " + bindMode.jasminValue(),
+                    "bind_to 10",
+                    "elink_interval 10",
+                    "res_to 5",
+                    "con_loss_retry yes",
+                    "con_loss_delay 2",
+                    "con_fail_retry yes",
+                    "con_fail_delay 2",
+                    "requeue_delay 2",
+                    "ok"
+                ));
+                client.command("smppccm -1 " + SMPP_CONNECTOR_ID);
+                client.command("persist");
+            });
+            awaitBound();
+            return diagnosticSummary();
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException("Jasmin bootstrap failed", failure);
+        }
+    }
+
+    String diagnosticSummary() {
+        return "httpConnector=" + HTTP_CONNECTOR_ID
+            + " method=POST callbackConfigured=true"
+            + " smppConnector=" + SMPP_CONNECTOR_ID
+            + " smppState=" + bindMode.boundState();
     }
 
     private void awaitBound() {
