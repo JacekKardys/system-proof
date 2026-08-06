@@ -26,11 +26,15 @@ import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.smpp.SmppEvidence.DeliverSmCompleted;
+import io.github.jacekkardys.systemproof.smpp.SmppEvidence.DeliverSmResponseCompleted;
 import io.github.jacekkardys.systemproof.smpp.SmppProtocolFramingTest.Harness;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolUnit;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 class SmppCorrelationTest {
+    private static final long SMPP_SEQUENCE_MAXIMUM = 0x7fff_ffffL;
+    private static final long HIGH_BIT_SEQUENCE = 0x8000_0000L;
+    private static final long UINT32_SEQUENCE_MAXIMUM = 0xffff_ffffL;
     private static final CorrelationKeySchema KEY_SCHEMA = new CorrelationKeySchema(
         "system-proof.smpp.test",
         "deliver",
@@ -83,6 +87,48 @@ class SmppCorrelationTest {
                 .isInstanceOf(IllegalStateException.class);
             assertThatThrownBy(() -> characters.copyTo(0, new char[1], 0, 1))
                 .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
+    void shouldPreserveFixtureCompatibleHighBitSequenceAcrossCorrelationAndResponse()
+        throws Exception {
+        for (long sequence : List.of(
+            SMPP_SEQUENCE_MAXIMUM,
+            HIGH_BIT_SEQUENCE,
+            UINT32_SEQUENCE_MAXIMUM
+        )) {
+            CorrelationKey key = key(Long.toUnsignedString(sequence));
+            SmppProtocolAdapter adapter = new SmppProtocolAdapter(
+                interaction -> Optional.of(key)
+            );
+            Harness harness = boundHarness(adapter);
+
+            ProtocolUnit<SmppEvidence> deliverUnit = complete(
+                harness.provider(),
+                SmppPdus.deliver(sequence, "high-bit")
+            );
+            DeliverSmCompleted deliver = (DeliverSmCompleted) deliverUnit.evidence();
+            DeliverSmResponseCompleted response = (DeliverSmResponseCompleted) complete(
+                harness.consumer(),
+                SmppPdus.deliverResponse(sequence, 0)
+            ).evidence();
+
+            assertThat(deliver.wireSequenceNumber()).isEqualTo(sequence);
+            if (sequence > Integer.MAX_VALUE) {
+                assertThat(deliver.wireSequenceNumber()).isGreaterThan(Integer.MAX_VALUE);
+            }
+            assertThat(deliverUnit.correlationContributions()).containsExactly(
+                CorrelationContribution.capture(
+                    key,
+                    SmppExchangeRef.codec(),
+                    deliver.exchange()
+                )
+            );
+            assertThat(response.exchange()).isEqualTo(deliver.exchange());
+            assertThat(response.wireSequenceNumber()).isEqualTo(sequence);
+            assertThat(response.acknowledgement())
+                .isEqualTo(SmppEvidence.Acknowledgement.POSITIVE);
         }
     }
 

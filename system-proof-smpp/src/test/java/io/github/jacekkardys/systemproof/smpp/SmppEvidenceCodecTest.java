@@ -21,6 +21,16 @@ import io.github.jacekkardys.systemproof.smpp.SmppEvidence.SessionControl;
 
 class SmppEvidenceCodecTest {
     private static final SmppExchangeRef EXCHANGE = new SmppExchangeRef(7, 11, 99);
+    private static final SmppExchangeRef HIGH_BIT_EXCHANGE = new SmppExchangeRef(
+        7,
+        12,
+        0x8000_0000L
+    );
+    private static final SmppExchangeRef UINT32_MAXIMUM_EXCHANGE = new SmppExchangeRef(
+        7,
+        13,
+        0xffff_ffffL
+    );
 
     @Test
     void shouldRoundTripEveryEvidenceVariantAndTheExchangeReference() {
@@ -58,6 +68,54 @@ class SmppEvidenceCodecTest {
         EvidenceCodec<SmppExchangeRef> referenceCodec = SmppExchangeRef.codec();
         assertThat(referenceCodec.decode(referenceCodec.encode(EXCHANGE))).isEqualTo(EXCHANGE);
         assertThat(referenceCodec.schemaId().version()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRoundTripFixtureCompatibleHighBitAndMaximumSequences() {
+        EvidenceCodec<SmppEvidence> evidenceCodec = new SmppProtocolAdapter()
+            .evidenceCodec();
+        EvidenceCodec<SmppExchangeRef> referenceCodec = SmppExchangeRef.codec();
+
+        for (SmppExchangeRef exchange : List.of(
+            HIGH_BIT_EXCHANGE,
+            UINT32_MAXIMUM_EXCHANGE
+        )) {
+            assertThat(referenceCodec.decode(referenceCodec.encode(exchange)))
+                .isEqualTo(exchange);
+
+            DeliverSmCompleted deliver = new DeliverSmCompleted(
+                exchange,
+                172,
+                156,
+                122,
+                DataCoding.UCS2,
+                0
+            );
+            DeliverSmResponseCompleted response = new DeliverSmResponseCompleted(
+                exchange,
+                0,
+                Acknowledgement.POSITIVE,
+                17
+            );
+            assertThat(evidenceCodec.decode(evidenceCodec.encode(deliver)))
+                .isEqualTo(deliver);
+            assertThat(evidenceCodec.decode(evidenceCodec.encode(response)))
+                .isEqualTo(response);
+        }
+    }
+
+    @Test
+    void shouldRejectZeroSequenceInPublicConstructors() {
+        assertThatThrownBy(() -> new SmppExchangeRef(1, 1, 0))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new BindRequested(0, 38))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new SessionControl(
+            Command.ENQUIRE_LINK,
+            0,
+            0,
+            16
+        )).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

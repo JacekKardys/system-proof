@@ -151,6 +151,42 @@ class SmppSessionSemanticsTest {
     }
 
     @Test
+    void shouldFailClosedForAMismatchedHighBitResponse() throws Exception {
+        Harness harness = boundHarness(new SmppProtocolAdapter());
+        complete(harness.provider(), SmppPdus.deliver(0x8000_0000L, "pending"));
+
+        assertFailure(
+            harness.consumer(),
+            SmppPdus.deliverResponse(0x8000_0001L, 0),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+    }
+
+    @Test
+    void shouldRejectZeroSequenceForRequestsAndResponses() throws Exception {
+        assertFailure(
+            openHarness(new SmppProtocolAdapter()).consumer(),
+            SmppPdus.bindRequest(0),
+            ProtocolFailureKind.MALFORMED_INPUT
+        );
+
+        Harness zeroDeliver = boundHarness(new SmppProtocolAdapter());
+        assertFailure(
+            zeroDeliver.provider(),
+            SmppPdus.deliver(0, "zero-request"),
+            ProtocolFailureKind.MALFORMED_INPUT
+        );
+
+        Harness zeroResponse = boundHarness(new SmppProtocolAdapter());
+        complete(zeroResponse.provider(), SmppPdus.deliver(1, "pending"));
+        assertFailure(
+            zeroResponse.consumer(),
+            SmppPdus.deliverResponse(0, 0),
+            ProtocolFailureKind.MALFORMED_INPUT
+        );
+    }
+
+    @Test
     void shouldClassifyZeroAsPositiveAndEveryDecodedNonZeroStatusAsNegative()
         throws Exception {
         for (long status : List.of(0L, 1L, 8L, 0x00000400L, 0xffff_ffffL)) {

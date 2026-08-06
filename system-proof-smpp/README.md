@@ -24,8 +24,9 @@ facts, proof subjects, correlation cardinality, and semantic control.
 - `SmppProtocolLimits` bounds complete PDU size, outstanding deliveries, and `short_message` size
   within the gateway's frame and aggregate-buffer limits.
 - `SmppExchangeRef` identifies one delivery exchange by adapter-session ordinal, exchange ordinal,
-  and unsigned wire sequence number. It is local to one adapter instance; connection and physical
-  gateway-session provenance are additionally required for native-flow composition.
+  and the exact non-zero uint32 wire sequence number accepted by the fixture-compatibility policy.
+  It is local to one adapter instance; connection and physical gateway-session provenance are
+  additionally required for native-flow composition.
 - `SmppEvidence` is a closed hierarchy for bind, session-control, `deliver_sm`, and
   `deliver_sm_resp` facts. It records only commands, unsigned status/sequence values, bounded
   lengths, closed outcomes, and the exchange reference.
@@ -60,6 +61,22 @@ UDH/segmentation, any TLV, `message_payload`, another data coding, empty/malform
 truncation, trailing bytes, exceeded limit, traffic outside the state machine, and EOF with an
 outstanding exchange fail closed. Unsupported traffic emits no evidence for that PDU and is not
 forwarded as unobserved bytes.
+
+## Sequence-number compatibility
+
+SMPP 3.4 Issue 1.2 defines `0x00000001..0x7FFFFFFF` as the legal `sequence_number`
+range. Responses repeat the request value. Monotonic allocation is recommended, but it is not an
+unconditional requirement for every operation.
+
+The pinned SMSCsim instead passes `rand.Int()` to `deliverSmPDU` and writes
+`uint32(seqNum)`. It does not enforce the normative range, exclude zero, or allocate monotonically;
+only non-zero values were observed in the characterized runs.
+
+The adapter therefore deliberately accepts `1..0xFFFFFFFF`, including high-bit values, as a
+fixture-compatibility deviation. This is not a general SMPP compliance claim. Zero fails required
+observation closed. Safety does not depend on monotonic allocation: the response must repeat the
+request's exact 32 bits, matching is scoped to the same physical adapter session, duplicate
+outstanding values fail closed, and completed reuse receives a new `SmppExchangeRef`.
 
 The default limits are a 213-byte PDU, 64 outstanding deliveries, and a 140-byte
 `short_message`. The hard maxima are 327 PDU bytes, 512 outstanding deliveries, and 254 message
@@ -107,7 +124,10 @@ never contain credentials, raw PDUs, endpoint data, addresses, message content, 
 parameter values. Policy exceptions fail required observation closed and their messages are not
 published.
 
-The current `clean verify` suite contains 471 tests. Remaining fail-closed exclusions include all
+The current `clean verify` suite contains 478 tests. Deterministic sequence regressions cover
+`0x7FFFFFFF`, `0x80000000`, `0xFFFFFFFF`, and zero, including REQUIRED-route no-forwarding,
+high-bit response matching, mismatch rejection, and exchange/evidence codec round trips.
+Remaining fail-closed exclusions include all
 TLVs, `message_payload`, multipart/UDH traffic, delivery receipts, other data codings, unsupported
 commands or directions, TLS termination, unmatched state transitions, and traffic beyond the
 configured hard limits. The live five-repetition proof demonstrates the characterized SMPP

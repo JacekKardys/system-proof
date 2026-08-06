@@ -15,9 +15,13 @@ The provider fixture is built from [`ukarim/smscsim` commit
 `4975a569f7be11a89f9c381494f42ccf55fd49d3`](https://github.com/ukarim/smscsim/tree/4975a569f7be11a89f9c381494f42ccf55fd49d3).
 The repository-owned patch changes only the invalid seven-character `deliver_sm.service_type` to
 the SMPP default empty C-Octet String. The pinned source sends MO content as UCS2 in
-`short_message`, uses `esm_class=0` for a one-part message, chooses a non-zero 32-bit sequence, and
-accepts the matching response. It does not validate response semantics deeply, so its log is not
-proof evidence.
+`short_message` and uses `esm_class=0` for a one-part message. For `deliver_sm`, it passes
+[`rand.Int()`](https://github.com/ukarim/smscsim/blob/4975a569f7be11a89f9c381494f42ccf55fd49d3/smsc.go#L135)
+to `deliverSmPDU` and writes the result as
+[`uint32(seqNum)`](https://github.com/ukarim/smscsim/blob/4975a569f7be11a89f9c381494f42ccf55fd49d3/smsc.go#L380-L385).
+It does not constrain that result to the SMPP sequence range, reject zero, or generate sequences
+monotonically. The characterized runs observed non-zero values, but the source does not guarantee
+them. It does not validate response semantics deeply, so its log is not proof evidence.
 
 The consumer image is
 `jookies/jasmin:0.11.0@sha256:3f049692d22fd66ab08a55073f79db96fe442473ede9615e8ac085ac505a1064`.
@@ -30,7 +34,9 @@ one-byte null C-Octet String.
 The protocol baseline is the [SMPP 3.4 Issue 1.2
 specification](https://smpp.org/SMPP_v3_4_Issue1_2.pdf): the common header is 16 bytes;
 `command_length`, `command_id`, `command_status`, and `sequence_number` are unsigned 32-bit values;
-and `short_message` and `message_payload` cannot both carry the user data.
+the legal `sequence_number` range is `0x00000001..0x7FFFFFFF`; a response repeats the request's
+number; and monotonically increasing allocation is recommended rather than an unconditional rule
+for every operation. `short_message` and `message_payload` cannot both carry the user data.
 
 ## Sanitized observed flow
 
@@ -50,6 +56,10 @@ The sampled `deliver_sm` was a one-part PDU with empty service type, TON/NPI zer
 `data_coding=8`, 122 `short_message` bytes, and no optional parameter. Its complete byte count was
 172 for that message; this is content-dependent and not a fixed protocol value. Shutdown closed
 the TCP directions on clean unit boundaries without an observed unbind exchange.
+
+The observed bind, delivery, response, and enquire-link sequences were non-zero. This is an
+observation of those runs, not a claim that the pinned SMSCsim generator enforces non-zero or
+normative SMPP values.
 
 The characterization deliberately omits credentials, addresses, content, raw PDUs, endpoints,
 ports, generated identifiers, and concrete random sequence values.
@@ -71,6 +81,18 @@ sequence number. `deliver_sm` allocates it; the matching `deliver_sm_resp` consu
 mapping and carries the same value. The exchange ordinal distinguishes legal wire-sequence reuse.
 Reconnect allocates a new adapter-session ordinal. The authoritative observation identity remains
 the journal-owned `InteractionRef`, including logical connection and physical gateway session.
+
+### Sequence-number compatibility policy
+
+The adapter deliberately accepts the full non-zero uint32 range `1..0xFFFFFFFF`. Values above the
+normative SMPP 3.4 maximum `0x7FFFFFFF` are a compatibility deviation for the pinned SMSCsim, not a
+claim that the wider range is generally SMPP-compliant. Zero remains invalid and fails required
+observation closed.
+
+Correlation remains safe under this compatibility policy because a response must repeat the
+request's exact 32 wire bits, matching occurs within the same physical adapter session, a duplicate
+outstanding sequence terminates that session fail-closed, and reuse after completion allocates a
+new `SmppExchangeRef` with a new exchange ordinal.
 
 The evidence hierarchy is closed and immutable:
 
@@ -184,7 +206,10 @@ target proof five times. Separate traffic proves same-fingerprint ambiguity does
 response. A throwing policy proves required observation fails closed without publishing delivery
 evidence, forwarding the rejected SMS into RAW/Outbox persistence, or exposing its secret message.
 
-The current `clean verify` suite contains 471 tests. Remaining fail-closed exclusions include TLVs,
+The current `clean verify` suite contains 478 tests. Deterministic boundary coverage includes the
+normative maximum, both uint32 high-bit boundaries, zero request/response failures on a REQUIRED
+route, exact exchange/evidence codec round trips, and mismatched high-bit responses. Remaining
+fail-closed exclusions include TLVs,
 `message_payload`, multipart/UDH traffic, delivery receipts, other coding, unsupported commands and
 directions, TLS termination, unmatched state transitions, and inputs beyond configured limits.
 

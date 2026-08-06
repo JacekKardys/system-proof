@@ -5,7 +5,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
-final class SmppPdus {
+public final class SmppPdus {
     static final long BIND_TRANSCEIVER = 0x00000009L;
     static final long BIND_TRANSCEIVER_RESP = 0x80000009L;
     static final long DELIVER_SM = 0x00000005L;
@@ -18,7 +18,7 @@ final class SmppPdus {
 
     private SmppPdus() {}
 
-    static byte[] bindRequest(long sequence) {
+    public static byte[] bindRequest(long sequence) {
         return bindRequest(sequence, "system", "password");
     }
 
@@ -34,7 +34,7 @@ final class SmppPdus {
         return pdu(BIND_TRANSCEIVER, 0, sequence, body.toByteArray());
     }
 
-    static byte[] bindResponse(long sequence, long status) {
+    public static byte[] bindResponse(long sequence, long status) {
         return pdu(
             BIND_TRANSCEIVER_RESP,
             status,
@@ -43,7 +43,7 @@ final class SmppPdus {
         );
     }
 
-    static byte[] deliver(long sequence, String content) {
+    public static byte[] deliver(long sequence, String content) {
         return deliver(
             sequence,
             "111111111111",
@@ -87,7 +87,7 @@ final class SmppPdus {
         return pdu(DELIVER_SM, 0, sequence, body.toByteArray());
     }
 
-    static byte[] deliverResponse(long sequence, long status) {
+    public static byte[] deliverResponse(long sequence, long status) {
         return pdu(DELIVER_SM_RESP, status, sequence, new byte[] {0});
     }
 
