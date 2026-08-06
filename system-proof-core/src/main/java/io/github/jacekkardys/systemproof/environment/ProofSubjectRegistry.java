@@ -56,6 +56,14 @@ final class ProofSubjectRegistry implements ProofSubjects {
         boolean sharedKey = existingSubjects != null && !existingSubjects.isEmpty();
         events.proofSubjectArmed(subject, key, sharedKey);
 
+        if (sharedKey) {
+            for (ProofSubjectRef existingSubject : existingSubjects) {
+                SubjectState existingState = requireSubject(existingSubject);
+                existingState.resolutions.get(key).replaceAll(
+                    (schema, resolution) -> Ambiguous.INSTANCE
+                );
+            }
+        }
         subjectState.resolutions.put(key, new HashMap<>());
         subjectsByKey.computeIfAbsent(key, ignored -> new HashSet<>())
             .add(subject);

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-06
+- Updated: 2026-08-06
 - Issue: [#24](https://github.com/JacekKardys/system-proof/issues/24)
 - Prerequisites: [#9](https://github.com/JacekKardys/system-proof/issues/9),
   [#10](https://github.com/JacekKardys/system-proof/issues/10),
@@ -77,8 +78,14 @@ Within each codec namespace, cardinality remains fail-closed:
 - no trustworthy candidate is `MISSING`;
 - exactly one distinct candidate is `UNIQUE`;
 - a second distinct candidate is terminal `AMBIGUOUS`;
-- sharing one key between subjects is `AMBIGUOUS`;
+- sharing one key between subjects is terminal `AMBIGUOUS` in every native-reference schema;
 - `MISSING` and `AMBIGUOUS` never select a subject-bound hold.
+
+If a second subject arms a key after the first subject already has `UNIQUE` candidates, the
+registry atomically replaces every retained per-schema resolution for that key with
+`AMBIGUOUS`. Public lookup, subject-only semantic holds, native-flow semantic holds, and release
+revalidation therefore observe the same fail-closed state. Invalidated entries cannot trigger a
+hold or make an independent, non-shared key ambiguous, even when native-flow provenance overlaps.
 
 The commit selector resolves only
 `ProofSubjectRef -> CorrelationKey -> TransactionRef -> CommitAttempt`. It never falls back to
@@ -88,12 +95,17 @@ transaction, socket, await, journal, or wall-clock arrival order.
 
 - **Unrelated commit:** a different subject/key can commit first without reaching the target hold;
   the target remains armed until its own `TransactionRef` is unique.
-- **Concurrent subjects:** explicit barriers admit two already armed subjects. Each codec namespace
-  resolves independently, the transaction references differ, and one subject's hold cannot select
-  the other's commit.
+- **Concurrent subjects:** two futures cross one explicit barrier after both subjects and commit
+  holds are armed. Neither hold is released until both are simultaneously `REACHED_HELD`. Each
+  codec namespace resolves independently, each transaction has exactly one `CommitAttempt`, no
+  target row or `CommitSucceeded` exists before release, and one subject's hold cannot select the
+  other's commit. With the two-connection Hikari limit fully occupied by the two held
+  transactions, their different PostgreSQL session ordinals prove that these flows overlap on
+  different physical sessions.
 - **Pool reuse:** consecutive transactions may share the same physical adapter session, but their
-  transaction ordinals must differ. The integration asserts both equal session ordinals and
-  consecutive transaction ordinals before claiming reuse.
+  transaction ordinals must differ. A separate sequential integration segment asserts both equal
+  session ordinals and consecutive transaction ordinals before claiming reuse; the concurrent
+  segment is not described as pool reuse.
 - **Rollback:** a recognized RAW write can attribute a transaction that later rolls back. It emits
   no `CommitSucceeded` and cannot satisfy the commit hold. A retry with the same fingerprint is a
   second candidate and makes that native namespace `AMBIGUOUS`.
@@ -119,8 +131,9 @@ message or source values.
 The real container scenario observes REQUIRED SMPP, HTTP, and PostgreSQL routes together. It proves
 one native reference per namespace, one subject-attributed commit attempt, matching commit success
 after release, and atomic RAW/Outbox visibility. It also exercises unrelated work, concurrent
-subjects, verified physical-session reuse, rollback, retry ambiguity, reconnect, and REQUIRED
-policy failure without sleeps or order-based selection.
+subjects held simultaneously on different physical database sessions, separately verified
+physical-session reuse, rollback, retry ambiguity, reconnect, and REQUIRED policy failure without
+sleeps or order-based selection.
 
 The carrier remains intentionally narrow. A schema-qualified or differently ordered INSERT,
 different parameter count or format, absent explicit transaction, unsupported PostgreSQL flow,

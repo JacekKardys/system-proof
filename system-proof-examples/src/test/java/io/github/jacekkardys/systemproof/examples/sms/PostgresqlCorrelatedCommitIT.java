@@ -150,16 +150,10 @@ final class PostgresqlCorrelatedCommitIT {
                 );
                 secrets.add(concurrent.firstProof());
                 secrets.add(concurrent.secondProof());
-                assertNextTransaction(previous, concurrent.first().transaction());
-                assertNextTransaction(
-                    concurrent.first().transaction(),
-                    concurrent.second().transaction()
-                );
 
                 ProofMessage rollbackProof = verifyRollbackAndAmbiguousRetry(
                     environment,
-                    submissions,
-                    concurrent.second().transaction()
+                    submissions
                 );
                 secrets.add(rollbackProof);
                 assertSecretSafe(environment, secrets, List.of(), null);
@@ -315,11 +309,9 @@ final class PostgresqlCorrelatedCommitIT {
         SemanticHold firstHold = commitHold(environment, first);
         SemanticHold secondHold = commitHold(environment, second);
         CyclicBarrier ready = new CyclicBarrier(3);
-        CompletableFuture<Void> admitSecond = new CompletableFuture<>();
 
         Future<?> secondSubmission = submissions.submit(() -> {
             awaitBarrier(ready);
-            awaitPermit(admitSecond);
             environment.smsc().send(second.message());
         });
         Future<?> firstSubmission = submissions.submit(() -> {
@@ -328,45 +320,44 @@ final class PostgresqlCorrelatedCommitIT {
         });
         awaitBarrier(ready);
 
-        firstHold.reached().toCompletableFuture().get(
+        CompletableFuture.allOf(
+            firstHold.reached().toCompletableFuture(),
+            secondHold.reached().toCompletableFuture()
+        ).get(
             TIMEOUT.toSeconds(),
             TimeUnit.SECONDS
         );
         NativeAttribution firstAttribution = uniqueAttribution(environment, first);
-        assertAttributionEvidence(environment, firstAttribution);
-        assertThat(secondHold.state()).isEqualTo(SemanticHoldState.ARMED);
-        assertThat(environment.proofSubjects().correlation(
-            second.subject(),
-            second.key(),
-            TransactionRef.codec()
-        )).isInstanceOf(CorrelationResult.Missing.class);
-
-        firstHold.release().toCompletableFuture().get(
-            TIMEOUT.toSeconds(),
-            TimeUnit.SECONDS
-        );
-        firstSubmission.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-        awaitCommitSucceeded(environment, firstAttribution.transaction());
-        assertPersistedAtomically(environment, first.message());
-
-        admitSecond.complete(null);
-        secondHold.reached().toCompletableFuture().get(
-            TIMEOUT.toSeconds(),
-            TimeUnit.SECONDS
-        );
         NativeAttribution secondAttribution = uniqueAttribution(environment, second);
+        assertThat(firstHold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(secondHold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertAttributionEvidence(environment, firstAttribution);
         assertAttributionEvidence(environment, secondAttribution);
         assertThat(firstAttribution.smpp()).isNotEqualTo(secondAttribution.smpp());
         assertThat(firstAttribution.http()).isNotEqualTo(secondAttribution.http());
         assertThat(firstAttribution.transaction())
             .isNotEqualTo(secondAttribution.transaction());
+        assertThat(firstAttribution.transaction().sessionOrdinal())
+            .isNotEqualTo(secondAttribution.transaction().sessionOrdinal());
+        assertThat(commitSuccesses(environment))
+            .noneMatch(success -> success.transaction().equals(
+                firstAttribution.transaction()
+            ) || success.transaction().equals(secondAttribution.transaction()));
+        assertNotPersisted(environment, first.message());
+        assertNotPersisted(environment, second.message());
 
-        secondHold.release().toCompletableFuture().get(
+        CompletableFuture.allOf(
+            firstHold.release().toCompletableFuture(),
+            secondHold.release().toCompletableFuture()
+        ).get(
             TIMEOUT.toSeconds(),
             TimeUnit.SECONDS
         );
+        firstSubmission.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
         secondSubmission.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        awaitCommitSucceeded(environment, firstAttribution.transaction());
         awaitCommitSucceeded(environment, secondAttribution.transaction());
+        assertPersistedAtomically(environment, first.message());
         assertPersistedAtomically(environment, second.message());
         return new ConcurrentAttributions(
             first,
@@ -378,8 +369,7 @@ final class PostgresqlCorrelatedCommitIT {
 
     private static ProofMessage verifyRollbackAndAmbiguousRetry(
         ObservedSmsEnvironment environment,
-        ExecutorService submissions,
-        TransactionRef previous
+        ExecutorService submissions
     ) throws Exception {
         ProofMessage proof = ProofMessage.create(environment);
         SemanticHold commitHold = commitHold(environment, proof);
@@ -396,7 +386,6 @@ final class PostgresqlCorrelatedCommitIT {
                 TimeUnit.SECONDS
             );
             rollbackAttribution = uniqueAttribution(environment, proof);
-            assertNextTransaction(previous, rollbackAttribution.transaction());
             assertThat(commitHold.state()).isEqualTo(SemanticHoldState.ARMED);
             assertThat(commitSuccesses(environment))
                 .noneMatch(success -> success.transaction().equals(
@@ -642,6 +631,17 @@ final class PostgresqlCorrelatedCommitIT {
         assertThat(persisted.content()).isEqualTo(message.content());
     }
 
+    private static void assertNotPersisted(
+        ObservedSmsEnvironment environment,
+        TestSms message
+    ) {
+        assertThat(environment.database().snapshot(message))
+            .satisfies(persistence -> {
+                assertThat(persistence.rawCount()).isZero();
+                assertThat(persistence.outboxCount()).isZero();
+            });
+    }
+
     private static void awaitCommitSucceeded(
         ObservedSmsEnvironment environment,
         TransactionRef transaction
@@ -717,17 +717,6 @@ final class PostgresqlCorrelatedCommitIT {
             throw new IllegalStateException("Interrupted at the submission barrier", failure);
         } catch (Exception failure) {
             throw new IllegalStateException("Submission barrier failed", failure);
-        }
-    }
-
-    private static void awaitPermit(CompletableFuture<Void> permit) {
-        try {
-            permit.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted awaiting submission admission", failure);
-        } catch (Exception failure) {
-            throw new IllegalStateException("Submission admission failed", failure);
         }
     }
 

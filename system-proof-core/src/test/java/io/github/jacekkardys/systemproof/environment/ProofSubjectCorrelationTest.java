@@ -216,6 +216,46 @@ class ProofSubjectCorrelationTest {
     }
 
     @Test
+    void shouldMakeEveryNativeReferenceNamespaceAmbiguousWhenKeyBecomesShared() {
+        Fixture fixture = fixture();
+        ProofSubjectRef first = fixture.registry.create();
+        ProofSubjectRef second = fixture.registry.create();
+        CorrelationKey key = key("late-shared-multi-protocol-operation");
+        fixture.registry.arm(first, key);
+        fixture.registry.publish(
+            interaction(1, 1),
+            CorrelationContribution.capture(
+                key,
+                NATIVE_REFERENCE_CODEC,
+                new byte[] {1}
+            )
+        );
+        fixture.registry.publish(
+            interaction(2, 1),
+            CorrelationContribution.capture(
+                key,
+                OTHER_NATIVE_REFERENCE_CODEC,
+                new byte[] {2}
+            )
+        );
+
+        fixture.registry.arm(second, key);
+
+        for (ProofSubjectRef subject : List.of(first, second)) {
+            assertThat(fixture.registry.correlation(
+                subject,
+                key,
+                NATIVE_REFERENCE_CODEC
+            )).isInstanceOf(CorrelationResult.Ambiguous.class);
+            assertThat(fixture.registry.correlation(
+                subject,
+                key,
+                OTHER_NATIVE_REFERENCE_CODEC
+            )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        }
+    }
+
+    @Test
     void shouldKeepDistinctSubjectsIsolatedAndRejectSharedKeyOwnership() {
         Fixture fixture = fixture();
         ProofSubjectRef first = fixture.registry.create();

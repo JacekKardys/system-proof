@@ -48,8 +48,11 @@ before traffic, resolves the canonical SMS fingerprint to exactly one `SmppExcha
 `HttpExchangeRef`, and `TransactionRef`, selects the commit only through that
 subject/key/transaction chain, releases it, and confirms the matching `CommitSucceeded` plus
 atomic RAW/Outbox rows. Deterministic controls cover an earlier unrelated commit, two concurrent
-subjects, verified physical-session pool reuse, rollback, retry ambiguity, reconnect, and
-secret-safe REQUIRED policy failure. The exact carrier and fail-closed boundaries are recorded in
+subjects whose two commit holds are simultaneously reached on different PostgreSQL physical
+sessions, separately verified sequential pool reuse, rollback, retry ambiguity, reconnect, and
+secret-safe REQUIRED policy failure. Shared-key ambiguity remains fail-closed for public lookup,
+subject-only holds, and native-flow holds even when the second subject arms the key after the first
+candidate was published. The exact carrier and fail-closed boundaries are recorded in
 [`ADR 0008`](../docs/adr/0008-aml-subject-transaction-attribution.md).
 
 `HttpCallbackEvidenceIT` routes the Jasmin callback through REQUIRED HTTP observation. It binds the
