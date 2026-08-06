@@ -93,6 +93,29 @@ class SmppRequiredObservationTest {
         }
     }
 
+    @Test
+    void shouldFailClosedWhenDeliverFollowsPropagatedConsumerEof() throws Exception {
+        SmppProtocolAdapter adapter = correlatedAdapter();
+        RecordingObservations observations = new RecordingObservations();
+        try (RouteFixture fixture = RouteFixture.open(adapter, observations)) {
+            bind(fixture);
+            int evidenceBefore = observations.evidence().size();
+            int correlationsBefore = observations.correlations().size();
+
+            fixture.client().shutdownOutput();
+            assertThat(fixture.targetPeer().getInputStream().read()).isEqualTo(-1);
+            write(fixture.targetPeer(), SmppPdus.deliver(2, "after-consumer-eof"));
+
+            assertNoForwardedBytesAfterClose(fixture.client());
+            assertThat(fixture.route().observationStatus())
+                .isEqualTo(EffectiveObservationStatus.FAILED);
+            assertThat(observations.evidence()).hasSize(evidenceBefore)
+                .noneMatch(DeliverSmCompleted.class::isInstance);
+            assertThat(observations.correlations()).hasSize(correlationsBefore);
+            assertThat(correlationsBefore).isZero();
+        }
+    }
+
     private static SmppProtocolAdapter correlatedAdapter() {
         return new SmppProtocolAdapter(interaction -> Optional.of(KEY));
     }

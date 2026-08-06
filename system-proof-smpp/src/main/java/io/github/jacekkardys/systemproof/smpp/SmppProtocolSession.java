@@ -307,7 +307,7 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
         TERMINAL
     }
 
-    private static final class SessionModel {
+    static final class SessionModel {
         private final long sessionOrdinal;
         private final int maximumOutstandingDeliveries;
         private final Map<Long, SmppExchangeRef> outstandingDeliveries = new HashMap<>();
@@ -319,20 +319,22 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
         private boolean consumerInputEnded;
         private boolean providerInputEnded;
 
-        private SessionModel(long sessionOrdinal, int maximumOutstandingDeliveries) {
+        SessionModel(long sessionOrdinal, int maximumOutstandingDeliveries) {
             this.sessionOrdinal = sessionOrdinal;
             this.maximumOutstandingDeliveries = maximumOutstandingDeliveries;
         }
 
-        private synchronized void bindRequested(long sequence)
+        synchronized void bindRequested(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.OPEN, "SMPP bind request is not allowed in the current state");
             pendingBindSequence = sequence;
             state = State.BIND_PENDING;
         }
 
-        private synchronized void bindResponded(long sequence, BindOutcome outcome)
+        synchronized void bindResponded(long sequence, BindOutcome outcome)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BIND_PENDING, "SMPP bind response has no pending request");
             if (!Objects.equals(pendingBindSequence, sequence)) {
                 throw desynchronization("SMPP bind response sequence does not match its request");
@@ -341,8 +343,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             state = outcome == BindOutcome.ACCEPTED ? State.BOUND : State.UNBOUND;
         }
 
-        private synchronized SmppExchangeRef deliverStarted(long sequence)
+        synchronized SmppExchangeRef deliverStarted(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BOUND, "SMPP deliver_sm requires a bound session");
             if (outstandingDeliveries.containsKey(sequence)) {
                 throw desynchronization(
@@ -371,8 +374,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             return exchange;
         }
 
-        private synchronized SmppExchangeRef deliverResponded(long sequence)
+        synchronized SmppExchangeRef deliverResponded(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BOUND, "SMPP deliver_sm_resp requires a bound session");
             SmppExchangeRef exchange = outstandingDeliveries.remove(sequence);
             if (exchange == null) {
@@ -383,8 +387,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             return exchange;
         }
 
-        private synchronized void enquireLinkRequested(long sequence)
+        synchronized void enquireLinkRequested(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BOUND, "SMPP enquire_link requires a bound session");
             if (pendingEnquireLinkSequence != null) {
                 throw unsupported("Multiple outstanding enquire_link requests are unsupported");
@@ -392,8 +397,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             pendingEnquireLinkSequence = sequence;
         }
 
-        private synchronized void enquireLinkResponded(long sequence)
+        synchronized void enquireLinkResponded(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BOUND, "SMPP enquire_link_resp requires a bound session");
             if (!Objects.equals(pendingEnquireLinkSequence, sequence)) {
                 throw desynchronization(
@@ -403,8 +409,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             pendingEnquireLinkSequence = null;
         }
 
-        private synchronized void unbindRequested(long sequence)
+        synchronized void unbindRequested(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.BOUND, "SMPP unbind requires a bound session");
             if (!outstandingDeliveries.isEmpty() || pendingEnquireLinkSequence != null) {
                 throw desynchronization(
@@ -415,8 +422,9 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             state = State.UNBIND_PENDING;
         }
 
-        private synchronized void unbindResponded(long sequence)
+        synchronized void unbindResponded(long sequence)
             throws ProtocolAdapterException {
+            requireTransitionAllowed();
             requireState(State.UNBIND_PENDING, "SMPP unbind_resp has no pending request");
             if (!Objects.equals(pendingUnbindSequence, sequence)) {
                 throw desynchronization(
@@ -429,14 +437,10 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
 
         private synchronized void requireInputOpen(FlowDirection direction)
             throws ProtocolAdapterException {
-            if (state == State.TERMINAL
-                || consumerInputEnded
-                || providerInputEnded) {
-                throw desynchronization("SMPP session input is closed");
-            }
+            requireTransitionAllowed();
         }
 
-        private synchronized void endOfInput(FlowDirection direction)
+        synchronized void endOfInput(FlowDirection direction)
             throws ProtocolAdapterException {
             if (state == State.TERMINAL
                 || direction == FlowDirection.CONSUMER_TO_PROVIDER && consumerInputEnded
@@ -471,6 +475,14 @@ final class SmppProtocolSession implements ProtocolSession<SmppEvidence> {
             throws ProtocolAdapterException {
             if (state != expected) {
                 throw desynchronization(message);
+            }
+        }
+
+        private void requireTransitionAllowed() throws ProtocolAdapterException {
+            if (state == State.TERMINAL
+                || consumerInputEnded
+                || providerInputEnded) {
+                throw desynchronization("SMPP session input is closed");
             }
         }
 

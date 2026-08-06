@@ -124,7 +124,7 @@ never contain credentials, raw PDUs, endpoint data, addresses, message content, 
 parameter values. Policy exceptions fail required observation closed and their messages are not
 published.
 
-The current `clean verify` suite contains 478 tests. Deterministic sequence regressions cover
+The current `clean verify` suite contains 481 tests. Deterministic sequence regressions cover
 `0x7FFFFFFF`, `0x80000000`, `0xFFFFFFFF`, and zero, including REQUIRED-route no-forwarding,
 high-bit response matching, mismatch rejection, and exchange/evidence codec round trips.
 Remaining fail-closed exclusions include all
