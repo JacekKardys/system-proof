@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.http;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -10,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolFailureKind;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolLimits;
@@ -41,7 +41,8 @@ final class HttpMessageFramer {
         return new RequestFrame(
             request.method(),
             request.path(),
-            contentType(parsed.headers()),
+            requestContentType(parsed.headers()),
+            parsed.closesConnection(),
             parsed.headerByteCount(),
             parsed.bodyByteCount(),
             parsed.frameByteCount()
@@ -61,8 +62,22 @@ final class HttpMessageFramer {
                 "Informational HTTP responses are unsupported"
             );
         }
+        if (statusCode >= 300 && statusCode < 400) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP redirects are outside the characterized response subset"
+            );
+        }
+        if (parsed.headers().containsKey("content-encoding")) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP Content-Encoding is outside the characterized response subset"
+            );
+        }
         return new ResponseFrame(
             statusCode,
+            responseTextEncoding(parsed.headers()),
+            parsed.closesConnection(),
             parsed.headerByteCount(),
             parsed.bodyByteCount(),
             parsed.frameByteCount()
@@ -75,18 +90,6 @@ final class HttpMessageFramer {
         byte[] copy = new byte[frame.frameByteCount()];
         view.get(copy);
         return copy;
-    }
-
-    boolean bodyEquals(byte[] message, Frame frame, byte[] expected) {
-        if (frame.bodyByteCount() != expected.length) {
-            return false;
-        }
-        for (int index = 0; index < expected.length; index++) {
-            if (message[frame.headerByteCount() + index] != expected[index]) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private ParsedMessage parse(ByteBuffer bufferedBytes, boolean request)
@@ -126,7 +129,7 @@ final class HttpMessageFramer {
             startLineEnd + 2,
             headerEnd - 2
         );
-        rejectUnsupportedHeaders(headers);
+        Set<String> connectionTokens = validateCommonHeaders(headers);
         OptionalLong contentLength = contentLength(headers);
         long bodyBytes;
         if (request) {
@@ -160,6 +163,7 @@ final class HttpMessageFramer {
         return new ParsedMessage(
             startLine,
             headers,
+            connectionTokens.contains("close"),
             headerBytes,
             Math.toIntExact(bodyBytes),
             Math.toIntExact(frameBytes)
@@ -219,7 +223,7 @@ final class HttpMessageFramer {
         }
     }
 
-    private static void rejectUnsupportedHeaders(Map<String, List<String>> headers)
+    private static Set<String> validateCommonHeaders(Map<String, List<String>> headers)
         throws ProtocolAdapterException {
         boolean hasTransferEncoding = headers.containsKey("transfer-encoding");
         boolean hasContentLength = headers.containsKey("content-length");
@@ -235,19 +239,29 @@ final class HttpMessageFramer {
                 "HTTP transfer codings are unsupported"
             );
         }
-        if (headers.containsKey("upgrade") || connectionRequestsUpgrade(headers)) {
+        Set<String> connectionTokens = connectionTokens(headers);
+        if (headers.containsKey("upgrade") || connectionTokens.contains("upgrade")) {
             throw failure(
                 ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
                 "HTTP protocol upgrades are unsupported"
             );
         }
+        return connectionTokens;
     }
 
-    private static boolean connectionRequestsUpgrade(Map<String, List<String>> headers) {
-        return headers.getOrDefault("connection", List.of()).stream()
-            .flatMap(value -> Arrays.stream(value.split(",")))
-            .map(String::strip)
-            .anyMatch(value -> value.equalsIgnoreCase("upgrade"));
+    private static Set<String> connectionTokens(Map<String, List<String>> headers)
+        throws ProtocolAdapterException {
+        List<String> tokens = new ArrayList<>();
+        for (String value : headers.getOrDefault("connection", List.of())) {
+            for (String candidate : value.split(",", -1)) {
+                String normalized = candidate.strip().toLowerCase(Locale.ROOT);
+                if (!token(normalized)) {
+                    throw malformed("Invalid HTTP Connection option");
+                }
+                tokens.add(normalized);
+            }
+        }
+        return Set.copyOf(tokens);
     }
 
     private static OptionalLong contentLength(Map<String, List<String>> headers)
@@ -278,7 +292,7 @@ final class HttpMessageFramer {
         return OptionalLong.of(result);
     }
 
-    private static Optional<String> contentType(Map<String, List<String>> headers)
+    private static Optional<String> requestContentType(Map<String, List<String>> headers)
         throws ProtocolAdapterException {
         List<String> values = headers.get("content-type");
         if (values == null) {
@@ -305,6 +319,54 @@ final class HttpMessageFramer {
             throw malformed("Invalid HTTP Content-Type media type");
         }
         return Optional.of(value.toLowerCase(Locale.ROOT));
+    }
+
+    private static ResponseTextEncoding responseTextEncoding(
+        Map<String, List<String>> headers
+    ) throws ProtocolAdapterException {
+        List<String> values = headers.get("content-type");
+        if (values == null) {
+            return ResponseTextEncoding.ISO_8859_1;
+        }
+        if (values.size() != 1 || values.getFirst().isBlank()) {
+            throw failure(
+                ProtocolFailureKind.AMBIGUOUS_FRAMING,
+                "HTTP response Content-Type must be singular and non-blank"
+            );
+        }
+        String[] parts = values.getFirst().split(";", -1);
+        if (!parts[0].strip().equalsIgnoreCase("text/plain")) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP response media type is outside the characterized subset"
+            );
+        }
+        if (parts.length == 1) {
+            return ResponseTextEncoding.ISO_8859_1;
+        }
+        if (parts.length != 2) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP response Content-Type parameters are outside the characterized subset"
+            );
+        }
+        String parameter = parts[1].strip();
+        int equals = parameter.indexOf('=');
+        if (equals < 1
+            || !parameter.substring(0, equals).strip().equalsIgnoreCase("charset")) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP response Content-Type parameter is outside the characterized subset"
+            );
+        }
+        String charset = parameter.substring(equals + 1).strip();
+        if (!charset.equalsIgnoreCase("UTF-8")) {
+            throw failure(
+                ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
+                "HTTP response charset is outside the characterized subset"
+            );
+        }
+        return ResponseTextEncoding.UTF_8;
     }
 
     private static RequestLine requestLine(String line) throws ProtocolAdapterException {
@@ -467,6 +529,7 @@ final class HttpMessageFramer {
         String method,
         String path,
         Optional<String> contentType,
+        boolean closesConnection,
         int headerByteCount,
         int bodyByteCount,
         int frameByteCount
@@ -474,6 +537,8 @@ final class HttpMessageFramer {
 
     record ResponseFrame(
         int statusCode,
+        ResponseTextEncoding textEncoding,
+        boolean closesConnection,
         int headerByteCount,
         int bodyByteCount,
         int frameByteCount
@@ -482,10 +547,16 @@ final class HttpMessageFramer {
     private record ParsedMessage(
         String startLine,
         Map<String, List<String>> headers,
+        boolean closesConnection,
         int headerByteCount,
         int bodyByteCount,
         int frameByteCount
     ) {}
 
     private record RequestLine(String method, String path) {}
+
+    enum ResponseTextEncoding {
+        UTF_8,
+        ISO_8859_1
+    }
 }

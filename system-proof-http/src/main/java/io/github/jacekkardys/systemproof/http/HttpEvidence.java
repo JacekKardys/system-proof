@@ -28,7 +28,7 @@ public sealed interface HttpEvidence
         }
     }
 
-    /** Irreversible representation of an origin-form request target. */
+    /** Secret-safe digest summary of an origin-form request target. */
     record RequestTarget(int byteCount, String sha256) {
         public RequestTarget {
             if (byteCount < 1 || byteCount > HttpProtocolLimits.MAXIMUM_START_LINE_BYTES) {
@@ -40,7 +40,7 @@ public sealed interface HttpEvidence
             }
         }
 
-        /** Returns a non-reversible summary without retaining the supplied path. */
+        /** Returns a digest summary without retaining the supplied path. */
         public static RequestTarget ofPath(String path) {
             Objects.requireNonNull(path, "path must not be null");
             if (!path.startsWith("/") || path.indexOf('?') >= 0 || path.indexOf('#') >= 0) {
@@ -63,22 +63,33 @@ public sealed interface HttpEvidence
         }
     }
 
+    /** Closed category that cannot carry an arbitrary raw Content-Type value. */
+    enum RequestContentType {
+        ABSENT,
+        FORM_URLENCODED,
+        OTHER;
+
+        static RequestContentType fromWire(Optional<String> contentType) {
+            return contentType
+                .filter("application/x-www-form-urlencoded"::equalsIgnoreCase)
+                .map(ignored -> FORM_URLENCODED)
+                .orElseGet(() -> contentType.isPresent() ? OTHER : ABSENT);
+        }
+    }
+
     /** A complete HTTP/1.1 request with payload content deliberately omitted. */
     record RequestCompleted(
         HttpExchangeRef exchange,
         RequestMethod method,
         RequestTarget target,
-        Optional<String> contentType,
+        RequestContentType contentType,
         int bodyByteCount
     ) implements HttpEvidence {
         public RequestCompleted {
             exchange = Objects.requireNonNull(exchange, "exchange must not be null");
             method = Objects.requireNonNull(method, "method must not be null");
             target = Objects.requireNonNull(target, "target must not be null");
-            contentType = Objects.requireNonNull(
-                contentType,
-                "contentType must not be null"
-            ).map(value -> requireBoundedText(value, "contentType"));
+            contentType = Objects.requireNonNull(contentType, "contentType must not be null");
             if (bodyByteCount < 0
                 || bodyByteCount > HttpProtocolLimits.MAXIMUM_BODY_BYTES) {
                 throw new IllegalArgumentException("bodyByteCount is outside HTTP limits");
@@ -90,7 +101,7 @@ public sealed interface HttpEvidence
             return "RequestCompleted[exchange=" + exchange
                 + ", method=" + method
                 + ", target=" + target
-                + ", contentTypePresent=" + contentType.isPresent()
+                + ", contentType=" + contentType
                 + ", bodyByteCount=" + bodyByteCount + "]";
         }
     }
@@ -118,15 +129,4 @@ public sealed interface HttpEvidence
         }
     }
 
-    private static String requireBoundedText(String value, String description) {
-        Objects.requireNonNull(value, description + " must not be null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(description + " must not be blank");
-        }
-        if (value.getBytes(StandardCharsets.UTF_8).length
-            > HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES) {
-            throw new IllegalArgumentException(description + " exceeds HTTP limits");
-        }
-        return value;
-    }
 }

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestContentType;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
@@ -106,16 +107,24 @@ class HttpCorrelationTest {
     }
 
     @Test
-    void shouldKeepPathBodyAndFormSecretsOutOfEvidenceAndItsEncoding() throws Exception {
+    void shouldKeepPathBodyFormAndContentTypeSecretsOutOfDurableEvidence()
+        throws Exception {
         String secret = "secret-evidence-token";
         HttpProtocolAdapter adapter = new HttpProtocolAdapter(interaction -> Optional.empty());
         ProtocolUnit<HttpEvidence> unit = complete(
             requests(adapter),
-            HttpMessages.request("POST", "/callback/" + secret, "token=" + secret)
+            HttpMessages.request(
+                "POST",
+                "/callback/" + secret,
+                "application/" + secret,
+                "token=" + secret
+            )
         );
         byte[] encoded = adapter.evidenceCodec().encode(unit.evidence());
 
         assertThat(unit.evidence().toString()).doesNotContain(secret);
+        assertThat(((RequestCompleted) unit.evidence()).contentType())
+            .isEqualTo(RequestContentType.OTHER);
         assertThat(unit.toString()).doesNotContain(secret);
         assertThat(new String(encoded, StandardCharsets.ISO_8859_1)).doesNotContain(secret);
 

@@ -39,6 +39,7 @@ import io.github.jacekkardys.systemproof.examples.sms.environment.domain.TestSms
 import io.github.jacekkardys.systemproof.http.HttpEvidence;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestContentType;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
@@ -155,7 +156,7 @@ final class HttpCallbackEvidenceIT {
             assertThat(request.target())
                 .isEqualTo(RequestTarget.ofPath("/v1/ingestion/sms"));
             assertThat(request.contentType())
-                .contains("application/x-www-form-urlencoded");
+                .isEqualTo(RequestContentType.FORM_URLENCODED);
             assertThat(request.bodyByteCount()).isPositive();
         });
         assertThat(responses).singleElement().satisfies(response -> {

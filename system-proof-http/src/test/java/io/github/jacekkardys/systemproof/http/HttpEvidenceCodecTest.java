@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestContentType;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
@@ -24,15 +24,22 @@ class HttpEvidenceCodecTest {
                 EXCHANGE,
                 RequestMethod.POST,
                 RequestTarget.ofPath("/v1/ingestion/sms"),
-                Optional.of("application/x-www-form-urlencoded"),
+                RequestContentType.FORM_URLENCODED,
                 123
             ),
             new RequestCompleted(
                 EXCHANGE,
                 RequestMethod.OTHER,
                 RequestTarget.ofPath("/health"),
-                Optional.empty(),
+                RequestContentType.ABSENT,
                 0
+            ),
+            new RequestCompleted(
+                EXCHANGE,
+                RequestMethod.POST,
+                RequestTarget.ofPath("/other"),
+                RequestContentType.OTHER,
+                1
             ),
             new ResponseCompleted(EXCHANGE, 200, Acknowledgement.POSITIVE, 10),
             new ResponseCompleted(EXCHANGE, 201, Acknowledgement.INDETERMINATE, 10),
@@ -53,14 +60,13 @@ class HttpEvidenceCodecTest {
 
 
     @Test
-    void shouldRoundTripTheMaximumLegalContentTypeAndRejectOneByteBeyondIt() {
+    void shouldRoundTripTheMaximumLegalCountersWithTheFixedSizeEncoding() {
         EvidenceCodec<HttpEvidence> codec = new HttpProtocolAdapter().evidenceCodec();
-        String maximum = "a".repeat(HttpProtocolLimits.MAXIMUM_HEADER_SECTION_BYTES);
         RequestCompleted evidence = new RequestCompleted(
             EXCHANGE,
             RequestMethod.POST,
             RequestTarget.ofPath("/"),
-            Optional.of(maximum),
+            RequestContentType.OTHER,
             HttpProtocolLimits.MAXIMUM_BODY_BYTES
         );
 
@@ -69,8 +75,8 @@ class HttpEvidenceCodecTest {
             EXCHANGE,
             RequestMethod.POST,
             RequestTarget.ofPath("/"),
-            Optional.of(maximum + "a"),
-            0
+            RequestContentType.OTHER,
+            HttpProtocolLimits.MAXIMUM_BODY_BYTES + 1
         )).isInstanceOf(IllegalArgumentException.class);
     }
 

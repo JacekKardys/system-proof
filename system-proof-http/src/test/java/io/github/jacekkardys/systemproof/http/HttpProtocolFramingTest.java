@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestContentType;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolDecodeResult;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolFailureKind;
@@ -85,8 +86,9 @@ class HttpProtocolFramingTest {
             request
         ).evidence();
 
-        assertThat(evidence.contentType())
-            .contains("application/x-www-form-urlencoded");
+        assertThat(evidence.contentType()).isEqualTo(
+            RequestContentType.FORM_URLENCODED
+        );
     }
 
     @Test

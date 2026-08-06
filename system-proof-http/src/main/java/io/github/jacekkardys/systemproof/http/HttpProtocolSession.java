@@ -10,6 +10,7 @@ import java.util.Optional;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.Acknowledgement;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
+import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestContentType;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestMethod;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestTarget;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
@@ -24,8 +25,7 @@ import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolStream;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolUnit;
 
 final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
-    private static final byte[] POSITIVE_ACKNOWLEDGEMENT =
-        "ACK/Jasmin".getBytes(StandardCharsets.US_ASCII);
+    private static final String POSITIVE_ACKNOWLEDGEMENT = "ACK/Jasmin";
 
     private final HttpMessageFramer framer;
     private final HttpRequestCorrelation requestCorrelation;
@@ -74,7 +74,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
             throws ProtocolAdapterException {
             Objects.requireNonNull(bufferedBytes, "bufferedBytes must not be null");
             try {
-                model.requireRequestInputOpen();
+                model.requireRequestDecodeAllowed(bufferedBytes.hasRemaining());
                 if (!bufferedBytes.hasRemaining()) {
                     return ProtocolDecodeResult.needMoreData();
                 }
@@ -88,7 +88,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                 if (frame == null) {
                     return ProtocolDecodeResult.needMoreData();
                 }
-                HttpExchangeRef exchange = model.beginRequest();
+                HttpExchangeRef exchange = model.beginRequest(frame.closesConnection());
                 byte[] originalBytes = framer.copyOriginal(bufferedBytes, frame);
                 EphemeralRequest interaction = new EphemeralRequest(frame, originalBytes);
                 Optional<CorrelationKey> key;
@@ -115,7 +115,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                         exchange,
                         RequestMethod.fromWire(frame.method()),
                         RequestTarget.ofPath(frame.path()),
-                        frame.contentType(),
+                        RequestContentType.fromWire(frame.contentType()),
                         frame.bodyByteCount()
                     ),
                     contributions
@@ -159,11 +159,13 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
                     return ProtocolDecodeResult.needMoreData();
                 }
                 byte[] originalBytes = framer.copyOriginal(bufferedBytes, frame);
-                HttpExchangeRef exchange = model.completeResponse();
                 Acknowledgement acknowledgement = classifyAcknowledgement(
                     frame.statusCode(),
                     originalBytes,
                     frame
+                );
+                HttpExchangeRef exchange = model.completeResponse(
+                    frame.closesConnection()
                 );
                 return ProtocolDecodeResult.complete(new ProtocolUnit<>(
                     originalBytes,
@@ -196,39 +198,48 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         int statusCode,
         byte[] response,
         HttpMessageFramer.ResponseFrame frame
-    ) {
+    ) throws ProtocolAdapterException {
+        String body = decodeResponseBody(response, frame);
         if (statusCode >= 400) {
             return Acknowledgement.NEGATIVE;
         }
-        if (framer.bodyEquals(response, frame, POSITIVE_ACKNOWLEDGEMENT)) {
+        if (body.equals(POSITIVE_ACKNOWLEDGEMENT)) {
             return statusCode == 200
                 ? Acknowledgement.POSITIVE
                 : Acknowledgement.INDETERMINATE;
         }
-        return jasminAcceptsAfterStrip(response, frame)
+        return jasminAcceptsAfterStrip(body)
             ? Acknowledgement.INDETERMINATE
             : Acknowledgement.NEGATIVE;
     }
 
-    private static boolean jasminAcceptsAfterStrip(
+    private static String decodeResponseBody(
         byte[] response,
         HttpMessageFramer.ResponseFrame frame
-    ) {
+    ) throws ProtocolAdapterException {
         ByteBuffer body = ByteBuffer.wrap(
             response,
             frame.headerByteCount(),
             frame.bodyByteCount()
         ).slice();
-        String value;
         try {
-            value = StandardCharsets.UTF_8.newDecoder()
+            return (switch (frame.textEncoding()) {
+                case UTF_8 -> StandardCharsets.UTF_8;
+                case ISO_8859_1 -> StandardCharsets.ISO_8859_1;
+            }).newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)
                 .decode(body)
                 .toString();
         } catch (CharacterCodingException failure) {
-            return false;
+            throw HttpProtocolSession.failure(
+                ProtocolFailureKind.MALFORMED_INPUT,
+                "HTTP response body is invalid for the characterized charset"
+            );
         }
+    }
+
+    private static boolean jasminAcceptsAfterStrip(String value) {
         int start = 0;
         int end = value.length();
         while (start < end) {
@@ -276,6 +287,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
         private boolean terminal;
         private boolean requestInputEnded;
         private boolean responseInputEnded;
+        private boolean furtherRequestsForbidden;
 
         private SessionModel(long sessionOrdinal) {
             this.sessionOrdinal = sessionOrdinal;
@@ -286,13 +298,13 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
             return pending != null;
         }
 
-        private synchronized HttpExchangeRef beginRequest()
+        private synchronized HttpExchangeRef beginRequest(boolean closesConnection)
             throws ProtocolAdapterException {
             requireActive();
-            if (requestInputEnded || responseInputEnded) {
+            if (requestInputEnded || responseInputEnded || furtherRequestsForbidden) {
                 throw failure(
                     ProtocolFailureKind.DESYNCHRONIZATION,
-                    "HTTP request cannot begin after either input ended"
+                    "HTTP request cannot begin after input ended or Connection: close"
                 );
             }
             if (pending != null) {
@@ -307,10 +319,11 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
             }
             nextRequestOrdinal = ordinal == Long.MAX_VALUE ? Long.MIN_VALUE : ordinal + 1;
             pending = new HttpExchangeRef(sessionOrdinal, ordinal);
+            furtherRequestsForbidden = closesConnection;
             return pending;
         }
 
-        private synchronized HttpExchangeRef completeResponse()
+        private synchronized HttpExchangeRef completeResponse(boolean closesConnection)
             throws ProtocolAdapterException {
             requireActive();
             if (responseInputEnded) {
@@ -327,6 +340,7 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
             }
             HttpExchangeRef exchange = pending;
             pending = null;
+            furtherRequestsForbidden |= closesConnection;
             return exchange;
         }
 
@@ -348,10 +362,12 @@ final class HttpProtocolSession implements ProtocolSession<HttpEvidence> {
             }
         }
 
-        private synchronized void requireRequestInputOpen()
+        private synchronized void requireRequestDecodeAllowed(boolean hasBufferedBytes)
             throws ProtocolAdapterException {
             requireActive();
-            if (requestInputEnded || responseInputEnded) {
+            if (requestInputEnded
+                || responseInputEnded
+                || (furtherRequestsForbidden && hasBufferedBytes)) {
                 throw failure(
                     ProtocolFailureKind.DESYNCHRONIZATION,
                     "HTTP request input is closed"

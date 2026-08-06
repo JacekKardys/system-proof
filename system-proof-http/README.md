@@ -27,8 +27,9 @@ control.
   ordinal. The value is local to one adapter instance. Gateway connection and physical-session
   provenance is additionally required for native-flow composition.
 - `HttpEvidence.RequestCompleted` records the exchange reference, an allowlisted method category,
-  a request-target SHA-256 digest and byte count, optional content type, and body byte count. It
-  never records the raw target, headers, or body bytes.
+  a request-target SHA-256 digest and byte count, a closed `ABSENT` / `FORM_URLENCODED` / `OTHER`
+  content-type category, and body byte count. It never records the raw target, `Content-Type`,
+  other headers, or body bytes.
 - `HttpEvidence.ResponseCompleted` records the exchange reference, status, conservative
   acknowledgement classification, and body byte count. It never records response bytes.
 - `HttpRequestCorrelation` receives an ephemeral `HttpRequestInteraction` only while one complete
@@ -41,29 +42,44 @@ control.
 - plaintext HTTP/1.1 request and status lines;
 - query-free origin-form request targets;
 - one non-blank `Host` field;
-- case-insensitive field names and a singular parameter-free `Content-Type` media type;
+- case-insensitive field names and a singular parameter-free request `Content-Type` media type;
 - `Content-Length` body framing;
-- sequential request/response exchanges on keep-alive sessions;
+- sequential request/response exchanges on keep-alive sessions, with case-insensitive
+  `Connection` token parsing;
+- `Connection: close` on either side as the last exchange on that session;
 - exact request/response association on one physical adapter session;
-- response statuses from 200 onward, including bodyless 204 and 304 responses when their
-  `Content-Length` is absent or zero.
+- response statuses `200`-`299` and `400`-`599`, including bodyless 204 responses when their
+  `Content-Length` is absent or zero;
+- response text with no `Content-Type` decoded as ISO-8859-1, or `text/plain` decoded as
+  ISO-8859-1 unless its sole parameter is `charset=UTF-8`;
+- responses without `Content-Encoding` and without a redirect hop.
 
-Acknowledgement is intentionally tri-state. Exact status `200` plus exactly the ten ASCII bytes
-`ACK/Jasmin` is `POSITIVE`. A sub-400 status with a UTF-8 body accepted only after Jasmin's
-`content.strip()` behavior, including `201`/`299` with the exact body or `200` with surrounding
-whitespace, is `INDETERMINATE`. Statuses at least 400, an empty or wrong body, and invalid text are
-`NEGATIVE`. Truncated or malformed responses emit no response evidence and fail closed.
+Acknowledgement is intentionally tri-state and follows the supported subset of Jasmin 0.11 with
+treq 23.11.0. The response body is decoded first using the supported `Content-Type` rule. Exact
+status `200` plus decoded text exactly equal to `ACK/Jasmin` is `POSITIVE`. A sub-300 status
+accepted only after Jasmin's Python `str.strip()` behavior, including `201`/`299` with the exact
+text or `200` with surrounding whitespace, is `INDETERMINATE`. A supported status at least 400,
+an empty body, or rejected decoded text is `NEGATIVE`.
+
+Jasmin's actual client follows redirects by default and applies gzip content decoding before
+`text_content(response)`. This adapter deliberately does not partially emulate either operation:
+every 3xx response, every `Content-Encoding`, every response media type outside `text/plain`, and
+every charset outside the two rules above fails closed without response evidence. Truncated,
+malformed, or invalidly encoded responses fail the same way.
 
 TLS, `CONNECT`, `HEAD`, `Upgrade`, `Expect`, transfer codings, close-delimited responses,
-informational responses, general pipelining, malformed or conflicting lengths, ambiguous
-request/response association, and premature EOF fail closed without positive evidence. Unsupported
-traffic is a gateway observation failure, not an `UNKNOWN` evidence value.
+informational responses, redirects, content codings, other response charsets or media types,
+general pipelining, malformed or conflicting lengths, ambiguous request/response association, and
+premature EOF fail closed without positive evidence. After either side declares `Connection:
+close`, a later request fails before it can become a decoded, recorded, or forwarded unit; this
+does not depend on observing physical EOF. Unsupported traffic is a gateway observation failure,
+not an `UNKNOWN` evidence value.
 
 Default HTTP limits are an 8 KiB start line, 32 KiB combined start-line/header section, 100
 headers, and a 1 MiB body. Hard maxima are 16 KiB, 64 KiB, 1024 fields, and 16 MiB respectively;
-the evidence codec derives its bound from the same maxima. `ProtocolLimits` independently bounds
-the complete frame and aggregate directional buffer. The adapter does not own sockets or retain a
-second payload registry.
+the secret-safe request evidence has a fixed-size encoding and validates its numeric fields against
+the same legal maxima. `ProtocolLimits` independently bounds the complete frame and aggregate
+directional buffer. The adapter does not own sockets or retain a second payload registry.
 
 ## Correlation and control
 

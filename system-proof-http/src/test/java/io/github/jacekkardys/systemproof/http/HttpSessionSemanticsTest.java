@@ -12,6 +12,7 @@ import io.github.jacekkardys.systemproof.http.HttpEvidence.RequestCompleted;
 import io.github.jacekkardys.systemproof.http.HttpEvidence.ResponseCompleted;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
+import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolDecodeResult;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolFailureKind;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolLimits;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolSession;
@@ -106,7 +107,6 @@ class HttpSessionSemanticsTest {
         for (ResponseCase indeterminate : List.of(
             new ResponseCase(201, "ACK/Jasmin"),
             new ResponseCase(299, "ACK/Jasmin"),
-            new ResponseCase(302, " ACK/Jasmin\t") ,
             new ResponseCase(200, "\r\nACK/Jasmin ")
         )) {
             assertClassification(
@@ -129,6 +129,109 @@ class HttpSessionSemanticsTest {
                 Acknowledgement.NEGATIVE
             );
         }
+    }
+
+    @Test
+    void shouldMatchTheSupportedTreqTextDecodingSubsetWithoutRawByteShortcuts()
+        throws Exception {
+        assertClassification(200, "ACK/Jasmin", Acknowledgement.POSITIVE);
+
+        byte[] iso88591Body = HttpMessages.concat(
+            new byte[] {(byte) 0xa0},
+            HttpMessages.bytes("ACK/Jasmin")
+        );
+        assertClassification(
+            HttpMessages.responseBytes(200, iso88591Body),
+            Acknowledgement.INDETERMINATE
+        );
+
+        assertResponseFailure(
+            HttpMessages.responseBytes(
+                200,
+                HttpMessages.bytes("ACK/Jasmin"),
+                "Content-Type: text/plain;charset=UTF-16BE"
+            ),
+            ProtocolFailureKind.UNSUPPORTED_NEGOTIATION
+        );
+        assertResponseFailure(
+            HttpMessages.responseBytes(
+                200,
+                HttpMessages.bytes("ACK/Jasmin"),
+                "Content-Type: text/plain;charset=UTF-8",
+                "Content-Encoding: gzip"
+            ),
+            ProtocolFailureKind.UNSUPPORTED_NEGOTIATION
+        );
+        assertResponseFailure(
+            HttpMessages.responseBytes(
+                302,
+                HttpMessages.bytes("ACK/Jasmin"),
+                "Location: /redirected"
+            ),
+            ProtocolFailureKind.UNSUPPORTED_NEGOTIATION
+        );
+    }
+
+    @Test
+    void shouldForbidAnotherRequestAfterARequestDeclaresConnectionClose()
+        throws Exception {
+        Harness harness = harness(new HttpProtocolAdapter());
+        complete(harness.requests(), HttpMessages.request(
+            "POST",
+            "/v1/ingestion/sms",
+            "application/x-www-form-urlencoded",
+            "id=one",
+            "Connection: cLoSe"
+        ));
+        assertThat(harness.requests().decode(ByteBuffer.allocate(0)))
+            .isInstanceOf(ProtocolDecodeResult.NeedMoreData.class);
+        complete(harness.responses(), HttpMessages.response(200, "ACK/Jasmin"));
+
+        assertFailure(
+            harness.requests(),
+            HttpMessages.request("id=two"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+    }
+
+    @Test
+    void shouldForbidAnotherRequestImmediatelyAfterAResponseDeclaresConnectionClose()
+        throws Exception {
+        Harness harness = harness(new HttpProtocolAdapter());
+        complete(harness.requests(), HttpMessages.request("id=one"));
+        complete(
+            harness.responses(),
+            HttpMessages.response(200, "ACK/Jasmin", "Connection: close")
+        );
+
+        assertFailure(
+            harness.requests(),
+            HttpMessages.request("id=two"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
+    }
+
+    @Test
+    void shouldHonorResponseCloseWhileTheCompletedUnitIsSemanticallyHeld()
+        throws Exception {
+        Harness harness = harness(new HttpProtocolAdapter());
+        complete(harness.requests(), HttpMessages.request("id=one"));
+        byte[] closingResponse = HttpMessages.response(
+            200,
+            "ACK/Jasmin",
+            "cOnNeCtIoN: keep-alive, ClOsE"
+        );
+
+        // The gateway holds this completed unit before forwarding and before physical EOF.
+        ProtocolUnit<HttpEvidence> held = complete(harness.responses(), closingResponse);
+
+        assertThat(held.originalBytes()).containsExactly(closingResponse);
+        assertThat(response(held).acknowledgement()).isEqualTo(Acknowledgement.POSITIVE);
+        assertFailure(
+            harness.requests(),
+            HttpMessages.request("id=two"),
+            ProtocolFailureKind.DESYNCHRONIZATION
+        );
     }
 
     @Test
@@ -252,17 +355,26 @@ class HttpSessionSemanticsTest {
         String body,
         Acknowledgement expected
     ) throws Exception {
+        assertClassification(HttpMessages.response(status, body), expected);
+    }
+
+    private static void assertClassification(
+        byte[] responseBytes,
+        Acknowledgement expected
+    ) throws Exception {
         Harness harness = harness(new HttpProtocolAdapter());
         complete(harness.requests(), HttpMessages.request("id=one"));
-        ProtocolUnit<HttpEvidence> unit = complete(
-            harness.responses(),
-            HttpMessages.response(status, body)
-        );
+        ProtocolUnit<HttpEvidence> unit = complete(harness.responses(), responseBytes);
 
         assertThat(response(unit).acknowledgement()).isEqualTo(expected);
-        if (!body.isEmpty()) {
-            assertThat(unit.toString()).doesNotContain(body);
-        }
+        assertThat(unit.toString()).doesNotContain("ACK/Jasmin");
+    }
+
+    private static void assertResponseFailure(byte[] response, ProtocolFailureKind kind)
+        throws Exception {
+        Harness harness = harness(new HttpProtocolAdapter());
+        complete(harness.requests(), HttpMessages.request("id=one"));
+        assertFailure(harness.responses(), response, kind);
     }
 
     private static void assertRequestFailure(byte[] request, ProtocolFailureKind kind) {

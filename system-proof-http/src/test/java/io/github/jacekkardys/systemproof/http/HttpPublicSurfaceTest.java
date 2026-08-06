@@ -21,6 +21,7 @@ class HttpPublicSurfaceTest {
     private static final Set<String> EXPECTED_TYPES = types("""
         HttpEvidence
         HttpEvidence$Acknowledgement
+        HttpEvidence$RequestContentType
         HttpEvidence$RequestMethod
         HttpEvidence$RequestTarget
         HttpEvidence$RequestCompleted
