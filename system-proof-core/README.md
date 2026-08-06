@@ -43,6 +43,9 @@ Public contracts:
 - `ProofSubjects`, `ProofSubjectRef`, `CorrelationKey`, `CorrelationContribution<T>`, and
   `CorrelationResult<T>`: environment-scoped opaque subject identity, secret-safe semantic keys,
   detached typed native references, and explicit cardinality.
+- `SemanticControls`, `SemanticInteractionSelector<T>`, `SemanticHold`, and
+  `SemanticPredecessorGuard`: one environment-owned control boundary for deterministic holds and
+  exact subject-scoped predecessor enforcement.
 - `EnvironmentLogging`, top-level `EnvironmentLoggingBuilder`, `EnvironmentDiagnostics`, and
   `EnvironmentStartException`: logging configuration, rendered journal views, and failure reporting.
 
@@ -247,6 +250,26 @@ to `RELEASING`; that check is the release linearization point. If the resolution
 and unique, the hold fails with `CORRELATION_INVALIDATED`, requests `CLOSE_SESSION`, forwards no
 held byte, and completes release exceptionally. A publication after that point cannot revoke an
 already authorized release.
+
+Semantic predecessor guards use that same typed selector and the same coordinator synchronization
+boundary as holds. A guard is armed before stimulus with an exact subject, predecessor selector,
+`CONFIRMED` or `FORWARDED` boundary, successor selector, and positive maximum duration. `CONFIRMED`
+is established only by a matching complete confirmation interaction. `FORWARDED` is established
+only by the exact permit's callback after successful write and flush.
+
+The coordinator appends the decision fact before returning it. A predecessor-first order advances
+through `PREDECESSOR_SATISFIED` and `SUCCESSOR_AUTHORIZED`; successful successor forwarding records
+the exact relation and `SATISFIED`. A successor-first order records `VIOLATED` and returns
+`CLOSE_SESSION` without waiting or forwarding bytes. Timeout and failure states remain enforceable
+tombstones. Cancellation, route failure, REQUIRED observation failure, write outcome, and teardown
+share the same total order. A later cleanup failure cannot replace a violation and is retained only
+as a safe typed suppressed diagnostic. Missing or ambiguous native correlation does not select a
+guard, and exact subject/session validation isolates concurrent subjects and reconnects.
+
+The selector exposes typed codecs and matching but not `EvidenceSnapshot`; snapshot decoding,
+registry state, coordinator locks, and gateway permits remain internal. Guard journal events retain
+only safe identities, states, boundaries, decisions, relations, violations, and failure enums. See
+[`ADR 0009`](../docs/adr/0009-semantic-predecessor-guards.md).
 
 Core encodes and copies evidence before append; the caller-owned value, codec, and returned array
 are not retained. Decoding is typed, schema-checked, and receives another copy, so snapshot access

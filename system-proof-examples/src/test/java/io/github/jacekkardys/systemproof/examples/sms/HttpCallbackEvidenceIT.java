@@ -16,7 +16,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
 import io.github.jacekkardys.systemproof.environment.Environment;
@@ -224,7 +224,7 @@ final class HttpCallbackEvidenceIT {
         CorrelationKey key
     ) {
         return environment.controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 environment.httpConnectionId(),
                 FlowDirection.PROVIDER_TO_CONSUMER,
                 environment.adapter().evidenceCodec(),

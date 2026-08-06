@@ -1,5 +1,7 @@
 package io.github.jacekkardys.systemproof.observation;
 
+import java.util.Objects;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /**
  * Environment-scoped decision boundary invoked after evidence has been recorded.
@@ -17,4 +19,14 @@ public interface InteractionDecisionCoordinator {
      * decision contract must migrate explicitly instead of failing only when traffic arrives.
      */
     ForwardingPermit permit(RecordedInteraction interaction);
+
+    /**
+     * Reports that REQUIRED observation for one routed connection failed closed.
+     *
+     * <p>The default keeps stateless coordinators source-compatible. Environment-owned semantic
+     * controls override it to linearize route failure with control decisions.
+     */
+    default void observationFailed(ConnectionId connectionId) {
+        Objects.requireNonNull(connectionId, "connectionId must not be null");
+    }
 }

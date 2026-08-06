@@ -22,6 +22,7 @@ import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
+import io.github.jacekkardys.systemproof.journal.SemanticPredecessorGuardEvent;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
@@ -142,6 +143,10 @@ public final class JournalRenderer {
                 semanticHoldLabels(hold),
                 semanticHoldMessage(hold)
             );
+            case SemanticPredecessorGuardEvent guard -> new RenderedEvent(
+                semanticPredecessorGuardLabels(guard),
+                semanticPredecessorGuardMessage(guard)
+            );
             case CheckpointEvent checkpoint -> new RenderedEvent(
                 "[CHECKPOINT] [" + checkpoint.observingComponentId() + "] ["
                     + checkpoint.checkpointId().value() + "]",
@@ -183,6 +188,7 @@ public final class JournalRenderer {
             case ProofSubjectArmedEvent armed -> false;
             case CorrelationCandidateEvent candidate -> false;
             case SemanticHoldEvent hold -> false;
+            case SemanticPredecessorGuardEvent guard -> false;
             case EnvironmentLifecycleEvent lifecycle -> false;
             case FailureEvent.EnvironmentStartup failure -> false;
             case FailureEvent.DriverResourceCleanup failure -> false;
@@ -271,6 +277,37 @@ public final class JournalRenderer {
                 .map(interaction -> " interaction=" + interaction)
                 .orElse("")
             + hold.failure()
+                .map(failure -> " failure=" + failure)
+                .orElse("");
+    }
+
+    private static String semanticPredecessorGuardLabels(
+        SemanticPredecessorGuardEvent guard
+    ) {
+        return "[SEMANTIC-PREDECESSOR-GUARD]"
+            + " [ref=" + guard.guardRef() + "]"
+            + " [subject=" + guard.proofSubject() + "]";
+    }
+
+    private static String semanticPredecessorGuardMessage(
+        SemanticPredecessorGuardEvent guard
+    ) {
+        return "Semantic predecessor guard kind=" + guard.kind()
+            + " state=" + guard.state()
+            + " requiredBoundary=" + guard.requiredBoundary()
+            + guard.predecessor()
+                .map(interaction -> " predecessor=" + interaction)
+                .orElse("")
+            + guard.successor()
+                .map(interaction -> " successor=" + interaction)
+                .orElse("")
+            + guard.decision()
+                .map(decision -> " decision=" + decision)
+                .orElse("")
+            + guard.violation()
+                .map(violation -> " violation=" + violation)
+                .orElse("")
+            + guard.failure()
                 .map(failure -> " failure=" + failure)
                 .orElse("");
     }

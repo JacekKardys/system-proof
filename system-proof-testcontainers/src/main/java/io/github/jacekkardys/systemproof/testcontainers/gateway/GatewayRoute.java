@@ -386,6 +386,9 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
                     : current.observationStatus();
             RouteState failed = current.fail(failedStatus, failure);
             if (state.compareAndSet(current, failed)) {
+                if (failedStatus == EffectiveObservationStatus.FAILED) {
+                    notifyRequiredObservationFailure();
+                }
                 return true;
             }
         }
@@ -578,11 +581,27 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
             observationRequirement == ObservationRequirement.REQUIRED
                 ? EffectiveObservationStatus.FAILED
                 : EffectiveObservationStatus.DEGRADED;
-        state.updateAndGet(current -> current.withObservationStatus(
+        RouteState previous = state.getAndUpdate(current -> current.withObservationStatus(
             current.observationStatus() == EffectiveObservationStatus.ACTIVE
                 ? failedStatus
                 : current.observationStatus()
         ));
+        if (previous.observationStatus() == EffectiveObservationStatus.ACTIVE
+            && failedStatus == EffectiveObservationStatus.FAILED) {
+            notifyRequiredObservationFailure();
+        }
+    }
+
+    private void notifyRequiredObservationFailure() {
+        try {
+            coordinator.observationFailed(connectionId);
+        } catch (RuntimeException failure) {
+            LOG.warn(
+                "Required-observation failure callback failed for connection '{}': {}",
+                connectionId,
+                failure.getClass().getSimpleName()
+            );
+        }
     }
 
     private void logObservationFailure(FailureStage stage) {

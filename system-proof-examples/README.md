@@ -69,6 +69,17 @@ complete response before its first forwarded byte. The scenario repeats five tim
 that unrelated and ambiguous correlation do not select a response. This remains SMPP evidence
 only, not a final cross-connection T1 proof.
 
+`SemanticPredecessorGuardAmlIT` composes REQUIRED PostgreSQL, HTTP, and SMPP routes with the real
+protocol adapters and a real PostgreSQL container. Its controlled examples-owned protocol peers
+provide deterministic handshakes without sleeps or log polling. The happy path proves, for one
+exact subject, `CommitSucceeded CONFIRMED -> positive HTTP response` and `positive HTTP response
+FORWARDED -> positive SMPP deliver_sm_resp`, two explicit relations, exactly-once successor bytes,
+and atomic RAW/Outbox persistence. Deliberately invalid modes emit HTTP before commit confirmation
+or SMPP after HTTP authorization but before its `forwarded()` callback; each records an explicit
+violation, forwards zero target successor bytes, and remains terminal after the late boundary.
+This enforces ordering only; proof outcomes and the final T1 proof remain outside the example.
+See [`ADR 0009`](../docs/adr/0009-semantic-predecessor-guards.md).
+
 Default dependency images:
 
 - `postgres:17.6-alpine`
