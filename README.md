@@ -9,6 +9,7 @@ components, injecting a concrete environment into JUnit 5 tests, and retaining f
 system-proof-examples -> system-proof-junit5        -> system-proof-core
         |------------> system-proof-postgresql      -> system-proof-testcontainers -> system-proof-core
         |------------> system-proof-http            -> system-proof-testcontainers -> system-proof-core
+        |------------> system-proof-smpp            -> system-proof-testcontainers -> system-proof-core
         |------------> system-proof-testcontainers  -> system-proof-core
         `-------------------------------------------> system-proof-core
 
@@ -28,8 +29,10 @@ system-proof-examples/fixtures
   control, typed transaction evidence, write correlation, and independent durability preflight.
 - `system-proof-http`: bounded plaintext HTTP/1.1 callback observation, tri-state Jasmin
   acknowledgement evidence, request correlation, and response control.
+- `system-proof-smpp`: bounded plaintext SMPP 3.4 session observation, typed delivery
+  acknowledgement evidence, delivery correlation, and response control.
 - `system-proof-examples`: executable PostgreSQL and complete SMS-ingestion examples, including
-  real PostgreSQL and HTTP evidence flows.
+  real PostgreSQL, HTTP, and SMPP evidence flows.
 - `system-proof-examples/apps`: the reference ingestion SUT used only by the complete example.
 - `system-proof-examples/fixtures`: reproducible third-party fixture adaptations used by examples.
 
@@ -49,6 +52,12 @@ proxy. Its framing limits, tri-state `ACK/Jasmin` acknowledgement contract, loca
 identity, correlation boundary, and unsupported cases are in the
 [`system-proof-http` module](system-proof-http/README.md) and
 [`ADR 0006`](docs/adr/0006-http-callback-evidence.md). This evidence is one input to a later
+cross-connection proof; it is not the final T1 proof.
+
+The SMPP adapter is a characterized fail-closed subset of the pinned SMSCsim/Jasmin exchange. Its
+PDU and session limits, request/response association, correlation boundary, and unsupported cases
+are in the [`system-proof-smpp` module](system-proof-smpp/README.md) and
+[`ADR 0007`](docs/adr/0007-smpp-evidence.md). This evidence is one input to a later
 cross-connection proof; it is not the final T1 proof.
 
 ## Minimal test

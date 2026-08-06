@@ -22,6 +22,7 @@ including its null terminator. Jasmin therefore rejects the upstream PDU with
 The fixture inherits upstream's intentionally small SMPP 3.4 subset. It does not validate incoming
 PDUs. Its web control request completes after sending `deliver_sm`; it does not wait for or expose
 a correlated `deliver_sm_resp`. The simulator log that a response arrived is diagnostic only.
-Future protocol evidence, including session, sequence number, and command status, belongs to later
-protocol-adapter roadmap work. The current `InteractionGateway` proves transparent TCP transport
-and lifecycle only.
+`system-proof-smpp` independently validates the characterized session, sequence, status, and PDU
+shape at the gateway before publishing typed evidence or forwarding bytes. See
+[`ADR 0007`](adr/0007-smpp-evidence.md). This does not make the simulator a general or validating
+SMPP implementation.

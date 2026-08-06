@@ -21,6 +21,8 @@ import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction.ParameterFormat;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
+import io.github.jacekkardys.systemproof.smpp.SmppDeliverCorrelation;
+import io.github.jacekkardys.systemproof.smpp.SmppDeliverInteraction;
 
 /** Reference-domain message identity shared by workload creation and RAW-write observation. */
 public final class SmsMessageFingerprint {
@@ -78,6 +80,36 @@ public final class SmsMessageFingerprint {
     /** Recognizes only the characterized Jasmin callback representation. */
     public static HttpRequestCorrelation httpCallbackCorrelation() {
         return SmsMessageFingerprint::fromHttpCallback;
+    }
+
+    /** Recognizes only the characterized one-part UCS2 SMPP delivery. */
+    public static SmppDeliverCorrelation smppDeliverCorrelation() {
+        return SmsMessageFingerprint::fromSmppDeliver;
+    }
+
+    private static Optional<CorrelationKey> fromSmppDeliver(
+        SmppDeliverInteraction interaction
+    ) {
+        if (interaction.esmClass() != 0 || interaction.dataCoding() != 8) {
+            return Optional.empty();
+        }
+        String source = copy(interaction.sourceAddress());
+        String destination = copy(interaction.destinationAddress());
+        String content = copy(interaction.message());
+        if (source.isBlank() || destination.isBlank() || content.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(key(
+            normalizeAddress(source),
+            normalizeAddress(destination),
+            content
+        ));
+    }
+
+    private static String copy(SmppDeliverInteraction.Characters source) {
+        char[] characters = new char[source.length()];
+        source.copyTo(0, characters, 0, characters.length);
+        return new String(characters);
     }
 
     private static Optional<CorrelationKey> fromHttpCallback(

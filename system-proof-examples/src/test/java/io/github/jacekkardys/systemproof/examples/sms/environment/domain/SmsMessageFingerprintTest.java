@@ -13,6 +13,7 @@ import io.github.jacekkardys.systemproof.http.HttpRequestInteraction;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlStatementShape;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction;
 import io.github.jacekkardys.systemproof.postgresql.PostgresqlWriteInteraction.ParameterFormat;
+import io.github.jacekkardys.systemproof.smpp.SmppDeliverInteraction;
 
 class SmsMessageFingerprintTest {
     private static final List<String> RAW_COLUMNS = List.of(
@@ -151,6 +152,39 @@ class SmsMessageFingerprintTest {
         assertThat(correlate(request(valid.replace("id=one", "id=%GG")))).isEmpty();
     }
 
+    @Test
+    void shouldShareIdentityAcrossSmppHttpAndPostgresqlRepresentations() {
+        TestSms message = TestSms.forProof(UUID.randomUUID().toString());
+        FakeSmppDeliver deliver = smppDeliver(message, 0, 8);
+
+        assertThat(SmsMessageFingerprint.smppDeliverCorrelation().correlate(deliver))
+            .contains(SmsMessageFingerprint.of(message));
+        assertThat(SmsMessageFingerprint.httpCallbackCorrelation().correlate(
+            request(form(message, "0"))
+        )).contains(SmsMessageFingerprint.of(message));
+        assertThat(SmsMessageFingerprint.rawWriteCorrelation().correlate(rawWrite(
+            "jasmin-generated",
+            message.sourceAddress(),
+            message.destinationAddress(),
+            message.content()
+        ))).contains(SmsMessageFingerprint.of(message));
+    }
+
+    @Test
+    void shouldRejectSmppDeliveriesOutsideTheCharacterizedSemanticShape() {
+        TestSms message = TestSms.unique();
+
+        assertThat(SmsMessageFingerprint.smppDeliverCorrelation().correlate(
+            smppDeliver(message, 0x40, 8)
+        )).isEmpty();
+        assertThat(SmsMessageFingerprint.smppDeliverCorrelation().correlate(
+            smppDeliver(message, 0, 0)
+        )).isEmpty();
+        assertThat(SmsMessageFingerprint.smppDeliverCorrelation().correlate(
+            new FakeSmppDeliver(0, 8, " ", message.destinationAddress(), message.content())
+        )).isEmpty();
+    }
+
     private static Optional<?> correlate(HttpRequestInteraction request) {
         return SmsMessageFingerprint.httpCallbackCorrelation().correlate(request);
     }
@@ -187,6 +221,20 @@ class SmsMessageFingerprintTest {
             ));
         }
         return encoded.toString();
+    }
+
+    private static FakeSmppDeliver smppDeliver(
+        TestSms message,
+        int esmClass,
+        int dataCoding
+    ) {
+        return new FakeSmppDeliver(
+            esmClass,
+            dataCoding,
+            message.sourceAddress(),
+            message.destinationAddress(),
+            message.content()
+        );
     }
 
     private static FakeWrite rawWrite(
@@ -313,6 +361,58 @@ class SmsMessageFingerprintTest {
             return "FakeHttpRequest[method=" + method
                 + ", pathLength=" + path.length()
                 + ", bodyByteCount=" + bodyBytes.length + "]";
+        }
+    }
+
+    private record FakeSmppDeliver(
+        int esmClass,
+        int dataCoding,
+        String source,
+        String destination,
+        String content
+    ) implements SmppDeliverInteraction {
+        @Override
+        public Characters sourceAddress() {
+            return characters(source);
+        }
+
+        @Override
+        public Characters destinationAddress() {
+            return characters(destination);
+        }
+
+        @Override
+        public Characters message() {
+            return characters(content);
+        }
+
+        private static Characters characters(String value) {
+            return new Characters() {
+                @Override
+                public int length() {
+                    return value.length();
+                }
+
+                @Override
+                public char charAt(int index) {
+                    return value.charAt(index);
+                }
+
+                @Override
+                public void copyTo(
+                    int sourceOffset,
+                    char[] target,
+                    int destinationOffset,
+                    int length
+                ) {
+                    value.getChars(
+                        sourceOffset,
+                        sourceOffset + length,
+                        target,
+                        destinationOffset
+                    );
+                }
+            };
         }
     }
 }

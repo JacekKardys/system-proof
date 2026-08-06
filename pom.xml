@@ -17,6 +17,7 @@
         <module>system-proof-testcontainers</module>
         <module>system-proof-postgresql</module>
         <module>system-proof-http</module>
+        <module>system-proof-smpp</module>
         <module>system-proof-examples/apps/system-proof-ingestion-service</module>
         <module>system-proof-examples</module>
     </modules>
@@ -71,6 +72,11 @@
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>system-proof-http</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>system-proof-smpp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

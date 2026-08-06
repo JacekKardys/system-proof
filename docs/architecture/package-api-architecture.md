@@ -121,10 +121,11 @@ The following directions are forbidden and executable tests enforce them:
 Neither core side depends on Testcontainers. Provider endpoint lookup remains inside environment
 execution despite the explicitly guarded `RuntimeEndpointBindings` transfer edge.
 
-The concrete PostgreSQL and HTTP adapters remain outside core and follow the module directions
+The concrete PostgreSQL, HTTP, and SMPP adapters remain outside core and follow the module directions
 `system-proof-postgresql -> system-proof-testcontainers -> system-proof-core` and
-`system-proof-http -> system-proof-testcontainers -> system-proof-core`. The examples module uses
-both adapters only in test scope. Protocol parsing, mutable session state, buffers, and transport
+`system-proof-http -> system-proof-testcontainers -> system-proof-core`, and
+`system-proof-smpp -> system-proof-testcontainers -> system-proof-core`. The examples module uses
+the adapters only in test scope. Protocol parsing, mutable session state, buffers, and transport
 internals are package-private and do not expand either core or gateway SPI.
 
 ## Supported core public API whitelist
@@ -259,6 +260,18 @@ implementation dependencies.
 buffer types. The module's main bytecode is also checked for JUnit, Spring, and Testcontainers
 implementation dependencies.
 
+## SMPP whitelist
+
+- Supported API: `SmppProtocolAdapter`, `SmppProtocolLimits`, and `SmppExchangeRef`.
+- Supported extension SPI: `SmppDeliverCorrelation`, `SmppDeliverInteraction`, and nested
+  `Characters`.
+- Inspectable read-only model: `SmppEvidence` and all nested evidence records/enums.
+- Java-public internal exceptions: none.
+
+`SmppPublicSurfaceTest` pins this exact surface and rejects public parser, session-model, TLV, or
+buffer types. The module's main bytecode is also checked for JUnit, Spring, and Testcontainers
+implementation dependencies.
+
 ## Inventory ownership matrix
 
 Types grouped in one row share the listed properties. Every externally visible framework type is
@@ -317,6 +330,7 @@ all public/protected types with the four exact, pairwise-disjoint whitelists; pi
 and constant, sensitive method/constructor surfaces, the open `ScenarioEvent` contract, and the
 actual package graph; checks private runtime construction; forbids public route mechanics, provider
 lookup, proof allocation, and journal mutation; and verifies one journal storage owner.
-`Junit5ModuleBoundaryTest`, `TestcontainersPublicSurfaceTest`, `PostgresqlPublicSurfaceTest`, and
-`HttpPublicSurfaceTest` apply exact categories and field/surface guards to their modules. The
-examples module compiles against supported imports and rejects internal/removed package usage.
+`Junit5ModuleBoundaryTest`, `TestcontainersPublicSurfaceTest`, `PostgresqlPublicSurfaceTest`,
+`HttpPublicSurfaceTest`, and `SmppPublicSurfaceTest` apply exact categories and field/surface guards
+to their modules. The examples module compiles against supported imports and rejects
+internal/removed package usage.
