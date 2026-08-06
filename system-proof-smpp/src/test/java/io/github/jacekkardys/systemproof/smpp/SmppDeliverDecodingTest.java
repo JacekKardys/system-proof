@@ -4,6 +4,7 @@ import static io.github.jacekkardys.systemproof.smpp.SmppProtocolFramingTest.ass
 import static io.github.jacekkardys.systemproof.smpp.SmppProtocolFramingTest.boundHarness;
 import static io.github.jacekkardys.systemproof.smpp.SmppProtocolFramingTest.complete;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.smpp.SmppEvidence.DataCoding;
 import io.github.jacekkardys.systemproof.smpp.SmppEvidence.DeliverSmCompleted;
 import io.github.jacekkardys.systemproof.smpp.SmppProtocolFramingTest.Harness;
+import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolFailureKind;
 
 class SmppDeliverDecodingTest {
@@ -106,6 +108,72 @@ class SmppDeliverDecodingTest {
     }
 
     @Test
+    void shouldScanManyZeroLengthTlvsWithoutMaterializingThem() {
+        ByteBuffer tlvs = ByteBuffer.allocate(50_000 * 4)
+            .order(ByteOrder.BIG_ENDIAN);
+        for (int index = 0; index < 50_000; index++) {
+            tlvs.putShort((short) 0x1400).putShort((short) 0);
+        }
+
+        assertDirectDecodeFailure(
+            SmppPdus.deliver(
+                40,
+                "111111111111",
+                "22222",
+                "message".getBytes(StandardCharsets.UTF_16BE),
+                8,
+                0,
+                tlvs.array()
+            ),
+            ProtocolFailureKind.UNSUPPORTED_NEGOTIATION
+        );
+    }
+
+    @Test
+    void shouldValidateEveryTlvBeforeClassifyingUnsupportedParameters() {
+        byte[] complete = SmppPdus.tlv(0x0424, new byte[0]);
+        byte[] truncatedHeader = new byte[] {0x04, 0x24, 0x00};
+        assertDirectDecodeFailure(
+            deliverWithTlvs(41, SmppPdus.concat(complete, truncatedHeader)),
+            ProtocolFailureKind.MALFORMED_INPUT
+        );
+
+        byte[] valueOutsidePdu = ByteBuffer.allocate(5)
+            .order(ByteOrder.BIG_ENDIAN)
+            .putShort((short) 0x1400)
+            .putShort((short) 2)
+            .put((byte) 1)
+            .array();
+        assertDirectDecodeFailure(
+            deliverWithTlvs(42, valueOutsidePdu),
+            ProtocolFailureKind.MALFORMED_INPUT
+        );
+    }
+
+    @Test
+    void shouldFindMessagePayloadAtAnyValidatedTlvPosition() {
+        byte[] ordinary = SmppPdus.tlv(0x1400, new byte[0]);
+        byte[] payload = SmppPdus.tlv(0x0424, new byte[0]);
+
+        assertDirectDecodeFailure(
+            deliverWithTlvs(43, SmppPdus.concat(payload, ordinary)),
+            ProtocolFailureKind.AMBIGUOUS_FRAMING
+        );
+        assertDirectDecodeFailure(
+            deliverWithTlvs(44, SmppPdus.concat(ordinary, payload)),
+            ProtocolFailureKind.AMBIGUOUS_FRAMING
+        );
+
+        byte[][] preceding = new byte[1_001][];
+        java.util.Arrays.fill(preceding, ordinary);
+        preceding[1_000] = payload;
+        assertDirectDecodeFailure(
+            deliverWithTlvs(45, SmppPdus.concat(preceding)),
+            ProtocolFailureKind.AMBIGUOUS_FRAMING
+        );
+    }
+
+    @Test
     void shouldRejectUnsupportedCodingUdhMultipartAndMalformedUcs2() throws Exception {
         assertFailure(
             boundHarness(new SmppProtocolAdapter()).provider(),
@@ -164,7 +232,7 @@ class SmppDeliverDecodingTest {
     @Test
     void shouldRejectMaximumShortMessagePlusOne() throws Exception {
         SmppProtocolAdapter adapter = new SmppProtocolAdapter(
-            new SmppProtocolLimits(4096, 4, 4),
+            new SmppProtocolLimits(SmppProtocolLimits.MAXIMUM_PDU_BYTES, 4, 4),
             SmppDeliverCorrelation.none()
         );
         assertFailure(
@@ -180,5 +248,31 @@ class SmppDeliverDecodingTest {
             ),
             ProtocolFailureKind.EXCESSIVE_FRAME_SIZE
         );
+    }
+
+    private static byte[] deliverWithTlvs(long sequence, byte[] tlvs) {
+        return SmppPdus.deliver(
+            sequence,
+            "111111111111",
+            "22222",
+            "message".getBytes(StandardCharsets.UTF_16BE),
+            8,
+            0,
+            tlvs
+        );
+    }
+
+    private static void assertDirectDecodeFailure(
+        byte[] pdu,
+        ProtocolFailureKind expectedKind
+    ) {
+        ByteBuffer body = ByteBuffer.wrap(pdu, 16, pdu.length - 16).slice();
+        assertThatThrownBy(
+            () -> new SmppBodyDecoder(SmppProtocolLimits.defaults()).decodeDeliver(body)
+        )
+            .isInstanceOfSatisfying(
+                ProtocolAdapterException.class,
+                failure -> assertThat(failure.kind()).isEqualTo(expectedKind)
+            );
     }
 }

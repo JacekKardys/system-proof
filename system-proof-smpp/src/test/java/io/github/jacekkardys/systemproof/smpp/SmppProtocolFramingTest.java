@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
@@ -104,7 +105,11 @@ class SmppProtocolFramingTest {
 
     @Test
     void shouldEnforceGatewayAndSmppFrameLimits() {
-        SmppProtocolAdapter adapter = adapter(new SmppProtocolLimits(4096, 4, 140));
+        SmppProtocolAdapter adapter = adapter(new SmppProtocolLimits(
+            SmppProtocolLimits.MAXIMUM_PDU_BYTES,
+            4,
+            140
+        ));
         ProtocolSession<SmppEvidence> session = adapter.openSession(
             new ProtocolLimits(32, 64)
         );
@@ -138,6 +143,47 @@ class SmppProtocolFramingTest {
             1,
             SmppProtocolLimits.MAXIMUM_SHORT_MESSAGE_BYTES + 1
         )).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldDeriveDefaultsAndHardPduMaximumFromTheSupportedDeliverBody()
+        throws Exception {
+        SmppProtocolLimits defaults = SmppProtocolLimits.defaults();
+        assertThat(defaults).isEqualTo(new SmppProtocolLimits(213, 64, 140));
+
+        byte[] maximumMessage = new byte[SmppProtocolLimits.MAXIMUM_SHORT_MESSAGE_BYTES];
+        for (int index = 0; index < maximumMessage.length; index += 2) {
+            maximumMessage[index + 1] = 'a';
+        }
+        byte[] maximumPdu = SmppPdus.deliver(
+            47,
+            "1".repeat(20),
+            "2".repeat(20),
+            maximumMessage,
+            8,
+            0,
+            new byte[0]
+        );
+        assertThat(maximumPdu).hasSize(SmppProtocolLimits.MAXIMUM_PDU_BYTES);
+        assertThatCode(() -> complete(
+            boundHarness(adapter(new SmppProtocolLimits(
+                SmppProtocolLimits.MAXIMUM_PDU_BYTES,
+                1,
+                SmppProtocolLimits.MAXIMUM_SHORT_MESSAGE_BYTES
+            ))).provider(),
+            maximumPdu
+        )).doesNotThrowAnyException();
+
+        byte[] maximumPlusOne = Arrays.copyOf(
+            maximumPdu,
+            SmppProtocolLimits.MAXIMUM_PDU_BYTES + 1
+        );
+        ByteBuffer.wrap(maximumPlusOne).putInt(maximumPlusOne.length);
+        assertFailure(
+            openHarness(adapter()).provider(),
+            maximumPlusOne,
+            ProtocolFailureKind.EXCESSIVE_FRAME_SIZE
+        );
     }
 
     static Harness openHarness(SmppProtocolAdapter adapter) {

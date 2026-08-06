@@ -184,7 +184,7 @@ class SmppSessionSemanticsTest {
     @Test
     void shouldEnforceTheOutstandingExchangeLimit() throws Exception {
         SmppProtocolAdapter adapter = new SmppProtocolAdapter(
-            new SmppProtocolLimits(4096, 1, 140),
+            new SmppProtocolLimits(SmppProtocolLimits.MAXIMUM_PDU_BYTES, 1, 140),
             SmppDeliverCorrelation.none()
         );
         Harness harness = boundHarness(adapter);

@@ -6,9 +6,23 @@ public record SmppProtocolLimits(
     int maximumOutstandingDeliveries,
     int maximumShortMessageBytes
 ) {
-    public static final int MAXIMUM_PDU_BYTES = 16 * 1024 * 1024;
-    public static final int MAXIMUM_OUTSTANDING_DELIVERIES = 1_000_000;
+    static final int PDU_HEADER_BYTES = 16;
+    // Supported deliver_sm metadata: empty/default fields and bounded addresses.
+    static final int MINIMUM_DELIVER_SM_METADATA_BYTES = 19;
+    static final int MAXIMUM_DELIVER_SM_METADATA_BYTES = 57;
+    // Conservative map accounting: boxed key, node/table share, and exchange reference.
+    private static final int ACCOUNTED_BYTES_PER_OUTSTANDING_DELIVERY = 128;
+    private static final int DEFAULT_OUTSTANDING_MEMORY_BUDGET_BYTES = 8 * 1024;
+    private static final int MAXIMUM_OUTSTANDING_MEMORY_BUDGET_BYTES = 64 * 1024;
+    private static final int DEFAULT_SHORT_MESSAGE_BYTES = 140;
+
     public static final int MAXIMUM_SHORT_MESSAGE_BYTES = 254;
+    public static final int MAXIMUM_PDU_BYTES = PDU_HEADER_BYTES
+        + MAXIMUM_DELIVER_SM_METADATA_BYTES
+        + MAXIMUM_SHORT_MESSAGE_BYTES;
+    public static final int MAXIMUM_OUTSTANDING_DELIVERIES =
+        MAXIMUM_OUTSTANDING_MEMORY_BUDGET_BYTES
+            / ACCOUNTED_BYTES_PER_OUTSTANDING_DELIVERY;
 
     public SmppProtocolLimits {
         if (maximumPduBytes < 16 || maximumPduBytes > MAXIMUM_PDU_BYTES) {
@@ -34,6 +48,13 @@ public record SmppProtocolLimits(
 
     /** Returns the deliberately narrow defaults for the characterized reference flow. */
     public static SmppProtocolLimits defaults() {
-        return new SmppProtocolLimits(64 * 1024, 1024, 140);
+        return new SmppProtocolLimits(
+            PDU_HEADER_BYTES
+                + MAXIMUM_DELIVER_SM_METADATA_BYTES
+                + DEFAULT_SHORT_MESSAGE_BYTES,
+            DEFAULT_OUTSTANDING_MEMORY_BUDGET_BYTES
+                / ACCOUNTED_BYTES_PER_OUTSTANDING_DELIVERY,
+            DEFAULT_SHORT_MESSAGE_BYTES
+        );
     }
 }

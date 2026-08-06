@@ -118,15 +118,37 @@ strict UTF-16BE `short_message`; and no TLV. UDH/segmentation, any optional para
 `message_payload`, other coding, empty content, malformed UCS2, and the ambiguous combination of
 `short_message` plus `message_payload` fail closed.
 
+The optional-parameter suffix is validated with a single constant-memory scan before rejection.
+Each iteration requires a complete four-byte header, reads the unsigned value length, checks that
+length against the remaining body before advancing, and skips the value without copying it. The
+scanner retains only bounded `sawAnyTlv` and `sawMessagePayload` flags: it creates no collection or
+per-TLV object and never publishes a tag or value. Full structural validation precedes the
+unsupported/ambiguous classification.
+
 The response body is exactly the mandatory empty `message_id` C-Octet String: one null byte. Bind
 fields are bounded C-Octet strings with interface version 3.4 and the characterized TON/NPI values.
 Enquire-link and unbind bodies are empty. Every other command, direction, generic nack, state
 transition, or association is unsupported.
 
-Defaults are 64 KiB per PDU, 1024 outstanding deliveries, and 140 bytes per short message. Hard
-maxima are 16 MiB, 1,000,000 deliveries, and 254 message bytes. Gateway `ProtocolLimits` separately
-bounds the frame and aggregate directional buffer. Evidence encodings are fixed-size and validate
-all decoded enums, booleans, unsigned values, lengths, and trailing bytes.
+The largest supported PDU is `deliver_sm`. Its maximum metadata is 57 bytes: one empty
+`service_type` terminator, four TON/NPI bytes, two 21-byte address C-Octet fields, three bytes for
+ESM/protocol/priority, two empty schedule/validity terminators, and five delivery/coding/message
+length bytes. Therefore the hard PDU maximum is `16 + 57 + 254 = 327` bytes. The 140-byte default
+message limit gives the default PDU maximum `16 + 57 + 140 = 213` bytes. Other supported maxima
+are smaller: 46 bytes for `bind_transceiver`, 32 for an accepted `bind_transceiver_resp`, 17 for
+`deliver_sm_resp`, and 16 for session control.
+
+The outstanding map uses a conservative 128-byte accounting unit covering the boxed sequence
+key, hash-map node/table share, and three-long exchange reference. An 8 KiB default per-session
+budget permits 64 entries; the 64 KiB hard budget permits 512. This is a stable policy accounting
+unit, not a claim about one JVM's measured object layout. Gateway `ProtocolLimits` separately
+bounds the frame and aggregate directional buffer.
+
+Public evidence constructors and codec decode validate command-specific PDU sizes and all
+cross-field invariants. In particular, delivery evidence requires `esm_class=0`, UCS2, a positive
+even message byte count, and mutually consistent PDU, body, supported-field, and message lengths;
+session controls require status zero and 16 bytes; delivery responses require exactly 17 bytes.
+Fixed-width codec mutation tests supplement corrupted, truncated, and trailing-byte cases.
 
 ## Reference correlation policy
 
@@ -160,7 +182,11 @@ exchange with the same reference and wire sequence, holds the recorded positive 
 forwarding, releases it once, checks unrelated traffic does not satisfy the hold, and repeats the
 target proof five times. Separate traffic proves same-fingerprint ambiguity does not select a
 response. A throwing policy proves required observation fails closed without publishing delivery
-evidence or its secret message.
+evidence, forwarding the rejected SMS into RAW/Outbox persistence, or exposing its secret message.
+
+The current `clean verify` suite contains 471 tests. Remaining fail-closed exclusions include TLVs,
+`message_payload`, multipart/UDH traffic, delivery receipts, other coding, unsupported commands and
+directions, TLS termination, unmatched state transitions, and inputs beyond configured limits.
 
 This result proves a typed positive SMPP acknowledgement for the characterized exchange. It does
 not prove cross-connection predecessor order, retry semantics, multipart SMS, delivery receipts,

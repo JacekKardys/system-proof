@@ -91,7 +91,8 @@ final class SmppEvidenceIT {
         });
         try {
             environment.start();
-            environment.smsc().send(TestSms.unique());
+            TestSms rejected = TestSms.unique();
+            environment.smsc().send(rejected);
 
             Awaitility.await("SMPP observation failed closed")
                 .atMost(TIMEOUT)
@@ -103,6 +104,14 @@ final class SmppEvidenceIT {
             assertThat(smppEvidence(environment))
                 .noneMatch(DeliverSmCompleted.class::isInstance)
                 .noneMatch(DeliverSmResponseCompleted.class::isInstance);
+            Awaitility.await("failed REQUIRED observation does not forward the SMS")
+                .during(Duration.ofSeconds(1))
+                .atMost(Duration.ofSeconds(3))
+                .untilAsserted(() -> assertThat(environment.database().snapshot(rejected))
+                    .satisfies(persistence -> {
+                        assertThat(persistence.rawCount()).isZero();
+                        assertThat(persistence.outboxCount()).isZero();
+                    }));
             assertThat(environment.journalSnapshot().entries().toString())
                 .doesNotContain(secret);
             assertThat(environment.diagnostics().content()).doesNotContain(secret);

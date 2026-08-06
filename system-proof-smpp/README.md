@@ -13,10 +13,10 @@ system-proof-smpp
     -> system-proof-core
 ```
 
-PDU decoding, TLV inspection, mutable session state, outstanding request maps, and buffers remain
-package-private. SMS message semantics and the reference fingerprint remain in the examples
-module. Core continues to own connection and gateway-session provenance, journal facts, proof
-subjects, correlation cardinality, and semantic control.
+PDU decoding, constant-memory TLV validation, mutable session state, outstanding request maps,
+and buffers remain package-private. SMS message semantics and the reference fingerprint remain in
+the examples module. Core continues to own connection and gateway-session provenance, journal
+facts, proof subjects, correlation cardinality, and semantic control.
 
 ## Public contract
 
@@ -61,10 +61,25 @@ truncation, trailing bytes, exceeded limit, traffic outside the state machine, a
 outstanding exchange fail closed. Unsupported traffic emits no evidence for that PDU and is not
 forwarded as unobserved bytes.
 
-Defaults are a 64 KiB PDU, 1024 outstanding deliveries, and a 140-byte `short_message`. Hard
-maxima are 16 MiB, 1,000,000 deliveries, and 254 message bytes. `ProtocolLimits` independently
-bounds the complete frame and aggregate buffered bytes per direction. Unsigned 32-bit header
-fields are decoded into `long`; overflow and impossible signed casts are not accepted.
+The default limits are a 213-byte PDU, 64 outstanding deliveries, and a 140-byte
+`short_message`. The hard maxima are 327 PDU bytes, 512 outstanding deliveries, and 254 message
+bytes. The PDU maximum is the 16-byte header plus the largest supported 57-byte `deliver_sm`
+metadata layout plus 254 message bytes; bind (at most 46 bytes), control (16 bytes), and
+`deliver_sm_resp` (17 bytes) are smaller. The default PDU limit uses the same formula with the
+140-byte message default.
+
+Outstanding delivery limits use an explicit conservative accounting unit of 128 bytes for the
+boxed sequence key, hash-map entry/table share, and three-long exchange reference. The default
+8 KiB per-session budget yields 64 entries; the hard 64 KiB budget yields 512. This is a stable
+limit-accounting rule, not a claim about one JVM's measured object layout. `ProtocolLimits`
+independently bounds the complete frame and aggregate buffered bytes per direction.
+
+Optional parameters remain unsupported. Before rejection, the decoder scans the complete TLV
+suffix once: it validates every four-byte header and unsigned value length, advances over values
+without copying, and retains only `sawAnyTlv` and `sawMessagePayload` bits. It creates no TLV
+collection or per-TLV object. This keeps validation memory constant even for a large internal
+decoder input and preserves the diagnostic distinction for `short_message` plus
+`message_payload`; tags and values never enter evidence or diagnostics.
 
 ## Correlation and control
 
@@ -91,6 +106,12 @@ Evidence, reference codecs, default `toString` output, journal snapshots, and fr
 never contain credentials, raw PDUs, endpoint data, addresses, message content, or optional
 parameter values. Policy exceptions fail required observation closed and their messages are not
 published.
+
+The current `clean verify` suite contains 471 tests. Remaining fail-closed exclusions include all
+TLVs, `message_payload`, multipart/UDH traffic, delivery receipts, other data codings, unsupported
+commands or directions, TLS termination, unmatched state transitions, and traffic beyond the
+configured hard limits. The live five-repetition proof demonstrates the characterized SMPP
+acknowledgement only; it is not the final T1 proof.
 
 The characterization, exact source/image pins, command/state matrix, trust boundary, and
 consequences are recorded in

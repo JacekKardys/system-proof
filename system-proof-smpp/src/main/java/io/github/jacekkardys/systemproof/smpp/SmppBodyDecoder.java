@@ -5,14 +5,14 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolAdapterException;
 import io.github.jacekkardys.systemproof.testcontainers.gateway.ProtocolFailureKind;
 
 /** Exact body decoder for only the characterized reference fields and values. */
 final class SmppBodyDecoder {
     private static final int MESSAGE_PAYLOAD_TAG = 0x0424;
+    private static final int SAW_ANY_TLV = 1;
+    private static final int SAW_MESSAGE_PAYLOAD = 1 << 1;
 
     private final SmppProtocolLimits limits;
 
@@ -69,16 +69,14 @@ final class SmppBodyDecoder {
             );
         }
         byte[] messageBytes = reader.octets(messageLength);
-        List<TlvHeader> tlvs = reader.tlvs();
-        boolean hasMessagePayload = tlvs.stream()
-            .anyMatch(tlv -> tlv.tag() == MESSAGE_PAYLOAD_TAG);
-        if (hasMessagePayload && messageLength > 0) {
+        int tlvFlags = reader.scanTlvs();
+        if ((tlvFlags & SAW_MESSAGE_PAYLOAD) != 0 && messageLength > 0) {
             throw failure(
                 ProtocolFailureKind.AMBIGUOUS_FRAMING,
                 "SMPP short_message and message_payload cannot both be present"
             );
         }
-        if (!tlvs.isEmpty()) {
+        if ((tlvFlags & SAW_ANY_TLV) != 0) {
             throw failure(
                 ProtocolFailureKind.UNSUPPORTED_NEGOTIATION,
                 "SMPP optional parameters are unsupported by the reference subset"
@@ -213,8 +211,6 @@ final class SmppBodyDecoder {
         }
     }
 
-    private record TlvHeader(int tag, int length) {}
-
     private static final class BodyReader {
         private final ByteBuffer bytes;
 
@@ -256,17 +252,20 @@ final class SmppBodyDecoder {
             return result;
         }
 
-        private List<TlvHeader> tlvs() throws ProtocolAdapterException {
-            List<TlvHeader> result = new ArrayList<>();
+        private int scanTlvs() throws ProtocolAdapterException {
+            int flags = 0;
             while (bytes.hasRemaining()) {
                 requireRemaining(4);
                 int tag = Short.toUnsignedInt(bytes.getShort());
                 int length = Short.toUnsignedInt(bytes.getShort());
                 requireRemaining(length);
                 bytes.position(bytes.position() + length);
-                result.add(new TlvHeader(tag, length));
+                flags |= SAW_ANY_TLV;
+                if (tag == MESSAGE_PAYLOAD_TAG) {
+                    flags |= SAW_MESSAGE_PAYLOAD;
+                }
             }
-            return List.copyOf(result);
+            return flags;
         }
 
         private void requireEnd() throws ProtocolAdapterException {

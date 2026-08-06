@@ -70,7 +70,7 @@ public sealed interface SmppEvidence
     ) implements SmppEvidence {
         public BindRequested {
             SmppEvidenceValidation.wireSequence(wireSequenceNumber);
-            SmppEvidenceValidation.pduByteCount(pduByteCount);
+            SmppEvidenceValidation.pduByteCountBetween(pduByteCount, 24, 46);
         }
 
         @Override
@@ -89,11 +89,15 @@ public sealed interface SmppEvidence
             SmppEvidenceValidation.wireSequence(wireSequenceNumber);
             SmppEvidenceValidation.commandStatus(commandStatus);
             outcome = Objects.requireNonNull(outcome, "outcome must not be null");
-            SmppEvidenceValidation.pduByteCount(pduByteCount);
             if ((commandStatus == 0) != (outcome == BindOutcome.ACCEPTED)) {
                 throw new IllegalArgumentException(
                     "Bind outcome must agree with commandStatus"
                 );
+            }
+            if (outcome == BindOutcome.ACCEPTED) {
+                SmppEvidenceValidation.pduByteCountBetween(pduByteCount, 18, 32);
+            } else {
+                SmppEvidenceValidation.exactPduByteCount(pduByteCount, 16);
             }
         }
 
@@ -119,7 +123,12 @@ public sealed interface SmppEvidence
             }
             SmppEvidenceValidation.wireSequence(wireSequenceNumber);
             SmppEvidenceValidation.commandStatus(commandStatus);
-            SmppEvidenceValidation.pduByteCount(pduByteCount);
+            if (commandStatus != 0) {
+                throw new IllegalArgumentException(
+                    "Session control commandStatus must be zero"
+                );
+            }
+            SmppEvidenceValidation.exactPduByteCount(pduByteCount, 16);
         }
     }
 
@@ -133,17 +142,40 @@ public sealed interface SmppEvidence
     ) implements SmppEvidence {
         public DeliverSmCompleted {
             exchange = Objects.requireNonNull(exchange, "exchange must not be null");
-            SmppEvidenceValidation.pduByteCount(pduByteCount);
-            if (bodyByteCount < 1 || bodyByteCount != pduByteCount - 16) {
+            SmppEvidenceValidation.pduByteCountBetween(
+                pduByteCount,
+                16,
+                SmppProtocolLimits.MAXIMUM_PDU_BYTES
+            );
+            if (bodyByteCount < 1
+                || bodyByteCount != pduByteCount - SmppProtocolLimits.PDU_HEADER_BYTES) {
                 throw new IllegalArgumentException("bodyByteCount must match the PDU body");
             }
             if (messageByteCount < 1
                 || messageByteCount > SmppProtocolLimits.MAXIMUM_SHORT_MESSAGE_BYTES) {
                 throw new IllegalArgumentException("messageByteCount is outside SMPP limits");
             }
+            if ((messageByteCount & 1) != 0) {
+                throw new IllegalArgumentException(
+                    "messageByteCount must be even for UCS2"
+                );
+            }
+            int minimumBodyByteCount = messageByteCount
+                + SmppProtocolLimits.MINIMUM_DELIVER_SM_METADATA_BYTES;
+            int maximumBodyByteCount = messageByteCount
+                + SmppProtocolLimits.MAXIMUM_DELIVER_SM_METADATA_BYTES;
+            if (bodyByteCount < minimumBodyByteCount
+                || bodyByteCount > maximumBodyByteCount) {
+                throw new IllegalArgumentException(
+                    "bodyByteCount is inconsistent with the supported deliver_sm fields"
+                );
+            }
             dataCoding = Objects.requireNonNull(dataCoding, "dataCoding must not be null");
-            if (esmClass < 0 || esmClass > 0xff) {
-                throw new IllegalArgumentException("esmClass must be an unsigned byte");
+            if (dataCoding != DataCoding.UCS2) {
+                throw new IllegalArgumentException("dataCoding must be UCS2");
+            }
+            if (esmClass != 0) {
+                throw new IllegalArgumentException("esmClass must be zero");
             }
         }
 
@@ -171,7 +203,7 @@ public sealed interface SmppEvidence
                 acknowledgement,
                 "acknowledgement must not be null"
             );
-            SmppEvidenceValidation.pduByteCount(pduByteCount);
+            SmppEvidenceValidation.exactPduByteCount(pduByteCount, 17);
             if ((commandStatus == 0) != (acknowledgement == Acknowledgement.POSITIVE)) {
                 throw new IllegalArgumentException(
                     "Acknowledgement must agree with commandStatus"
@@ -208,9 +240,19 @@ final class SmppEvidenceValidation {
         }
     }
 
-    static void pduByteCount(int value) {
-        if (value < 16 || value > SmppProtocolLimits.MAXIMUM_PDU_BYTES) {
-            throw new IllegalArgumentException("pduByteCount is outside SMPP limits");
+    static void pduByteCountBetween(int value, int minimum, int maximum) {
+        if (value < minimum || value > maximum) {
+            throw new IllegalArgumentException(
+                "pduByteCount is outside the supported command body range"
+            );
+        }
+    }
+
+    static void exactPduByteCount(int value, int expected) {
+        if (value != expected) {
+            throw new IllegalArgumentException(
+                "pduByteCount does not match the supported command body"
+            );
         }
     }
 }
