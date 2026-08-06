@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-26
+- Updated: 2026-08-06
 - Issue: [#27](https://github.com/JacekKardys/system-proof/issues/27)
 - Prerequisite: [#8](https://github.com/JacekKardys/system-proof/issues/8)
 
@@ -75,8 +76,9 @@ An adapter creates `CorrelationContribution<T>` from:
 
 Capture is synchronous and retains only a detached `EvidenceSnapshot`. The source value, codec, and
 codec-produced array are not retained. Typed lookup requires a codec with the exact stored
-`EvidenceSchemaId`; mismatch fails explicitly before decoding. Every decode receives a fresh byte
-array, so caller mutation cannot alter stored state.
+`EvidenceSchemaId` before decoding. A subject/key can resolve independently in several native
+reference schema namespaces; lookup in a namespace without a candidate is `MISSING`. Every decode
+receives a fresh byte array, so caller mutation cannot alter stored state.
 
 ### Explicit cardinality
 
@@ -87,11 +89,12 @@ array, so caller mutation cannot alter stored state.
   decoded typed native reference;
 - `Ambiguous<T>` means exact selection is impossible.
 
-Only `Unique<T>` exposes a candidate. The state rules are:
+Only `Unique<T>` exposes a candidate. Cardinality is evaluated independently for each
+subject/key/native-reference-schema namespace. The state rules are:
 
 1. an armed subject/key starts `MISSING`;
-2. the first distinct trustworthy candidate becomes `UNIQUE`;
-3. any second distinct candidate makes it `AMBIGUOUS`;
+2. the first distinct trustworthy candidate in one native-reference schema becomes `UNIQUE`;
+3. any second distinct candidate in that schema makes it `AMBIGUOUS`;
 4. `AMBIGUOUS` is terminal;
 5. a key armed by more than one subject makes every association for that key terminal
    `AMBIGUOUS`;
@@ -117,8 +120,9 @@ The framework `ScenarioEvent` vocabulary adds three core-owned immutable facts:
 - `CorrelationCandidateEvent`, including the optional subject, safe key, complete
   `InteractionRef`, detached native-reference snapshot, and resulting cardinality.
 
-The registry is synchronized and retains only the current per-subject/key resolution plus the one
-unique candidate needed for typed lookup. It is an index, not a second event history. Every
+The registry is synchronized and retains only the current per-subject/key/native-reference-schema
+resolution plus the one unique candidate needed for typed lookup. It is an index, not a second
+event history. Every
 non-idempotent creation, arming, unmatched publication, unique resolution, and ambiguity detection
 is recorded in the single environment-owned journal.
 
@@ -181,6 +185,7 @@ after cleanup where the execution boundary can preserve it.
   immediate `FORWARD`.
 - Issue #12 still owns semantic `HOLD`/`RELEASE`, barrier state, and causal guards.
 - Real HTTP, SMPP, and PostgreSQL adapters still own decoding, native reference schemas, retry
-  semantics, and any AML-specific safe-key policy or token transport.
-- Proof verdicts, PostgreSQL transaction attribution, TLS termination, transport fault injection,
-  and a generic query language remain out of scope.
+  semantics, and any AML-specific safe-key policy or token transport. ADR 0008 composes their
+  native-reference namespaces for the reference AML transaction-attribution scenario.
+- Proof verdicts, predecessor relations, TLS termination, transport fault injection, and a generic
+  query language remain out of scope.

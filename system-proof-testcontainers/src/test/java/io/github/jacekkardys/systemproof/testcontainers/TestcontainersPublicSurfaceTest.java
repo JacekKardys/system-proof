@@ -90,7 +90,13 @@ class TestcontainersPublicSurfaceTest {
         assertThat(methodNames(loadType("component.ContainerPlan$Builder")))
             .containsExactly("build", "provides");
         assertThat(methodNames(loadType("component.TestcontainersDriver")))
-            .containsExactly("afterStart", "create", "createOperations", "start")
+            .containsExactly(
+                "afterStart",
+                "create",
+                "createOperations",
+                "sanitizeContainerOutput",
+                "start"
+            )
             .doesNotContain("networkAlias");
     }
 

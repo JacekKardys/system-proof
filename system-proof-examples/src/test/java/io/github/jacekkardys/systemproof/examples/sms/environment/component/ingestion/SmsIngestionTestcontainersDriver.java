@@ -32,6 +32,8 @@ public final class SmsIngestionTestcontainersDriver
             .withEnv(configuration.databaseUrlVariable(), database.url())
             .withEnv(configuration.databaseUsernameVariable(), database.username())
             .withEnv(configuration.databasePasswordVariable(), database.password().reveal())
+            .withEnv("SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE", "2")
+            .withEnv("SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE", "1")
             .waitingFor(Wait.forHttp(configuration.readinessPath())
                 .forPort(httpPort.port())
                 .forStatusCode(configuration.readinessStatus())

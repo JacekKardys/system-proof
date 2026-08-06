@@ -5,8 +5,10 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionTimeoutException;
@@ -99,6 +101,44 @@ public final class SmsDatabaseOperations {
         }
     }
 
+    /** Installs a test-owned database rule that rejects outbox writes until closed. */
+    public OutboxRejection rejectOutboxInserts() {
+        try (Connection connection = connect();
+             Statement statement = connection.createStatement()) {
+            statement.execute("""
+                CREATE OR REPLACE FUNCTION reject_outbox_insert() RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION 'outbox rejected by attribution test';
+                END;
+                $$ LANGUAGE plpgsql
+                """);
+            statement.execute("""
+                CREATE TRIGGER reject_outbox
+                BEFORE INSERT ON outbox_event
+                FOR EACH ROW EXECUTE FUNCTION reject_outbox_insert()
+                """);
+            return new OutboxRejection(this);
+        } catch (SQLException exception) {
+            throw new IllegalStateException(
+                "Cannot install the controlled outbox rejection",
+                exception
+            );
+        }
+    }
+
+    private void allowOutboxInserts() {
+        try (Connection connection = connect();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP TRIGGER IF EXISTS reject_outbox ON outbox_event");
+            statement.execute("DROP FUNCTION IF EXISTS reject_outbox_insert()");
+        } catch (SQLException exception) {
+            throw new IllegalStateException(
+                "Cannot remove the controlled outbox rejection",
+                exception
+            );
+        }
+    }
+
     private Connection connect() throws SQLException {
         return DriverManager.getConnection(jdbcUrl, username, password);
     }
@@ -137,6 +177,23 @@ public final class SmsDatabaseOperations {
                         + database.diagnostics(),
                     timeout
                 );
+            }
+        }
+    }
+
+    /** One idempotent lease for the controlled outbox-rejection rule. */
+    public static final class OutboxRejection implements AutoCloseable {
+        private final SmsDatabaseOperations database;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private OutboxRejection(SmsDatabaseOperations database) {
+            this.database = database;
+        }
+
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                database.allowOutboxInserts();
             }
         }
     }

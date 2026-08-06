@@ -76,4 +76,9 @@ public final class SmscTestcontainersDriver
             () -> context.componentEvents(component)
         );
     }
+
+    @Override
+    protected String sanitizeContainerOutput(SmscComponent component, String output) {
+        return output.replaceAll("(?m) Sender: \\[[^\\r\\n]*$", "");
+    }
 }

@@ -65,6 +65,25 @@ class ContainerLogConsumerTest {
         );
     }
 
+    @Test
+    void shouldJournalOnlySanitizedContainerOutput() {
+        RecordingContext context = new RecordingContext();
+        ContainerLogConsumer consumer = new ContainerLogConsumer(
+            context,
+            COMPONENT,
+            output -> output.replace("secret-value", "[redacted]")
+        );
+
+        consumer.accept(new OutputFrame(
+            OutputFrame.OutputType.STDOUT,
+            "INFO value=secret-value\n".getBytes(StandardCharsets.UTF_8)
+        ));
+
+        assertThat(context.message)
+            .isEqualTo("INFO value=[redacted]")
+            .doesNotContain("secret-value");
+    }
+
     private record EmptyConfig() implements RuntimeConfig {}
 
     private static final class TestComponent implements Component {

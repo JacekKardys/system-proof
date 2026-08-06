@@ -139,10 +139,12 @@ list, and explicit parameter-to-column mapping. It does not search TCP chunks or
 and it does not use Jasmin's generated `external_message_id` as the discriminator. Only the
 digest-based `CorrelationKey` crosses into generic correlation contracts.
 
-Future HTTP and SMPP adapters can bind their native request/response identities to the same
-`ProofSubjectRef`. Cross-connection order must come from explicit predecessor guards, never from
-timestamps, journal append order, socket order, sleeps, or "the next response". HTTP/SMPP ACK
-decoding and the final cross-connection T1 proof are outside this module.
+The reference example binds HTTP and SMPP native request/response identities to the same
+`ProofSubjectRef` and canonical key in their own codec namespaces. Its real topology proves unique
+transaction attribution, unrelated-commit isolation, concurrent subjects, verified pool reuse,
+rollback, retry ambiguity, and reconnect semantics. Cross-connection order must still come from
+explicit predecessor guards, never from timestamps, journal append order, socket order, sleeps, or
+"the next response". Those guards and the final cross-connection T1 proof are outside this module.
 
 ## Supported MVP
 
@@ -175,8 +177,11 @@ traffic.
   are unsupported.
 - The SQL tokenizer recognizes only characterized transaction controls, direct setting changes,
   and the supported parameterized INSERT shape. It is not a general SQL parser.
-- The module does not implement SMS attribution, HTTP/SMPP decoding, cross-connection predecessor
-  guards, CDC/logical decoding, HA/failover semantics, or the final T1 proof.
+- The module does not own AML/SMS attribution policy, HTTP/SMPP decoding, cross-connection
+  predecessor guards, CDC/logical decoding, HA/failover semantics, or the final T1 proof. The
+  examples module composes its generic write-correlation contract into the reference AML policy.
 
 The sanitized characterization is recorded in
-[`../docs/adr/0005-postgresql-wire-evidence.md`](../docs/adr/0005-postgresql-wire-evidence.md).
+[`../docs/adr/0005-postgresql-wire-evidence.md`](../docs/adr/0005-postgresql-wire-evidence.md), and the
+subject-safe attribution decision is recorded in
+[`../docs/adr/0008-aml-subject-transaction-attribution.md`](../docs/adr/0008-aml-subject-transaction-attribution.md).

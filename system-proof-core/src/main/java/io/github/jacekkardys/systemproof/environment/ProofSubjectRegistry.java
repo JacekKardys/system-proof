@@ -12,6 +12,7 @@ import io.github.jacekkardys.systemproof.proof.CorrelationResult;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.proof.ProofSubjects;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
+import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.SessionId;
@@ -55,13 +56,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
         boolean sharedKey = existingSubjects != null && !existingSubjects.isEmpty();
         events.proofSubjectArmed(subject, key, sharedKey);
 
-        Resolution initial = sharedKey ? Ambiguous.INSTANCE : Missing.INSTANCE;
-        subjectState.resolutions.put(key, initial);
-        if (sharedKey) {
-            for (ProofSubjectRef existing : existingSubjects) {
-                requireSubject(existing).resolutions.put(key, Ambiguous.INSTANCE);
-            }
-        }
+        subjectState.resolutions.put(key, new HashMap<>());
         subjectsByKey.computeIfAbsent(key, ignored -> new HashSet<>())
             .add(subject);
     }
@@ -72,21 +67,29 @@ final class ProofSubjectRegistry implements ProofSubjects {
         CorrelationKey key,
         EvidenceCodec<T> nativeReferenceCodec
     ) {
+        nativeReferenceCodec = Objects.requireNonNull(
+            nativeReferenceCodec,
+            "nativeReferenceCodec must not be null"
+        );
+        EvidenceSchemaId nativeReferenceSchema = Objects.requireNonNull(
+            nativeReferenceCodec.schemaId(),
+            "nativeReferenceCodec schemaId must not be null"
+        );
         Resolution resolution;
         synchronized (this) {
             SubjectState subjectState = requireSubject(subject);
             key = Objects.requireNonNull(key, "key must not be null");
-            nativeReferenceCodec = Objects.requireNonNull(
-                nativeReferenceCodec,
-                "nativeReferenceCodec must not be null"
-            );
-            resolution = subjectState.resolutions.get(key);
-            if (resolution == null) {
+            Map<EvidenceSchemaId, Resolution> bySchema =
+                subjectState.resolutions.get(key);
+            if (bySchema == null) {
                 throw new IllegalArgumentException(
                     "Correlation key schema '" + key.schema()
                         + "' is not armed for proof subject '" + subject + "'"
                 );
             }
+            resolution = hasSharedOwnership(key)
+                ? Ambiguous.INSTANCE
+                : bySchema.getOrDefault(nativeReferenceSchema, Missing.INSTANCE);
         }
 
         return switch (resolution) {
@@ -141,9 +144,14 @@ final class ProofSubjectRegistry implements ProofSubjects {
 
         ProofSubjectRef subject = armedSubjects.iterator().next();
         SubjectState subjectState = requireSubject(subject);
-        Resolution current = Objects.requireNonNull(
+        Map<EvidenceSchemaId, Resolution> bySchema = Objects.requireNonNull(
             subjectState.resolutions.get(key),
             "Armed proof subject has no correlation resolution"
+        );
+        EvidenceSchemaId nativeReferenceSchema = nativeReference.schemaId();
+        Resolution current = bySchema.getOrDefault(
+            nativeReferenceSchema,
+            Missing.INSTANCE
         );
         if (current instanceof Unique unique
             && unique.sameCandidate(interactionRef, nativeReference)) {
@@ -160,8 +168,8 @@ final class ProofSubjectRegistry implements ProofSubjects {
             nativeReference,
             cardinality
         );
-        subjectState.resolutions.put(
-            key,
+        bySchema.put(
+            nativeReferenceSchema,
             cardinality == CorrelationCardinality.UNIQUE
                 ? new Unique(interactionRef, nativeReference)
                 : Ambiguous.INSTANCE
@@ -193,14 +201,27 @@ final class ProofSubjectRegistry implements ProofSubjects {
 
     synchronized Optional<NativeFlowResolution> soleUniqueNativeFlow(
         ProofSubjectRef subject,
-        CorrelationKey key
+        CorrelationKey key,
+        EvidenceSchemaId nativeReferenceSchema
     ) {
         SubjectState selected = requireSubject(subject);
         CorrelationKey selectedKey = Objects.requireNonNull(
             key,
             "key must not be null"
         );
-        Resolution resolution = selected.resolutions.get(selectedKey);
+        nativeReferenceSchema = Objects.requireNonNull(
+            nativeReferenceSchema,
+            "nativeReferenceSchema must not be null"
+        );
+        Map<EvidenceSchemaId, Resolution> bySchema =
+            selected.resolutions.get(selectedKey);
+        if (bySchema == null || hasSharedOwnership(selectedKey)) {
+            return Optional.empty();
+        }
+        Resolution resolution = bySchema.getOrDefault(
+            nativeReferenceSchema,
+            Missing.INSTANCE
+        );
         if (!(resolution instanceof Unique selectedUnique)) {
             return Optional.empty();
         }
@@ -223,9 +244,14 @@ final class ProofSubjectRegistry implements ProofSubjects {
     ) {
         expected = Objects.requireNonNull(expected, "expected must not be null");
         SubjectState selected = requireSubject(expected.subject);
-        Resolution current = selected.resolutions.get(expected.key);
+        Map<EvidenceSchemaId, Resolution> bySchema =
+            selected.resolutions.get(expected.key);
+        Resolution current = bySchema == null
+            ? null
+            : bySchema.get(expected.nativeReference.schemaId());
         return current instanceof Unique unique
             && expected.sameOriginatingCandidate(unique)
+            && !hasSharedOwnership(expected.key)
             && !anotherSubjectOwnsSameNativeFlow(expected.subject, expected);
     }
 
@@ -238,6 +264,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
                 continue;
             }
             boolean sameNativeFlow = entry.getValue().resolutions.values().stream()
+                .flatMap(bySchema -> bySchema.values().stream())
                 .filter(Unique.class::isInstance)
                 .map(Unique.class::cast)
                 .anyMatch(selectedFlow::sameSessionAndReference);
@@ -260,6 +287,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
         boolean selectedSubjectFound = false;
         for (Map.Entry<ProofSubjectRef, SubjectState> entry : subjects.entrySet()) {
             boolean subjectMatches = entry.getValue().resolutions.values().stream()
+                .flatMap(bySchema -> bySchema.values().stream())
                 .filter(Unique.class::isInstance)
                 .map(Unique.class::cast)
                 .anyMatch(unique -> unique.interactionRef.equals(candidate));
@@ -312,8 +340,15 @@ final class ProofSubjectRegistry implements ProofSubjects {
         }
     }
 
+    private boolean hasSharedOwnership(CorrelationKey key) {
+        return subjectsByKey.getOrDefault(key, Set.of()).size() > 1;
+    }
+
     private static final class SubjectState {
-        private final Map<CorrelationKey, Resolution> resolutions = new HashMap<>();
+        private final Map<
+            CorrelationKey,
+            Map<EvidenceSchemaId, Resolution>
+        > resolutions = new HashMap<>();
     }
 
     private static final class RuntimeProofSubjectRef implements ProofSubjectRef {

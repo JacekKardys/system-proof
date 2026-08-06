@@ -158,7 +158,8 @@ final class SemanticControlCoordinator
                     Optional<NativeFlowResolution> resolved =
                         proofSubjects.soleUniqueNativeFlow(
                             entry.proofSubject.orElseThrow(),
-                            nativeFlowKey.orElseThrow()
+                            nativeFlowKey.orElseThrow(),
+                            entry.selector.nativeFlowReferenceSchema().orElseThrow()
                         );
                     if (resolved.isEmpty()) {
                         continue;

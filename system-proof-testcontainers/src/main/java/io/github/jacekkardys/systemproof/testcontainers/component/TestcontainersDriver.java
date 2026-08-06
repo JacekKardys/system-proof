@@ -43,7 +43,11 @@ public abstract class TestcontainersDriver<
             .withNetwork(network)
             .withNetworkAliases(component.id().toString(), networkAlias(component))
             .withExposedPorts(plan.exposedPorts())
-            .withLogConsumer(new ContainerLogConsumer(driverContext, component));
+            .withLogConsumer(new ContainerLogConsumer(
+                driverContext,
+                component,
+                output -> sanitizeContainerOutput(typed, output)
+            ));
 
         driverContext.log(component, LogLevel.INFO, "Starting container");
         try {
@@ -77,6 +81,14 @@ public abstract class TestcontainersDriver<
     }
 
     protected abstract ContainerPlan create(T component, DriverContext context);
+
+    /**
+     * Removes component-owned secrets from one container output frame before journaling.
+     * The default preserves the complete frame.
+     */
+    protected String sanitizeContainerOutput(T component, String output) {
+        return output;
+    }
 
     protected O createOperations(T component, StartedContainer container, DriverContext context) {
         return null;
