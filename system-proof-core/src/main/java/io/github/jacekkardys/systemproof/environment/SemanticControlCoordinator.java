@@ -138,7 +138,7 @@ final class SemanticControlCoordinator
                     specification.maximumDuration(),
                     () -> timeout(entry)
                 );
-                if (guardCanTimeOut(entry.state)) {
+                if (guardAwaitsTimedBoundary(entry.state)) {
                     entry.timeoutTask = scheduled;
                 } else {
                     scheduled.cancel();
@@ -173,7 +173,7 @@ final class SemanticControlCoordinator
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
             for (GuardEntry entry : List.copyOf(guards.values())) {
-                if (guardCanTimeOut(entry.state)
+                if (guardIsActiveForFailureOrTeardown(entry.state)
                     && entry.concerns(connectionId)) {
                     failGuardLocked(
                         entry,
@@ -207,6 +207,11 @@ final class SemanticControlCoordinator
         if (guardDecision.closeSession) {
             abortGuardUsesLocked(
                 forwardedPredecessors,
+                SemanticPredecessorGuardFailure.SESSION_ABANDONED,
+                afterTransition
+            );
+            abortGuardUsesLocked(
+                guardDecision.authorizedSuccessors,
                 SemanticPredecessorGuardFailure.SESSION_ABANDONED,
                 afterTransition
             );
@@ -316,14 +321,14 @@ final class SemanticControlCoordinator
         List<GuardUse> authorized = new ArrayList<>();
         boolean close = false;
         for (GuardEntry entry : guards.values()) {
-            if (!guardEnforcesSuccessor(entry)) {
+            if (!guardEnforcesLaterTarget(entry)) {
                 continue;
             }
             SelectorSelection selection;
             try {
                 selection = select(entry.successorSelector, interaction);
             } catch (RuntimeException | Error failure) {
-                if (guardCanTimeOut(entry.state)) {
+                if (guardAwaitsTimedBoundary(entry.state)) {
                     failGuardLocked(
                         entry,
                         SemanticPredecessorGuardFailure.SELECTOR_EVALUATION,
@@ -575,7 +580,7 @@ final class SemanticControlCoordinator
     private boolean cancel(GuardEntry entry) {
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
-            if (!guardCanTimeOut(entry.state)) {
+            if (!guardAwaitsTimedBoundary(entry.state)) {
                 return false;
             }
             terminalGuardLocked(
@@ -608,7 +613,7 @@ final class SemanticControlCoordinator
     private void timeout(GuardEntry entry) {
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
-            if (!guardCanTimeOut(entry.state)) {
+            if (!guardAwaitsTimedBoundary(entry.state)) {
                 return;
             }
             terminalGuardLocked(
@@ -738,7 +743,7 @@ final class SemanticControlCoordinator
                 }
             }
             for (GuardEntry entry : List.copyOf(guards.values())) {
-                if (guardCanTimeOut(entry.state)) {
+                if (guardIsActiveForFailureOrTeardown(entry.state)) {
                     entry.retainCancelledEnforcement = true;
                     terminalGuardLocked(
                         entry,
@@ -834,8 +839,7 @@ final class SemanticControlCoordinator
         SemanticPredecessorGuardFailure failure,
         List<Runnable> afterTransition
     ) {
-        if (!guardCanTimeOut(entry.state)
-            && entry.state != SemanticPredecessorGuardState.SUCCESSOR_AUTHORIZED) {
+        if (!guardIsActiveForFailureOrTeardown(entry.state)) {
             return;
         }
         terminalGuardLocked(
@@ -998,14 +1002,23 @@ final class SemanticControlCoordinator
         }
     }
 
-    private static boolean guardCanTimeOut(SemanticPredecessorGuardState state) {
+    private static boolean guardAwaitsTimedBoundary(
+        SemanticPredecessorGuardState state
+    ) {
         return state == SemanticPredecessorGuardState.ARMED
             || state == SemanticPredecessorGuardState.PREDECESSOR_OBSERVED
             || state == SemanticPredecessorGuardState.PREDECESSOR_SATISFIED;
     }
 
-    private static boolean guardEnforcesSuccessor(GuardEntry entry) {
-        return guardCanTimeOut(entry.state)
+    private static boolean guardIsActiveForFailureOrTeardown(
+        SemanticPredecessorGuardState state
+    ) {
+        return guardAwaitsTimedBoundary(state)
+            || state == SemanticPredecessorGuardState.SUCCESSOR_AUTHORIZED;
+    }
+
+    private static boolean guardEnforcesLaterTarget(GuardEntry entry) {
+        return guardAwaitsTimedBoundary(entry.state)
             || entry.state == SemanticPredecessorGuardState.VIOLATED
             || entry.state == SemanticPredecessorGuardState.TIMED_OUT
             || entry.state == SemanticPredecessorGuardState.FAILED

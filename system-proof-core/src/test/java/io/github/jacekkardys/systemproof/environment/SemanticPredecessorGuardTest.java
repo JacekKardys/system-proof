@@ -298,6 +298,89 @@ class SemanticPredecessorGuardTest {
     }
 
     @Test
+    void shouldFailEveryAuthorizedGuardWhenAnyMatchingGuardRejectsInEitherArmOrder()
+        throws Exception {
+        assertAggregateCloseOrder(true);
+        assertAggregateCloseOrder(false);
+    }
+
+    @Test
+    void shouldLinearizeRequiredObservationFailureAgainstForwardedReport()
+        throws Exception {
+        Fixture failedFixture = fixture();
+        AuthorizedScenario failed = authorizedScenario(failedFixture, 22);
+
+        runInOrder(
+            () -> failedFixture.coordinator.observationFailed(SUCCESSOR_CONNECTION),
+            failed.permit::forwarded
+        );
+
+        assertThat(await(failed.guard.completion())).isEqualTo(
+            SemanticPredecessorGuardState.FAILED
+        );
+        assertThat(relations(failedFixture, failed.guard)).isEmpty();
+        assertThat(facts(failedFixture).stream()
+            .filter(event -> event.guardRef().equals(failed.guard.ref()))
+            .filter(event -> event.failure()
+                .filter(SemanticPredecessorGuardFailure.REQUIRED_OBSERVATION_FAILURE::equals)
+                .isPresent()))
+            .hasSize(1);
+
+        Fixture satisfiedFixture = fixture();
+        AuthorizedScenario satisfied = authorizedScenario(satisfiedFixture, 23);
+
+        runInOrder(
+            satisfied.permit::forwarded,
+            () -> satisfiedFixture.coordinator.observationFailed(SUCCESSOR_CONNECTION)
+        );
+
+        assertThat(await(satisfied.guard.completion())).isEqualTo(
+            SemanticPredecessorGuardState.SATISFIED
+        );
+        assertThat(relations(satisfiedFixture, satisfied.guard)).hasSize(1);
+    }
+
+    @Test
+    void shouldLinearizeTeardownAgainstForwardedReportAndCompleteWithoutCallback()
+        throws Exception {
+        Fixture cancelledFixture = fixture();
+        AuthorizedScenario cancelled = authorizedScenario(cancelledFixture, 24);
+
+        runInOrder(
+            cancelledFixture.coordinator::completeExecution,
+            cancelled.permit::forwarded
+        );
+
+        assertThat(await(cancelled.guard.completion())).isEqualTo(
+            SemanticPredecessorGuardState.CANCELLED
+        );
+        assertThat(relations(cancelledFixture, cancelled.guard)).isEmpty();
+
+        Fixture satisfiedFixture = fixture();
+        AuthorizedScenario satisfied = authorizedScenario(satisfiedFixture, 25);
+
+        runInOrder(
+            satisfied.permit::forwarded,
+            satisfiedFixture.coordinator::completeExecution
+        );
+
+        assertThat(await(satisfied.guard.completion())).isEqualTo(
+            SemanticPredecessorGuardState.SATISFIED
+        );
+        assertThat(relations(satisfiedFixture, satisfied.guard)).hasSize(1);
+
+        Fixture noCallbackFixture = fixture();
+        AuthorizedScenario noCallback = authorizedScenario(noCallbackFixture, 26);
+
+        noCallbackFixture.coordinator.completeExecution();
+
+        assertThat(await(noCallback.guard.completion())).isEqualTo(
+            SemanticPredecessorGuardState.CANCELLED
+        );
+        assertThat(relations(noCallbackFixture, noCallback.guard)).isEmpty();
+    }
+
+    @Test
     void shouldLinearizeCancelTimeoutTeardownAndOutcomeRaces() throws Exception {
         Fixture cancelledFixture = fixture();
         GuardScenario cancelled = confirmedScenario(cancelledFixture, 13);
@@ -427,6 +510,111 @@ class SemanticPredecessorGuardTest {
         );
     }
 
+    private static void assertAggregateCloseOrder(boolean satisfiedGuardArmedFirst)
+        throws Exception {
+        Fixture fixture = fixture();
+        int seed = satisfiedGuardArmedFirst ? 20 : 21;
+        ProofSubjectRef subject = fixture.proofSubjects.create();
+        CorrelationKey key = key(seed);
+        fixture.proofSubjects.arm(subject, key);
+        String predecessorRef = "p-" + seed;
+        String successorRef = "s-" + seed;
+        SemanticPredecessorGuard satisfied;
+        SemanticPredecessorGuard violating;
+        if (satisfiedGuardArmedFirst) {
+            satisfied = armConfirmedGuard(
+                fixture,
+                subject,
+                key,
+                predecessorRef,
+                successorRef
+            );
+            violating = armConfirmedGuard(
+                fixture,
+                subject,
+                key,
+                "absent-" + seed,
+                successorRef
+            );
+        } else {
+            violating = armConfirmedGuard(
+                fixture,
+                subject,
+                key,
+                "absent-" + seed,
+                successorRef
+            );
+            satisfied = armConfirmedGuard(
+                fixture,
+                subject,
+                key,
+                predecessorRef,
+                successorRef
+            );
+        }
+        RecordedInteraction predecessor = predecessor(
+            "confirmed:" + predecessorRef,
+            1,
+            1
+        );
+        correlate(fixture, key, predecessor, PREDECESSOR_REF_CODEC, predecessorRef);
+        assertForwarded(fixture.coordinator.permit(predecessor));
+        RecordedInteraction successor = successor("positive:" + successorRef, 1, 1);
+        correlate(fixture, key, successor, SUCCESSOR_REF_CODEC, successorRef);
+
+        ForwardingPermit rejected = fixture.coordinator.permit(successor);
+
+        assertThat(rejected.awaitDecision()).isEqualTo(ForwardingDecision.CLOSE_SESSION);
+        rejected.forwarded();
+        assertThat(await(satisfied.completion())).isEqualTo(
+            SemanticPredecessorGuardState.FAILED
+        );
+        assertThat(await(violating.completion())).isEqualTo(
+            SemanticPredecessorGuardState.VIOLATED
+        );
+        assertThat(relations(fixture, satisfied)).isEmpty();
+        assertThat(relations(fixture, violating)).isEmpty();
+    }
+
+    private static AuthorizedScenario authorizedScenario(Fixture fixture, int seed)
+        throws Exception {
+        GuardScenario scenario = confirmedScenario(fixture, seed);
+        RecordedInteraction predecessor = predecessor("confirmed:p-" + seed, 1, 1);
+        correlate(fixture, scenario.key, predecessor, PREDECESSOR_REF_CODEC, "p-" + seed);
+        assertForwarded(fixture.coordinator.permit(predecessor));
+        RecordedInteraction successor = successor("positive:s-" + seed, 1, 1);
+        correlate(fixture, scenario.key, successor, SUCCESSOR_REF_CODEC, "s-" + seed);
+        ForwardingPermit permit = fixture.coordinator.permit(successor);
+        assertThat(permit.awaitDecision()).isEqualTo(ForwardingDecision.FORWARD);
+        assertThat(scenario.guard.state()).isEqualTo(
+            SemanticPredecessorGuardState.SUCCESSOR_AUTHORIZED
+        );
+        return new AuthorizedScenario(scenario.guard, permit);
+    }
+
+    private static void runInOrder(Runnable first, Runnable second) throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch firstCompleted = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<?> firstResult = executor.submit(() -> {
+                awaitLatch(start);
+                try {
+                    first.run();
+                } finally {
+                    firstCompleted.countDown();
+                }
+            });
+            Future<?> secondResult = executor.submit(() -> {
+                awaitLatch(start);
+                awaitLatch(firstCompleted);
+                second.run();
+            });
+            start.countDown();
+            firstResult.get(10, TimeUnit.SECONDS);
+            secondResult.get(10, TimeUnit.SECONDS);
+        }
+    }
+
     private static void assertOutcomeOrder(boolean forwardedFirst) throws Exception {
         Fixture fixture = fixture();
         int seed = forwardedFirst ? 18 : 19;
@@ -517,6 +705,37 @@ class SemanticPredecessorGuardTest {
             )
         );
         return new GuardScenario(guard, key);
+    }
+
+    private static SemanticPredecessorGuard armConfirmedGuard(
+        Fixture fixture,
+        ProofSubjectRef subject,
+        CorrelationKey key,
+        String predecessorRef,
+        String successorRef
+    ) {
+        return fixture.coordinator.guard(SemanticPredecessorGuardSpec.requiring(
+            subject,
+            SemanticPredecessorRequirement.confirmed(selector(
+                PREDECESSOR_CONNECTION,
+                PREDECESSOR_CODEC,
+                PREDECESSOR_REF_CODEC,
+                subject,
+                key,
+                "confirmed:",
+                predecessorRef
+            )),
+            selector(
+                SUCCESSOR_CONNECTION,
+                SUCCESSOR_CODEC,
+                SUCCESSOR_REF_CODEC,
+                subject,
+                key,
+                "positive:",
+                successorRef
+            ),
+            MAXIMUM_DURATION
+        ));
     }
 
     private static SemanticInteractionSelector<String> selector(
@@ -654,6 +873,16 @@ class SemanticPredecessorGuardTest {
             .toList();
     }
 
+    private static List<SemanticPredecessorGuardEvent> relations(
+        Fixture fixture,
+        SemanticPredecessorGuard guard
+    ) {
+        return facts(fixture).stream()
+            .filter(event -> event.guardRef().equals(guard.ref()))
+            .filter(event -> event.kind() == SemanticPredecessorGuardEvent.Kind.RELATION)
+            .toList();
+    }
+
     private static void assertForwarded(ForwardingPermit permit) throws Exception {
         assertThat(permit.awaitDecision()).isEqualTo(ForwardingDecision.FORWARD);
         permit.forwarded();
@@ -683,6 +912,11 @@ class SemanticPredecessorGuardTest {
     ) {}
 
     private record GuardScenario(SemanticPredecessorGuard guard, CorrelationKey key) {}
+
+    private record AuthorizedScenario(
+        SemanticPredecessorGuard guard,
+        ForwardingPermit permit
+    ) {}
 
     private static final class ManualTimeoutScheduler
         implements SemanticControlCoordinator.TimeoutScheduler {

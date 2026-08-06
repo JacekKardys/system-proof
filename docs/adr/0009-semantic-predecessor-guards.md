@@ -80,11 +80,24 @@ gateway forwards zero successor bytes and closes the affected session. The guard
 Simultaneous gateway tasks therefore have a deterministic result based only on which task enters
 the coordinator first.
 
+One successor decision is aggregate across every matching guard. If any guard requires
+`CLOSE_SESSION`, every guard tentatively authorized by that same interaction is completed
+`FAILED` before the close decision returns. No partial `SUCCESSOR_AUTHORIZED` state, pending
+completion, satisfied relation, or arm-order-dependent result survives the aggregate rejection.
+
 Cancellation, timeout, required observation failure, route/session failure, and teardown are
 serialized at the same point and never authorize pending traffic. A timed-out or failed guard is
 retained as a fail-closed tombstone so a later target successor cannot pass as unrelated traffic.
 The first terminal result wins. A cleanup failure after a violation is emitted only as a typed
 `SUPPRESSED_FAILURE` fact with a safe classification; it cannot overwrite the violation.
+
+`SUCCESSOR_AUTHORIZED` is no longer waiting for a timed boundary, but it remains active for
+required-observation failure and teardown until its exact forwarding report wins. If failure or
+teardown linearizes first, completion becomes `FAILED` or `CANCELLED` and a later `forwarded()`
+report cannot append a relation. If `forwarded()` linearizes first, exactly one valid relation and
+`SATISFIED` completion remain authoritative. The implementation therefore keeps distinct state
+predicates for timed-boundary waiting, failure/teardown activity, and enforcement of a later target
+successor; timeout capability is not a general lifecycle definition.
 
 ## Exact correlation and concurrent subjects
 
