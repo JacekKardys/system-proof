@@ -122,12 +122,10 @@ class ProofSubjectCorrelationTest {
             NATIVE_REFERENCE_CODEC,
             new byte[] {1, 2, 3}
         );
-        EvidenceCodec<byte[]> unusedCodec = codecThatMustNotBeCalled();
-
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            unusedCodec
+            NATIVE_REFERENCE_CODEC
         )).isInstanceOf(CorrelationResult.Missing.class);
 
         InteractionRef first = interaction(1, 1);
@@ -150,15 +148,111 @@ class ProofSubjectCorrelationTest {
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            unusedCodec
+            NATIVE_REFERENCE_CODEC
         )).isInstanceOf(CorrelationResult.Ambiguous.class);
 
         fixture.registry.publish(first, contribution);
         assertThat(fixture.registry.correlation(
             subject,
             key,
-            unusedCodec
+            NATIVE_REFERENCE_CODEC
         )).isInstanceOf(CorrelationResult.Ambiguous.class);
+    }
+
+    @Test
+    void shouldResolveOneSubjectAndKeyIndependentlyInEachNativeReferenceNamespace() {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.registry.create();
+        CorrelationKey key = key("multi-protocol-operation");
+        fixture.registry.arm(subject, key);
+
+        fixture.registry.publish(
+            interaction(1, 1),
+            CorrelationContribution.capture(
+                key,
+                NATIVE_REFERENCE_CODEC,
+                new byte[] {1}
+            )
+        );
+        fixture.registry.publish(
+            interaction(2, 1),
+            CorrelationContribution.capture(
+                key,
+                OTHER_NATIVE_REFERENCE_CODEC,
+                new byte[] {2}
+            )
+        );
+
+        assertThat(fixture.registry.correlation(
+            subject,
+            key,
+            NATIVE_REFERENCE_CODEC
+        )).isInstanceOf(CorrelationResult.Unique.class);
+        assertThat(fixture.registry.correlation(
+            subject,
+            key,
+            OTHER_NATIVE_REFERENCE_CODEC
+        )).isInstanceOf(CorrelationResult.Unique.class);
+
+        fixture.registry.publish(
+            interaction(1, 2),
+            CorrelationContribution.capture(
+                key,
+                NATIVE_REFERENCE_CODEC,
+                new byte[] {3}
+            )
+        );
+
+        assertThat(fixture.registry.correlation(
+            subject,
+            key,
+            NATIVE_REFERENCE_CODEC
+        )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(fixture.registry.correlation(
+            subject,
+            key,
+            OTHER_NATIVE_REFERENCE_CODEC
+        )).isInstanceOf(CorrelationResult.Unique.class);
+    }
+
+    @Test
+    void shouldMakeEveryNativeReferenceNamespaceAmbiguousWhenKeyBecomesShared() {
+        Fixture fixture = fixture();
+        ProofSubjectRef first = fixture.registry.create();
+        ProofSubjectRef second = fixture.registry.create();
+        CorrelationKey key = key("late-shared-multi-protocol-operation");
+        fixture.registry.arm(first, key);
+        fixture.registry.publish(
+            interaction(1, 1),
+            CorrelationContribution.capture(
+                key,
+                NATIVE_REFERENCE_CODEC,
+                new byte[] {1}
+            )
+        );
+        fixture.registry.publish(
+            interaction(2, 1),
+            CorrelationContribution.capture(
+                key,
+                OTHER_NATIVE_REFERENCE_CODEC,
+                new byte[] {2}
+            )
+        );
+
+        fixture.registry.arm(second, key);
+
+        for (ProofSubjectRef subject : List.of(first, second)) {
+            assertThat(fixture.registry.correlation(
+                subject,
+                key,
+                NATIVE_REFERENCE_CODEC
+            )).isInstanceOf(CorrelationResult.Ambiguous.class);
+            assertThat(fixture.registry.correlation(
+                subject,
+                key,
+                OTHER_NATIVE_REFERENCE_CODEC
+            )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        }
     }
 
     @Test
@@ -323,13 +417,12 @@ class ProofSubjectCorrelationTest {
             fixture.registry.correlation(subject, key, NATIVE_REFERENCE_CODEC);
         assertThat(second.nativeReference()).containsExactly(expected);
 
-        assertThatThrownBy(() -> fixture.registry.correlation(
+        assertThat(fixture.registry.correlation(
             subject,
             key,
             OTHER_NATIVE_REFERENCE_CODEC
         ))
-            .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("Evidence schema mismatch");
+            .isInstanceOf(CorrelationResult.Missing.class);
 
         String diagnostics = new JournalRenderer()
             .render(fixture.journal.snapshot())
@@ -614,31 +707,6 @@ class ProofSubjectCorrelationTest {
                     throw propagate(decodeFailure);
                 }
                 return encodedEvidence;
-            }
-        };
-    }
-
-    private static EvidenceCodec<byte[]> codecThatMustNotBeCalled() {
-        return new EvidenceCodec<>() {
-            @Override
-            public EvidenceSchemaId schemaId() {
-                throw new AssertionError(
-                    "Missing or ambiguous lookup invoked codec schema validation"
-                );
-            }
-
-            @Override
-            public byte[] encode(byte[] evidence) {
-                throw new AssertionError(
-                    "Missing or ambiguous lookup invoked codec encoding"
-                );
-            }
-
-            @Override
-            public byte[] decode(byte[] encodedEvidence) {
-                throw new AssertionError(
-                    "Missing or ambiguous lookup invoked codec decoding"
-                );
             }
         };
     }

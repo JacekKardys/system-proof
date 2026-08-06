@@ -499,6 +499,68 @@ class SemanticControlCoordinatorTest {
     }
 
     @Test
+    void shouldNotReachSubjectOnlyHoldWhenKeyBecomesSharedAfterPublication()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef first = fixture.proofSubjects.create();
+        ProofSubjectRef second = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(20);
+        fixture.proofSubjects.arm(first, key);
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("target").forSubject(first),
+            MAXIMUM_HOLD
+        );
+        RecordedInteraction candidate = interaction("target", 1);
+        fixture.proofSubjects.publish(
+            candidate.interactionRef(),
+            CorrelationContribution.capture(key, CODEC, "native-reference")
+        );
+
+        fixture.proofSubjects.arm(second, key);
+
+        assertThat(fixture.proofSubjects.correlation(first, key, CODEC))
+            .isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(fixture.proofSubjects.correlation(second, key, CODEC))
+            .isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertImmediate(fixture.coordinator.permit(candidate));
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldNotReachNativeFlowHoldWhenKeyBecomesSharedAfterPublication()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef first = fixture.proofSubjects.create();
+        ProofSubjectRef second = fixture.proofSubjects.create();
+        CorrelationKey key = correlationKey(21);
+        fixture.proofSubjects.arm(first, key);
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("commit:native-reference").forSubject(first).through(
+                key,
+                CODEC,
+                evidence -> evidence.substring("commit:".length())
+            ),
+            MAXIMUM_HOLD
+        );
+        RecordedInteraction candidate = interaction("commit:native-reference", 1);
+        fixture.proofSubjects.publish(
+            candidate.interactionRef(),
+            CorrelationContribution.capture(key, CODEC, "native-reference")
+        );
+
+        fixture.proofSubjects.arm(second, key);
+
+        assertThat(fixture.proofSubjects.correlation(first, key, CODEC))
+            .isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(fixture.proofSubjects.correlation(second, key, CODEC))
+            .isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertImmediate(fixture.coordinator.permit(candidate));
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
+        assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
     void shouldKeepTwoSubjectBoundHoldsCorrelationIsolated() throws Exception {
         Fixture fixture = fixture();
         ProofSubjectRef leftSubject = fixture.proofSubjects.create();
@@ -780,6 +842,61 @@ class SemanticControlCoordinatorTest {
 
         assertThat(hold.state()).isEqualTo(SemanticHoldState.ARMED);
         assertThat(hold.cancel()).isTrue();
+    }
+
+    @Test
+    void shouldIgnoreSharedKeyStaleFlowWhenIndependentKeyOwnsSameNativeFlow()
+        throws Exception {
+        Fixture fixture = fixture();
+        ProofSubjectRef selected = fixture.proofSubjects.create();
+        ProofSubjectRef stale = fixture.proofSubjects.create();
+        ProofSubjectRef duplicate = fixture.proofSubjects.create();
+        CorrelationKey selectedKey = correlationKey(22);
+        CorrelationKey sharedKey = correlationKey(23);
+        fixture.proofSubjects.arm(selected, selectedKey);
+        fixture.proofSubjects.arm(stale, sharedKey);
+        fixture.proofSubjects.publish(
+            interactionRef(1),
+            CorrelationContribution.capture(sharedKey, CODEC, "same-native-flow")
+        );
+        fixture.proofSubjects.arm(duplicate, sharedKey);
+        fixture.proofSubjects.publish(
+            interactionRef(2),
+            CorrelationContribution.capture(selectedKey, CODEC, "same-native-flow")
+        );
+        SemanticHold hold = fixture.coordinator.arm(
+            selector("commit:same-native-flow").forSubject(selected).through(
+                selectedKey,
+                CODEC,
+                evidence -> evidence.substring("commit:".length())
+            ),
+            MAXIMUM_HOLD
+        );
+
+        ForwardingPermit permit = fixture.coordinator.permit(
+            interaction("commit:same-native-flow", 3)
+        );
+
+        assertThat(fixture.proofSubjects.correlation(
+            selected,
+            selectedKey,
+            CODEC
+        )).isInstanceOf(CorrelationResult.Unique.class);
+        assertThat(fixture.proofSubjects.correlation(
+            stale,
+            sharedKey,
+            CODEC
+        )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(fixture.proofSubjects.correlation(
+            duplicate,
+            sharedKey,
+            CODEC
+        )).isInstanceOf(CorrelationResult.Ambiguous.class);
+        assertThat(hold.state()).isEqualTo(SemanticHoldState.REACHED_HELD);
+        assertThat(hold.cancel()).isTrue();
+        assertThat(permit.awaitDecision()).isEqualTo(
+            ForwardingDecision.CLOSE_SESSION
+        );
     }
 
     @Test

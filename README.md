@@ -44,8 +44,10 @@ Testcontainers. These boundaries are enforced by `CoreModuleBoundaryTest` and
 The PostgreSQL adapter is intentionally not a general proxy. Its characterized pgJDBC subset,
 commit-success definition, plaintext/TLS boundary, memory limits, and durability preflight are in the
 [`system-proof-postgresql` module](system-proof-postgresql/README.md) and
-[`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). This evidence does not yet implement AML
-attribution or claim the final T1 proof.
+[`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). The reference example composes that evidence
+with HTTP and SMPP through one canonical SMS fingerprint and attributes one proof subject to one
+transaction as recorded in [`ADR 0008`](docs/adr/0008-aml-subject-transaction-attribution.md). This
+attribution does not establish cross-connection predecessor order or claim the final T1 proof.
 
 The HTTP adapter is likewise a characterized, fail-closed subset rather than a general HTTP
 proxy. Its framing limits, tri-state `ACK/Jasmin` acknowledgement contract, local exchange
@@ -395,16 +397,17 @@ environment; the environment-owned append path remains closed.
 `ProofSubjectRef`, arms it with a namespaced/versioned `CorrelationKey` containing only defensively
 copied digest material, and returns a typed `CorrelationResult<T>`. Results are explicitly
 `MISSING`, `UNIQUE`, or terminal `AMBIGUOUS`; only `UNIQUE` exposes an `InteractionRef` and decoded
-protocol-native reference. A typed lookup uses the adapter-owned `EvidenceCodec<T>` and fails on a
-schema mismatch. Core never interprets HTTP, SMPP, PostgreSQL, SMS, token, or transaction fields.
+protocol-native reference. A typed lookup uses the adapter-owned `EvidenceCodec<T>` and resolves
+independently in that codec's `EvidenceSchemaId` namespace. Core never interprets HTTP, SMPP,
+PostgreSQL, SMS, token, or transaction fields.
 
 Subjects belong to exactly one environment execution. Cross-environment use is rejected, new
 creation/arming/publication stops at teardown, and existing results remain queryable afterward. One
-distinct candidate is unique; a second interaction, retry, reconnect, or different native snapshot
-is ambiguous. An exact duplicate is idempotent only when subject, key, interaction, native schema,
-and encoded native reference all match. Sharing one key across subjects makes every association
-ambiguous. Missing or ambiguous cases never select the first, latest, earliest, or next journal
-entry.
+distinct candidate is unique within its native-reference schema; a second interaction, retry,
+reconnect, or different native snapshot in that schema is ambiguous. An exact duplicate is
+idempotent only when subject, key, interaction, native schema, and encoded native reference all
+match. Sharing one key across subjects makes every association ambiguous. Missing or ambiguous
+cases never select the first, latest, earliest, or next journal entry.
 
 The environment owns one thread-safe `InteractionDecisionCoordinator` shared by all route contexts.
 It performs exact semantic-hold matching and state transitions under a short serialized boundary;
