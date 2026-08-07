@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 
 /** Preserves the startup cause with diagnostics captured after cleanup and final STOPPED state. */
 public final class EnvironmentStartException extends RuntimeException {

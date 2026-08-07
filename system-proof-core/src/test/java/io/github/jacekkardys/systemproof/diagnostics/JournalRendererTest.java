@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
@@ -27,6 +28,7 @@ import io.github.jacekkardys.systemproof.journal.JournalSequence;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.ComponentId;
@@ -56,7 +58,7 @@ class JournalRendererTest {
             entry(2, Optional.empty(), diagnostic("without time"))
         ));
 
-        assertThat(renderer.render(snapshot).content()).isEqualTo(
+        assertThat(renderer.render(snapshot)).isEqualTo(
             "T+00:00:00.250 [FRAMEWORK] [environment] first"
                 + System.lineSeparator()
                 + "T+00:00:00.250 [FRAMEWORK] [environment] second"
@@ -67,7 +69,8 @@ class JournalRendererTest {
 
     @Test
     void shouldRenderAnUnknownOpenScenarioEventWithoutInspectingItsPayload() {
-        JournalEntry entry = entry(1, new ClientScenarioEvent("not-rendered"));
+        AtomicInteger toStringCalls = new AtomicInteger();
+        JournalEntry entry = entry(1, new ClientScenarioEvent("not-rendered", toStringCalls));
 
         assertThat(renderer.renderLines(entry))
             .singleElement()
@@ -75,6 +78,7 @@ class JournalRendererTest {
             .contains("[EVENT] [ClientScenarioEvent]")
             .contains("Recorded scenario event type=")
             .doesNotContain("not-rendered");
+        assertThat(toStringCalls).hasValue(0);
     }
 
     @Test
@@ -86,12 +90,12 @@ class JournalRendererTest {
             entry(2, new DiagnosticEvent(
                 new DiagnosticEvent.ComponentSubject(first),
                 LogLevel.INFO,
-                "first output"
+                redacted("first output")
             )),
             entry(3, new DiagnosticEvent(
                 new DiagnosticEvent.ComponentSubject(second),
                 LogLevel.INFO,
-                "second output"
+                redacted("second output")
             )),
             entry(4, new CheckpointEvent(
                 second,
@@ -167,17 +171,17 @@ class JournalRendererTest {
             .mapToObj(index -> entry(index + 1L, events.get(index)))
             .toList());
 
-        assertThat(renderer.render(snapshot).content())
+        assertThat(renderer.render(snapshot))
             .contains(
                 "Environment failed",
                 "Component failed",
                 "Consumer target available",
                 "diagnostic",
-                "Environment startup failed: IllegalStateException - broken",
-                "Component startup failed: IllegalStateException - broken",
-                "Component cleanup failed: IllegalStateException - broken",
-                "Connection materialization failed: IllegalStateException - broken",
-                "Connection cleanup failed: IllegalStateException - broken",
+                "Environment startup failed: IllegalStateException",
+                "Component startup failed: IllegalStateException",
+                "Component cleanup failed: IllegalStateException",
+                "Connection materialization failed: IllegalStateException",
+                "Connection cleanup failed: IllegalStateException",
                 "Driver resource 'shared-resource' cleanup failed",
                 "Observed typed evidence schema=test.external:interaction version=1",
                 "Created proof subject",
@@ -191,7 +195,7 @@ class JournalRendererTest {
 
     @Test
     void shouldRenderLargeMultilineHistoryInExactStorageOrder() {
-        int entryCount = 4_000;
+        int entryCount = 1_000;
         List<JournalEntry> entries = IntStream.range(0, entryCount)
             .mapToObj(index -> entry(
                 index + 1L,
@@ -199,7 +203,7 @@ class JournalRendererTest {
             ))
             .toList();
 
-        String rendered = renderer.render(snapshot(entries)).content();
+        String rendered = renderer.render(snapshot(entries));
         List<String> lines = rendered.lines().toList();
 
         assertThat(lines).hasSize(entryCount * 2);
@@ -209,8 +213,21 @@ class JournalRendererTest {
         }
         assertThat(lines.getFirst()).endsWith("entry-0-first");
         assertThat(lines.get(1)).endsWith("entry-0-second");
-        assertThat(lines.get(lines.size() - 2)).endsWith("entry-3999-first");
-        assertThat(lines.getLast()).endsWith("entry-3999-second");
+        assertThat(lines.get(lines.size() - 2)).endsWith("entry-999-first");
+        assertThat(lines.getLast()).endsWith("entry-999-second");
+    }
+
+    @Test
+    void shouldBoundTheCompleteRenderedJournal() {
+        List<JournalEntry> entries = IntStream.range(0, 100)
+            .mapToObj(index -> entry(index + 1L, diagnostic("x".repeat(4 * 1024))))
+            .toList();
+
+        String rendered = renderer.render(snapshot(entries));
+
+        assertThat(rendered)
+            .hasSizeLessThanOrEqualTo(256 * 1024)
+            .endsWith("[DIAGNOSTICS TRUNCATED]");
     }
 
     private static ScenarioJournalSnapshot snapshot(List<JournalEntry> entries) {
@@ -233,8 +250,12 @@ class JournalRendererTest {
         return new DiagnosticEvent(
             DiagnosticEvent.EnvironmentSubject.INSTANCE,
             LogLevel.INFO,
-            message
+            redacted(message)
         );
+    }
+
+    private static RedactedDiagnosticText redacted(String message) {
+        return RedactedDiagnosticText.redact(message, input -> input);
     }
 
     private static ConnectionDescriptor connection() {
@@ -269,5 +290,19 @@ class JournalRendererTest {
         );
     }
 
-    private record ClientScenarioEvent(String payload) implements ScenarioEvent {}
+    private static final class ClientScenarioEvent implements ScenarioEvent {
+        private final String payload;
+        private final AtomicInteger toStringCalls;
+
+        private ClientScenarioEvent(String payload, AtomicInteger toStringCalls) {
+            this.payload = payload;
+            this.toStringCalls = toStringCalls;
+        }
+
+        @Override
+        public String toString() {
+            toStringCalls.incrementAndGet();
+            return payload;
+        }
+    }
 }

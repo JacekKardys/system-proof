@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.junit.internal;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
+import io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.environment.Environment;
 import java.lang.reflect.Method;
 import java.util.Map;

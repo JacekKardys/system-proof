@@ -702,8 +702,7 @@ class InteractionGatewayTest {
                     .satisfies(event -> assertThat(event.failure())
                         .contains(SemanticHoldFailure.CORRELATION_INVALIDATED));
                 assertThat(new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
-                    .render(fixture.environment().journalSnapshot())
-                    .content())
+                    .render(fixture.environment().journalSnapshot()))
                     .doesNotContain(heldPayload, invalidatingPayload);
             }
         } finally {
@@ -1097,20 +1096,17 @@ class InteractionGatewayTest {
             .findFirst()
             .orElseThrow();
         assertThat(journalFailure.failure().failureType()).isEqualTo("IOException");
-        assertThat(journalFailure.failure().message())
-            .hasValueSatisfying(message -> assertThat(message)
-                .contains("Route cleanup failed for connection '")
-                .doesNotContain(
-                    "listener-secret",
-                    "cleanup-secret",
-                    "socket-cleanup-secret",
-                    "127.0.0.1",
-                    "32140",
-                    "42140",
-                    "52140"
-                ));
+        assertThat(journalFailure.toString()).doesNotContain(
+            "listener-secret",
+            "cleanup-secret",
+            "socket-cleanup-secret",
+            "127.0.0.1",
+            "32140",
+            "42140",
+            "52140"
+        );
         assertThat(environment.diagnostics().content())
-            .contains("Route cleanup failed for connection '")
+            .contains("Connection cleanup failed: IOException")
             .doesNotContain(
                 "listener-secret",
                 "cleanup-secret",
@@ -1449,10 +1445,7 @@ class InteractionGatewayTest {
         assertThat(consumerStarts).hasValue(0);
         assertThat(providerCloses).hasValue(1);
         assertThat(thrown.diagnostics().content())
-            .contains(
-                "Route preparation failed for connection '"
-                    + environment.connections().getFirst().id() + "'"
-            )
+            .contains("Connection materialization failed: IllegalStateException")
             .doesNotContain(
                 diagnosticSecret,
                 "session-secret",

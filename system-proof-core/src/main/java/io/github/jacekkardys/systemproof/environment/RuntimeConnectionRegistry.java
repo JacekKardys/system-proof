@@ -168,12 +168,6 @@ final class RuntimeConnectionRegistry {
             try {
                 prepared.add(prepareTargets(connection, endpointBindings));
             } catch (RuntimeException | Error failure) {
-                if (connection.routingMode() == RoutingMode.ROUTED) {
-                    events.protectRoutePreparationFailure(
-                        connection.declaration(),
-                        failure
-                    );
-                }
                 rollbackPreparedRoutes(prepared, failure);
                 throw failure;
             }
@@ -373,12 +367,6 @@ final class RuntimeConnectionRegistry {
             try {
                 installations.add(prepareInstallation(prepared));
             } catch (RuntimeException | Error failure) {
-                if (prepared.connection().routingMode() == RoutingMode.ROUTED) {
-                    events.protectRoutePreparationFailure(
-                        prepared.connection().declaration(),
-                        failure
-                    );
-                }
                 throw failure;
             }
         }
@@ -428,10 +416,6 @@ final class RuntimeConnectionRegistry {
                 targets.rollbackRoute();
             } catch (Exception | Error cleanupFailure) {
                 EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
-                events.protectRouteCleanupFailure(
-                    targets.connection().declaration(),
-                    cleanupFailure
-                );
                 events.connectionCleanupFailure(
                     targets.connection().declaration(),
                     cleanupFailure
@@ -448,10 +432,6 @@ final class RuntimeConnectionRegistry {
             ownership.closeTransactionRoute();
         } catch (Exception | Error cleanupFailure) {
             EnvironmentRuntimeFailures.accumulate(preparationFailure, cleanupFailure);
-            events.protectRouteCleanupFailure(
-                ownership.connection().declaration(),
-                cleanupFailure
-            );
             events.connectionCleanupFailure(
                 ownership.connection().declaration(),
                 cleanupFailure
@@ -480,10 +460,6 @@ final class RuntimeConnectionRegistry {
                 connection.closeRoute();
             } catch (Exception | Error cleanupFailure) {
                 EnvironmentRuntimeFailures.accumulate(startupFailure, cleanupFailure);
-                events.protectRouteCleanupFailure(
-                    connection.declaration(),
-                    cleanupFailure
-                );
                 events.connectionCleanupFailure(
                     connection.declaration(),
                     cleanupFailure
@@ -504,10 +480,6 @@ final class RuntimeConnectionRegistry {
             try {
                 connection.closeRoute();
             } catch (Exception | Error cleanupFailure) {
-                events.protectRouteCleanupFailure(
-                    connection.declaration(),
-                    cleanupFailure
-                );
                 connection.fail();
                 recordLifecycle(connection);
                 events.connectionCleanupFailure(

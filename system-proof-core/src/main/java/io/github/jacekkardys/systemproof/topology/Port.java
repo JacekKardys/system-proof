@@ -67,8 +67,11 @@ public abstract class Port<C> implements PortRef {
 
     private static String requireText(String value, String description) {
         Objects.requireNonNull(value, description + " must not be null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(description + " must not be blank");
+        if (value.length() > 64 || value.isBlank()
+            || value.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException(
+                description + " must be 1-64 non-control characters"
+            );
         }
         return value;
     }

@@ -18,6 +18,7 @@ import io.github.jacekkardys.systemproof.endpoint.RedisEndpoint;
 import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.StartedContainer;
@@ -70,7 +71,7 @@ public final class JasminTestcontainersDriver
     ) {
         SmppEndpoint smsc = context.resolve(component.smpp());
         java.net.URI callback = context.resolve(component.sms());
-        String result = new JasminBootstrap(
+        new JasminBootstrap(
             container.host(),
             container.mappedPort(configuration.administrationPort()),
             smsc.host(),
@@ -82,7 +83,14 @@ public final class JasminTestcontainersDriver
             component.configuration().adminUsername(),
             component.configuration().adminPassword().reveal()
         ).configure();
-        context.log(component, LogLevel.INFO, "Jasmin bootstrap completed " + result);
+        context.log(
+            component,
+            LogLevel.INFO,
+            RedactedDiagnosticText.redact(
+                "Jasmin bootstrap completed",
+                ignored -> "Jasmin bootstrap completed"
+            )
+        );
     }
 
     private String jasminConfiguration(

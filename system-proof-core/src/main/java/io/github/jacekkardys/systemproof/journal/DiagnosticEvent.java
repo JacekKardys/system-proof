@@ -4,16 +4,16 @@ import java.util.Objects;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
-/** Free-form diagnostic text with a structured subject and severity. */
+/** Explicitly sanitized diagnostic text with a structured subject and severity. */
 public record DiagnosticEvent(
     Subject subject,
     LogLevel level,
-    String message
+    RedactedDiagnosticText message
 ) implements ScenarioEvent {
     public DiagnosticEvent {
         subject = Objects.requireNonNull(subject, "subject must not be null");
         level = Objects.requireNonNull(level, "level must not be null");
-        message = requireText(message, "message");
+        message = Objects.requireNonNull(message, "message must not be null");
     }
 
     /** Stable subject of diagnostic text. */
@@ -43,13 +43,5 @@ public record DiagnosticEvent(
                 "connectionId must not be null"
             );
         }
-    }
-
-    private static String requireText(String value, String description) {
-        Objects.requireNonNull(value, description + " must not be null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(description + " must not be blank");
-        }
-        return value;
     }
 }

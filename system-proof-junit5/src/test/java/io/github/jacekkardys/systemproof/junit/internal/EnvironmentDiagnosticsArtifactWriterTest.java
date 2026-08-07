@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
+import io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics;
 
 class EnvironmentDiagnosticsArtifactWriterTest {
     private final EnvironmentDiagnosticsArtifactWriter writer =
@@ -17,19 +17,20 @@ class EnvironmentDiagnosticsArtifactWriterTest {
     void shouldWriteEnvironmentDiagnosticsToAStableScenarioArtifact(@TempDir Path directory) throws Exception {
         Method testMethod = Scenario.class.getDeclaredMethod("shouldRecordDiagnostics");
 
-        Path artifact = writer.write(
-            directory,
-            testMethod,
-            EnvironmentDiagnostics.diagnostics("component diagnostics")
-        );
+        EnvironmentDiagnostics diagnostics = diagnostics();
+        Path artifact = writer.write(directory, testMethod, diagnostics);
 
         assertThat(artifact)
             .isEqualTo(directory.resolve("Scenario-shouldRecordDiagnostics/environment.log").toAbsolutePath().normalize());
-        assertThat(Files.readString(artifact)).isEqualTo("component diagnostics");
+        assertThat(Files.readString(artifact)).isEqualTo(diagnostics.content());
     }
 
     private static final class Scenario {
         @SuppressWarnings("unused")
         void shouldRecordDiagnostics() {}
+    }
+
+    private static EnvironmentDiagnostics diagnostics() {
+        return EnvironmentDiagnosticsTestFixture.capture();
     }
 }

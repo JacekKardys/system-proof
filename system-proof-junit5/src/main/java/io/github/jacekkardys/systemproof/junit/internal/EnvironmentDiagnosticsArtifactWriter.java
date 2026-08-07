@@ -1,6 +1,6 @@
 package io.github.jacekkardys.systemproof.junit.internal;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
+import io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;

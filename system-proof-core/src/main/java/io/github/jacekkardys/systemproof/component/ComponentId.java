@@ -3,7 +3,7 @@ package io.github.jacekkardys.systemproof.component;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Stable component type plus an optional instance name. */
+/** Stable component type plus an optional 1-64 character ASCII instance qualifier. */
 public record ComponentId(ComponentType type, Optional<String> qualifier) {
     public ComponentId {
         type = Objects.requireNonNull(type, "type must not be null");
@@ -30,8 +30,10 @@ public record ComponentId(ComponentType type, Optional<String> qualifier) {
 
     private static String requireIdentifier(String value, String description) {
         Objects.requireNonNull(value, description + " must not be null");
-        if (!value.matches("[a-zA-Z0-9][a-zA-Z0-9_-]*")) {
-            throw new IllegalArgumentException("Invalid " + description + ": " + value);
+        if (value.length() > 64 || !value.matches("[a-zA-Z0-9][a-zA-Z0-9_-]*")) {
+            throw new IllegalArgumentException(
+                description + " must be 1-64 ASCII identifier characters"
+            );
         }
         return value.toLowerCase(java.util.Locale.ROOT);
     }

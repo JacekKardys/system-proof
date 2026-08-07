@@ -3,12 +3,14 @@ package io.github.jacekkardys.systemproof.component;
 import java.util.Locale;
 import java.util.Objects;
 
-/** Stable logical component kind, independent of a concrete instance. */
+/** Stable 1-64 character ASCII logical component kind, independent of an instance. */
 public record ComponentType(String value) {
     public ComponentType {
         Objects.requireNonNull(value, "component type must not be null");
-        if (!value.matches("[a-zA-Z0-9][a-zA-Z0-9_-]*")) {
-            throw new IllegalArgumentException("Invalid component type: " + value);
+        if (value.length() > 64 || !value.matches("[a-zA-Z0-9][a-zA-Z0-9_-]*")) {
+            throw new IllegalArgumentException(
+                "component type must be 1-64 ASCII identifier characters"
+            );
         }
         value = value.toLowerCase(Locale.ROOT);
     }

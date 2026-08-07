@@ -90,6 +90,12 @@ class ScenarioEventTest {
 
     private static void assertImmutableType(Type type, Set<Class<?>> inspected) {
         if (type instanceof ParameterizedType parameterized) {
+            if (parameterized.getRawType() == Class.class) {
+                assertThat(parameterized.getActualTypeArguments()).hasSize(1);
+                assertThat(parameterized.getActualTypeArguments()[0].getTypeName())
+                    .isEqualTo("? extends java.lang.Throwable");
+                return;
+            }
             assertThat(parameterized.getRawType()).isEqualTo(Optional.class);
             for (Type argument : parameterized.getActualTypeArguments()) {
                 assertImmutableType(argument, inspected);
@@ -114,6 +120,10 @@ class ScenarioEventTest {
             return;
         }
         if (valueType == CorrelationKey.class) {
+            assertOpaqueImmutableValue(valueType);
+            return;
+        }
+        if (valueType == RedactedDiagnosticText.class) {
             assertOpaqueImmutableValue(valueType);
             return;
         }

@@ -35,7 +35,6 @@ final class EnvironmentRuntimeFactory {
         JournalRenderer renderer = new JournalRenderer();
         EnvironmentEventPublisher events = new EnvironmentEventPublisher(
             journal,
-            new FailureRedactor(),
             new JournalSlf4jEmitter(logging, renderer)
         );
         ProofSubjectRegistry proofSubjects = new ProofSubjectRegistry(events);

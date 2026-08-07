@@ -158,8 +158,7 @@ class RuntimeConnectionRegistryTest {
             .filteredOn(ConnectionLifecycleEvent.class::isInstance)
             .hasSize(10);
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .doesNotContain("internal-secret-endpoint", "external-secret-endpoint");
     }
 
@@ -362,8 +361,7 @@ class RuntimeConnectionRegistryTest {
                 assertThat(snapshot.consumerTargetAvailable()).isFalse();
             });
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .contains(
                 "mode=ROUTED",
                 "directTargetAvailable=true",
@@ -445,8 +443,7 @@ class RuntimeConnectionRegistryTest {
             .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
             .hasSize(1);
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .doesNotContain(
                 "direct-secret",
                 "direct-secret-external",
@@ -718,7 +715,7 @@ class RuntimeConnectionRegistryTest {
             .map(entry -> entry.event())
             .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
             .hasSize(1);
-        assertThat(new JournalRenderer().render(journal.snapshot()).content())
+        assertThat(new JournalRenderer().render(journal.snapshot()))
             .doesNotContain(statusSecret);
     }
 

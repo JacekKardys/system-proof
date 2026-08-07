@@ -14,6 +14,7 @@ import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /** Driver-facing typed bindings, diagnostics, and environment-scoped shared resources. */
@@ -60,7 +61,11 @@ final class DriverServices {
         return sharedResources.getOrCreate(key, factory);
     }
 
-    private void log(Component component, LogLevel level, String message) {
+    private void log(
+        Component component,
+        LogLevel level,
+        RedactedDiagnosticText message
+    ) {
         requireContained(component);
         events.component(component, level, message);
     }
@@ -126,7 +131,11 @@ final class DriverServices {
         }
 
         @Override
-        public void log(Component component, LogLevel level, String message) {
+        public void log(
+            Component component,
+            LogLevel level,
+            RedactedDiagnosticText message
+        ) {
             requireOwner(owner, component);
             DriverServices.this.log(owner, level, message);
         }

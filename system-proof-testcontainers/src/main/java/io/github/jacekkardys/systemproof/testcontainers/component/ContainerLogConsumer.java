@@ -1,18 +1,20 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.testcontainers.containers.output.OutputFrame;
-import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 
-/** Sends container output into the environment's structured diagnostic journal. */
+/** Applies explicit bounded policies to container output without a raw default path. */
 final class ContainerLogConsumer implements Consumer<OutputFrame> {
+    private static final int MAX_SANITIZER_INPUT_BYTES = 16 * 1024;
     private static final Pattern LEVEL_MARKER = Pattern.compile(
         "(?i)(?:\\\"(?:level|severity)\\\"\\s*:\\s*\\\"|(?:^|[\\s\\[(:]))"
             + "(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|NOTICE|LOG)"
@@ -21,20 +23,16 @@ final class ContainerLogConsumer implements Consumer<OutputFrame> {
 
     private final DriverContext context;
     private final Component component;
-    private final UnaryOperator<String> sanitizer;
-
-    ContainerLogConsumer(DriverContext context, Component component) {
-        this(context, component, UnaryOperator.identity());
-    }
+    private final RedactedDiagnosticText.Sanitizer sanitizer;
 
     ContainerLogConsumer(
         DriverContext context,
         Component component,
-        UnaryOperator<String> sanitizer
+        RedactedDiagnosticText.Sanitizer sanitizer
     ) {
         this.context = Objects.requireNonNull(context, "context must not be null");
         this.component = Objects.requireNonNull(component, "component must not be null");
-        this.sanitizer = Objects.requireNonNull(sanitizer, "sanitizer must not be null");
+        this.sanitizer = sanitizer;
     }
 
     @Override
@@ -42,18 +40,29 @@ final class ContainerLogConsumer implements Consumer<OutputFrame> {
         if (frame == null || frame.getType() == OutputFrame.OutputType.END) {
             return;
         }
-        String output = frame.getUtf8String();
-        if (output == null || output.isBlank()) {
+        byte[] bytes = frame.getBytes();
+        if (bytes == null || bytes.length == 0) {
             return;
         }
-        LogLevel level = detectLevel(frame.getType(), output);
-        String sanitized = Objects.requireNonNull(
-            sanitizer.apply(output.stripTrailing()),
-            "container log sanitizer must not return null"
-        );
-        if (!sanitized.isBlank()) {
-            context.log(component, level, sanitized);
+        if (sanitizer == null) {
+            return;
         }
+        int consideredBytes = Math.min(bytes.length, MAX_SANITIZER_INPUT_BYTES);
+        String boundedOutput = new String(
+            bytes,
+            0,
+            consideredBytes,
+            StandardCharsets.UTF_8
+        ).stripTrailing();
+        if (boundedOutput.isBlank()) {
+            return;
+        }
+        LogLevel level = detectLevel(frame.getType(), boundedOutput);
+        context.log(
+            component,
+            level,
+            RedactedDiagnosticText.redact(boundedOutput, sanitizer)
+        );
     }
 
     static LogLevel detectLevel(OutputFrame.OutputType outputType, String output) {
@@ -69,4 +78,5 @@ final class ContainerLogConsumer implements Consumer<OutputFrame> {
         }
         return outputType == OutputFrame.OutputType.STDERR ? LogLevel.ERROR : LogLevel.INFO;
     }
+
 }

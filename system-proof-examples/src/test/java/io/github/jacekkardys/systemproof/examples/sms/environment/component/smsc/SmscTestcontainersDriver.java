@@ -77,8 +77,4 @@ public final class SmscTestcontainersDriver
         );
     }
 
-    @Override
-    protected String sanitizeContainerOutput(SmscComponent component, String output) {
-        return output.replaceAll("(?m) Sender: \\[[^\\r\\n]*$", "");
-    }
 }

@@ -1362,8 +1362,7 @@ class SemanticControlCoordinatorTest {
 
     private static String rendered(Fixture fixture) {
         return new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
-            .render(fixture.journal.snapshot())
-            .content();
+            .render(fixture.journal.snapshot());
     }
 
     private static boolean terminal(SemanticHoldState state) {

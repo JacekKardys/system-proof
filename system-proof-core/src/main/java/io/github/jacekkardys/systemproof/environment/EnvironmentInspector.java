@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.environment;
 
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;

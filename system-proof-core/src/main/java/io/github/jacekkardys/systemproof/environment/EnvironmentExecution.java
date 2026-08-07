@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 
 /** Coordinates the environment lifecycle and cleanup of its execution subsystems. */

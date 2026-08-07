@@ -23,6 +23,7 @@ import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.environment.Environment;
 import io.github.jacekkardys.systemproof.environment.EnvironmentBuilder;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 class JournalContributionBoundaryTest {
@@ -105,7 +106,11 @@ class JournalContributionBoundaryTest {
     void shouldRejectDriverDiagnosticsForAnotherComponentIdentity() {
         AtomicReference<TestComponent> other = new AtomicReference<>();
         TestComponent intruder = new TestComponent("intruder", (component, context) -> {
-            context.log(other.get(), LogLevel.INFO, "forged diagnostic");
+            context.log(
+                other.get(),
+                LogLevel.INFO,
+                RedactedDiagnosticText.redact("forged diagnostic", input -> input)
+            );
             return ComponentRuntime.<Void>runtime().build();
         });
         TestComponent victim = new TestComponent(

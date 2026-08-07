@@ -448,7 +448,7 @@ class SemanticPredecessorGuardTest {
         assertThat(fixture.coordinator.permit(successor).awaitDecision())
             .isEqualTo(ForwardingDecision.CLOSE_SESSION);
 
-        String rendered = new JournalRenderer().render(fixture.journal.snapshot()).content();
+        String rendered = new JournalRenderer().render(fixture.journal.snapshot());
         assertThat(rendered)
             .contains("PREDECESSOR_NOT_ESTABLISHED", guard.ref().toString())
             .doesNotContain(secret, "positive:s-15");

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.ForwardingPermit;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
@@ -459,7 +460,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
                 LOG.warn(
                     "InteractionGateway session setup failed for connection '{}': {}",
                     connectionId,
-                    failure.getClass().getSimpleName()
+                    FailureDetails.from(failure).failureType()
                 );
             }
             closeQuietly(downstream);
@@ -599,7 +600,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
             LOG.warn(
                 "Required-observation failure callback failed for connection '{}': {}",
                 connectionId,
-                failure.getClass().getSimpleName()
+                FailureDetails.from(failure).failureType()
             );
         }
     }
@@ -618,7 +619,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
         LOG.warn(
             "InteractionGateway listener failed for connection '{}' at stage ACCEPT: {}",
             connectionId,
-            failure.getClass().getSimpleName()
+            FailureDetails.from(failure).failureType()
         );
     }
 
@@ -699,7 +700,7 @@ final class GatewayRoute<E> implements AutoCloseable, ObservationStatusProvider,
                     LOG.debug(
                         "InteractionGateway session ended for connection '{}': {}",
                         connectionId,
-                        failure.getClass().getSimpleName()
+                        FailureDetails.from(failure).failureType()
                     );
                 }
                 close();

@@ -23,8 +23,10 @@ public record ConnectionId(String value) {
 
     public ConnectionId {
         Objects.requireNonNull(value, "connection id must not be null");
-        if (!CANONICAL.matcher(value).matches()) {
-            throw new IllegalArgumentException("Invalid connection id: " + value);
+        if (value.length() > 2_048 || !CANONICAL.matcher(value).matches()) {
+            throw new IllegalArgumentException(
+                "connection id must be a canonical value of at most 2048 characters"
+            );
         }
     }
 
@@ -83,6 +85,12 @@ public record ConnectionId(String value) {
     ) {
         Objects.requireNonNull(componentId, componentDescription + " must not be null");
         Objects.requireNonNull(portName, portDescription + " must not be null");
+        if (portName.length() > 64 || portName.isBlank()
+            || portName.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException(
+                portDescription + " must be 1-64 non-control characters"
+            );
+        }
         return componentId.type().value()
             + componentId.qualifier().map(value -> "[" + value + "]").orElse("[]")
             + "."

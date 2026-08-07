@@ -1,9 +1,10 @@
 /**
- * Defines immutable rendered diagnostics and stateless journal rendering.
+ * Defines stateless bounded secret-safe journal rendering.
  *
  * <p>Renderers consume detached journal entries and snapshots, never mutable storage. They own no
  * event history and have no append path. Logging thresholds and topology membership validation are
  * owned by {@code environment}. Full-history rendering is linear in total generated output
- * size and component filtering uses structured identities rather than rendered labels.
+ * size and component filtering uses structured identities rather than rendered labels. Unknown
+ * events use type-only fallback. Raw or sensitive attachment export is unsupported.
  */
 package io.github.jacekkardys.systemproof.diagnostics;

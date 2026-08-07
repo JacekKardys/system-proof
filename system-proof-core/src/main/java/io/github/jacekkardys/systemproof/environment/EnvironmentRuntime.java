@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.List;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
@@ -62,7 +61,7 @@ final class EnvironmentRuntime {
         return components.operations(component);
     }
 
-    synchronized EnvironmentDiagnostics diagnostics() {
+    EnvironmentDiagnostics diagnostics() {
         return inspector.diagnostics();
     }
 

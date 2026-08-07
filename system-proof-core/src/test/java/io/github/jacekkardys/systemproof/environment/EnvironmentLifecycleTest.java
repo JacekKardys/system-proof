@@ -37,6 +37,7 @@ import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
@@ -322,10 +323,8 @@ class EnvironmentLifecycleTest {
                 "[STATE] environment=STOPPED",
                 "Environment startup failed",
                 "Component startup failed",
-                "client failed",
-                "server cleanup failed",
                 "shared-network",
-                "shared cleanup failed",
+                "IllegalStateException",
                 "component=server",
                 "state=FAILED",
                 "Environment failed",
@@ -333,7 +332,10 @@ class EnvironmentLifecycleTest {
             )
             .doesNotContain(
                 "[STATE] environment=FAILED",
-                "Environment stopped after startup failure"
+                "Environment stopped after startup failure",
+                "client failed",
+                "server cleanup failed",
+                "shared cleanup failed"
             );
         assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
         assertThat(events(environment, EnvironmentLifecycleEvent.class))
@@ -357,29 +359,31 @@ class EnvironmentLifecycleTest {
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.componentId()).isEqualTo(client.id());
-                assertThat(event.failure().message()).contains("client failed");
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, FailureEvent.ComponentCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.componentId()).isEqualTo(server.id());
-                assertThat(event.failure().message()).contains("server cleanup failed");
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, FailureEvent.EnvironmentStartup.class))
             .singleElement()
-            .satisfies(event -> assertThat(event.failure().message()).contains("client failed"));
+            .satisfies(event ->
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
+            );
         assertThat(events(environment, FailureEvent.DriverResourceCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.resourceName()).isEqualTo("shared-network");
-                assertThat(event.failure().message()).contains("shared cleanup failed");
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.connectionId())
                     .isEqualTo(environment.connections().getFirst().id());
-                assertThat(event.failure().message()).contains("server cleanup failed");
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(environment.runtimeConnections())
             .singleElement()
@@ -427,13 +431,13 @@ class EnvironmentLifecycleTest {
         assertThat(events(environment, FailureEvent.ComponentCleanup.class))
             .singleElement()
             .satisfies(event ->
-                assertThat(event.failure().message()).contains("component cleanup failed")
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
             );
         assertThat(events(environment, FailureEvent.DriverResourceCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.resourceName()).isEqualTo("shared-network");
-                assertThat(event.failure().message()).contains("shared cleanup failed");
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, EnvironmentLifecycleEvent.class))
             .extracting(EnvironmentLifecycleEvent::state)
@@ -446,9 +450,9 @@ class EnvironmentLifecycleTest {
             );
         assertThat(environment.diagnostics().content())
             .contains(
-                "component cleanup failed",
+                "Component cleanup failed: IllegalStateException",
                 "shared-network",
-                "shared cleanup failed",
+                "cleanup failed: IllegalStateException",
                 "[STATE] component=server type=server state=FAILED"
             );
     }
@@ -547,7 +551,10 @@ class EnvironmentLifecycleTest {
             context.log(
                 component,
                 LogLevel.DEBUG,
-                "driver line one" + System.lineSeparator() + "driver line two"
+                RedactedDiagnosticText.redact(
+                    "driver line one" + System.lineSeparator() + "driver line two",
+                    input -> input
+                )
             );
             observed.set(context.componentEvents(component));
             return io.github.jacekkardys.systemproof.driver.ComponentRuntime.<Void>runtime()
@@ -570,19 +577,18 @@ class EnvironmentLifecycleTest {
         assertThat(observed.get())
             .contains(
                 "[COMPONENT] [server] Starting component",
-                "Configuration EmptyConfig",
                 "driver line one",
                 "driver line two"
             );
         List<DiagnosticEvent> diagnostics = events(environment, DiagnosticEvent.class);
         assertThat(diagnostics)
-            .filteredOn(event -> event.message().startsWith("driver line one"))
+            .filteredOn(event -> event.message().content().startsWith("driver line one"))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.subject())
                     .isEqualTo(new DiagnosticEvent.ComponentSubject(server.id()));
                 assertThat(event.level()).isEqualTo(LogLevel.DEBUG);
-                assertThat(event.message()).isEqualTo(
+                assertThat(event.message().content()).isEqualTo(
                     "driver line one" + System.lineSeparator() + "driver line two"
                 );
             });
@@ -650,10 +656,7 @@ class EnvironmentLifecycleTest {
             .satisfies(event -> {
                 assertThat(event.connectionId())
                     .isEqualTo(environment.connections().getFirst().id());
-                assertThat(event.failure().message())
-                    .contains(
-                        "Driver for component 'server' did not materialize port 'server.api'"
-                    );
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         environment.close();
         environment.close();

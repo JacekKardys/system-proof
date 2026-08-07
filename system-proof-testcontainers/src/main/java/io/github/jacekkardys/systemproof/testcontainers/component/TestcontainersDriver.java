@@ -10,7 +10,7 @@ import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 
 /** Base driver that owns Testcontainers materialization while core owns lifecycle ordering. */
 public abstract class TestcontainersDriver<
@@ -39,20 +39,21 @@ public abstract class TestcontainersDriver<
         );
         plan.validateFor(component);
         Network network = driverContext.sharedResource(NETWORK, Network::newNetwork);
+        RedactedDiagnosticText.Sanitizer containerLogSanitizer =
+            containerLogSanitizer(typed);
+        ContainerLogConsumer containerLogs = new ContainerLogConsumer(
+            driverContext,
+            component,
+            containerLogSanitizer
+        );
         GenericContainer<?> container = plan.container()
             .withNetwork(network)
             .withNetworkAliases(component.id().toString(), networkAlias(component))
             .withExposedPorts(plan.exposedPorts())
-            .withLogConsumer(new ContainerLogConsumer(
-                driverContext,
-                component,
-                output -> sanitizeContainerOutput(typed, output)
-            ));
+            .withLogConsumer(containerLogs);
 
-        driverContext.log(component, LogLevel.INFO, "Starting container");
         try {
             container.start();
-            driverContext.log(component, LogLevel.INFO, "Container started");
             StartedContainer started = new StartedContainer(container, plan);
             O operations = createOperations(typed, started, driverContext);
             afterStart(typed, operations, started, driverContext);
@@ -64,11 +65,6 @@ public abstract class TestcontainersDriver<
             }
             return runtime.build();
         } catch (RuntimeException | Error failure) {
-            driverContext.log(
-                component,
-                LogLevel.ERROR,
-                "Container start failed: " + failure.getClass().getSimpleName() + messageSuffix(failure)
-            );
             if (container.isCreated()) {
                 try {
                     container.stop();
@@ -83,11 +79,12 @@ public abstract class TestcontainersDriver<
     protected abstract ContainerPlan create(T component, DriverContext context);
 
     /**
-     * Removes component-owned secrets from one container output frame before journaling.
-     * The default preserves the complete frame.
+     * Removes component-owned secrets from one bounded container output frame before journaling.
+     * The default is omission; override to provide an explicit policy. A sanitizer returning
+     * {@code null}, blank, throwing, or exceeding bounds fails safe.
      */
-    protected String sanitizeContainerOutput(T component, String output) {
-        return output;
+    protected RedactedDiagnosticText.Sanitizer containerLogSanitizer(T component) {
+        return null;
     }
 
     protected O createOperations(T component, StartedContainer container, DriverContext context) {
@@ -115,9 +112,4 @@ public abstract class TestcontainersDriver<
         return componentType.cast(component);
     }
 
-    private static String messageSuffix(Throwable failure) {
-        return failure.getMessage() == null || failure.getMessage().isBlank()
-            ? ""
-            : " - " + failure.getMessage();
-    }
 }

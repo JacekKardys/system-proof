@@ -425,8 +425,7 @@ class ProofSubjectCorrelationTest {
             .isInstanceOf(CorrelationResult.Missing.class);
 
         String diagnostics = new JournalRenderer()
-            .render(fixture.journal.snapshot())
-            .content();
+            .render(fixture.journal.snapshot());
         assertThat(key.toString())
             .contains(KEY_SCHEMA.toString())
             .doesNotContain(Arrays.toString(originalDigest), "raw-phone-number");

@@ -1,12 +1,13 @@
 package io.github.jacekkardys.systemproof.junit.internal;
 
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
-import io.github.jacekkardys.systemproof.environment.EnvironmentStartException;
-import io.github.jacekkardys.systemproof.environment.Environment;
 import java.io.IOException;
+import io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics;
+import io.github.jacekkardys.systemproof.environment.Environment;
+import io.github.jacekkardys.systemproof.environment.EnvironmentStartException;
+import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import lombok.val;
 
-/** Coordinates best-effort environment diagnostic capture, persistence, and JUnit reporting. */
+/** Coordinates best-effort secret-safe diagnostics. */
 final class EnvironmentDiagnosticsReporter {
 
     private final EnvironmentDiagnosticsArtifactWriter artifactWriter =
@@ -58,7 +59,8 @@ final class EnvironmentDiagnosticsReporter {
             SystemProofLifecycleFailureAdapter.suppress(primaryFailure, diagnosticsFailure);
             publishError(
                 context,
-                "Could not collect environment diagnostics: " + diagnosticsFailure,
+                "capture-safe-environment-diagnostics",
+                diagnosticsFailure,
                 primaryFailure
             );
             return null;
@@ -71,16 +73,14 @@ final class EnvironmentDiagnosticsReporter {
         Throwable primaryFailure
     ) {
         try {
-            val artifact = artifactWriter.write(
-                context.requiredTestMethod(),
-                diagnostics
-            );
-            context.publishReportEntry("environment.diagnostics", artifact.toString());
+            artifactWriter.write(context.requiredTestMethod(), diagnostics);
+            context.publishReportEntry("environment.diagnostics", "environment.log");
         } catch (IOException | RuntimeException | Error diagnosticsFailure) {
             SystemProofLifecycleFailureAdapter.suppress(primaryFailure, diagnosticsFailure);
             publishError(
                 context,
-                "Could not write environment diagnostics: " + diagnosticsFailure,
+                "write-safe-environment-diagnostics",
+                diagnosticsFailure,
                 primaryFailure
             );
         }
@@ -99,13 +99,21 @@ final class EnvironmentDiagnosticsReporter {
 
     private static void publishError(
         SystemProofSharedContext context,
-        String message,
+        String operation,
+        Throwable failure,
         Throwable primaryFailure
     ) {
+        String safeValue = "operation=" + operation + "; failureType="
+            + FailureDetails.from(failure).failureType();
         try {
-            context.publishReportEntry("environment.diagnostics.error", message);
+            context.publishReportEntry("environment.diagnostics.error", safeValue);
         } catch (RuntimeException | Error publicationFailure) {
-            SystemProofLifecycleFailureAdapter.suppress(primaryFailure, publicationFailure);
+            if (primaryFailure != null) {
+                SystemProofLifecycleFailureAdapter.suppress(
+                    primaryFailure,
+                    publicationFailure
+                );
+            }
         }
     }
 }
