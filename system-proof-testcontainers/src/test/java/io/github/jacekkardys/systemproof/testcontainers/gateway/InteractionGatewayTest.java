@@ -671,8 +671,7 @@ class InteractionGatewayTest {
 
         try {
             fixture.environment().start();
-            try (Socket held = connect(fixture.listenerAddresses().getFirst());
-                 Socket invalidating = connect(fixture.listenerAddresses().getFirst())) {
+            try (Socket held = connect(fixture.listenerAddresses().getFirst())) {
                 held.getOutputStream().write(
                     LengthPrefixedProtocolAdapter.frame(heldPayload)
                 );
@@ -680,30 +679,36 @@ class InteractionGatewayTest {
                 hold.reached().toCompletableFuture().get(5, TimeUnit.SECONDS);
                 fixture.frameServer().get().assertNoBytes();
 
-                invalidating.getOutputStream().write(
-                    LengthPrefixedProtocolAdapter.frame(invalidatingPayload)
-                );
-                invalidating.getOutputStream().flush();
-                awaitAmbiguousCorrelation(fixture.environment(), subject, key);
+                try (Socket invalidating = connect(
+                    fixture.listenerAddresses().getFirst()
+                )) {
+                    invalidating.getOutputStream().write(
+                        LengthPrefixedProtocolAdapter.frame(invalidatingPayload)
+                    );
+                    invalidating.getOutputStream().flush();
+                    awaitAmbiguousCorrelation(fixture.environment(), subject, key);
 
-                var release = hold.release();
+                    var release = hold.release();
 
-                assertThat(hold.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
-                    .isEqualTo(SemanticHoldState.FAILED);
-                assertThat(release.toCompletableFuture()).isCompletedExceptionally();
-                assertPeerClosed(held);
-                fixture.frameServer().get().assertClosedWithoutPayload();
-                assertThat(fixture.environment().journalSnapshot().entries().stream()
-                    .map(entry -> entry.event())
-                    .filter(SemanticHoldEvent.class::isInstance)
-                    .map(SemanticHoldEvent.class::cast)
-                    .filter(event -> event.state() == SemanticHoldState.FAILED))
-                    .singleElement()
-                    .satisfies(event -> assertThat(event.failure())
-                        .contains(SemanticHoldFailure.CORRELATION_INVALIDATED));
-                assertThat(new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
-                    .render(fixture.environment().journalSnapshot()))
-                    .doesNotContain(heldPayload, invalidatingPayload);
+                    assertThat(hold.completion().toCompletableFuture().get(
+                        5,
+                        TimeUnit.SECONDS
+                    )).isEqualTo(SemanticHoldState.FAILED);
+                    assertThat(release.toCompletableFuture()).isCompletedExceptionally();
+                    assertPeerClosed(held);
+                    fixture.frameServer().get().assertClosedWithoutPayload();
+                    assertThat(fixture.environment().journalSnapshot().entries().stream()
+                        .map(entry -> entry.event())
+                        .filter(SemanticHoldEvent.class::isInstance)
+                        .map(SemanticHoldEvent.class::cast)
+                        .filter(event -> event.state() == SemanticHoldState.FAILED))
+                        .singleElement()
+                        .satisfies(event -> assertThat(event.failure())
+                            .contains(SemanticHoldFailure.CORRELATION_INVALIDATED));
+                    assertThat(new io.github.jacekkardys.systemproof.diagnostics.JournalRenderer()
+                        .render(fixture.environment().journalSnapshot()))
+                        .doesNotContain(heldPayload, invalidatingPayload);
+                }
             }
         } finally {
             fixture.environment().close();
