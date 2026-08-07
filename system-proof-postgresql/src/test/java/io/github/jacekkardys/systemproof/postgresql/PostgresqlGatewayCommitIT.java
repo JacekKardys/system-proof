@@ -43,7 +43,7 @@ import io.github.jacekkardys.systemproof.configuration.ComponentConfig;
 import io.github.jacekkardys.systemproof.configuration.DriverConfig;
 import io.github.jacekkardys.systemproof.configuration.Secret;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
@@ -169,7 +169,7 @@ class PostgresqlGatewayCommitIT {
                     environment.proofSubjects().arm(subject, key);
 
                     SemanticHold hold = environment.controls().arm(
-                        SemanticHoldSelector.matching(
+                        SemanticInteractionSelector.matching(
                             connectionId,
                             FlowDirection.CONSUMER_TO_PROVIDER,
                             adapter.evidenceCodec(),
@@ -329,7 +329,7 @@ class PostgresqlGatewayCommitIT {
                         }
 
                         SemanticHold wrongRouteHold = environment.controls().arm(
-                            SemanticHoldSelector.matching(
+                            SemanticInteractionSelector.matching(
                                 secondConnectionId,
                                 FlowDirection.CONSUMER_TO_PROVIDER,
                                 secondAdapter.evidenceCodec(),

@@ -19,6 +19,7 @@ import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
+import io.github.jacekkardys.systemproof.journal.SemanticPredecessorGuardEvent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
@@ -35,6 +36,12 @@ import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
 import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorBoundary;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardFailure;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardRef;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardState;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorViolation;
+import io.github.jacekkardys.systemproof.observation.ForwardingDecision;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
@@ -301,6 +308,40 @@ final class EnvironmentEventPublisher {
                 evidenceSchema,
                 proofSubject,
                 interactionRef,
+                failure
+            )),
+            level
+        );
+    }
+
+    void semanticPredecessorGuard(
+        SemanticPredecessorGuardRef guardRef,
+        SemanticPredecessorGuardEvent.Kind kind,
+        ProofSubjectRef proofSubject,
+        SemanticPredecessorGuardState state,
+        SemanticPredecessorBoundary requiredBoundary,
+        Optional<InteractionRef> predecessor,
+        Optional<InteractionRef> successor,
+        Optional<ForwardingDecision> decision,
+        Optional<SemanticPredecessorViolation> violation,
+        Optional<SemanticPredecessorGuardFailure> failure
+    ) {
+        LogLevel level = state == SemanticPredecessorGuardState.VIOLATED
+            || state == SemanticPredecessorGuardState.FAILED
+            || kind == SemanticPredecessorGuardEvent.Kind.VIOLATION
+                ? LogLevel.WARN
+                : LogLevel.INFO;
+        emitter.framework(
+            append(new SemanticPredecessorGuardEvent(
+                guardRef,
+                kind,
+                proofSubject,
+                state,
+                requiredBoundary,
+                predecessor,
+                successor,
+                decision,
+                violation,
                 failure
             )),
             level

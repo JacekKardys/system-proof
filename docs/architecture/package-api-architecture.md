@@ -138,7 +138,9 @@ whole.
 - Component declarations: `Component`, `SystemComponent`.
 - Configuration: `ConfigurationSource`, `EnvironmentConfiguration`, `EnvironmentVariable`,
   `Literal`, `Secret`.
-- Semantic controls: `SemanticControls`, `SemanticHold`, `SemanticHoldSelector`.
+- Semantic controls: `SemanticControls`, `SemanticHold`, `SemanticInteractionSelector`,
+  `SemanticPredecessorGuard`, `SemanticPredecessorGuardSpec`, and
+  `SemanticPredecessorRequirement`.
 - Diagnostics rendering: `JournalRenderer`.
 - Environment API: `Environment`, `EnvironmentBuilder`, `EnvironmentCreator`,
   `EnvironmentTopology`, `EnvironmentLogging`, `EnvironmentLoggingBuilder`, `ComponentPortFactory`,
@@ -172,7 +174,10 @@ cleanup are not SPI. They remain package-private execution mechanics.
 - Environment state: `EnvironmentState`, `ConnectionState`, `RoutingMode`,
   `RuntimeConnectionSnapshot`.
 - Diagnostics: `EnvironmentDiagnostics`.
-- Control: `SemanticHoldFailure`, `SemanticHoldRef`, `SemanticHoldState`.
+- Control: `SemanticHoldFailure`, `SemanticHoldRef`, `SemanticHoldState`,
+  `SemanticPredecessorBoundary`, `SemanticPredecessorGuardFailure`,
+  `SemanticPredecessorGuardRef`, `SemanticPredecessorGuardState`, and
+  `SemanticPredecessorViolation`.
 - Journal: `ScenarioEvent`, `FailureEvent`, every framework-owned event record and nested event enum,
   `FailureDetails`, `JournalEntry`, `JournalSequence`, `ScenarioJournalSnapshot`, `CheckpointId`,
   and `DisruptionId`.

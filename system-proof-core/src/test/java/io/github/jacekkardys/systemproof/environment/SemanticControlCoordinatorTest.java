@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
@@ -87,7 +87,7 @@ class SemanticControlCoordinatorTest {
     void shouldRejectSelectorSchemasOutsideRequiredConnectionProfile() {
         Fixture fixture = fixture();
         assertThatThrownBy(() -> fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 OTHER_CODEC,
@@ -187,7 +187,7 @@ class SemanticControlCoordinatorTest {
     void shouldFailClosedOnSelectorFailureAndOverlappingMatches() throws Exception {
         Fixture selectorFixture = fixture();
         SemanticHold broken = selectorFixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -212,7 +212,7 @@ class SemanticControlCoordinatorTest {
 
         Fixture overlapFixture = fixture();
         SemanticHold first = overlapFixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -221,7 +221,7 @@ class SemanticControlCoordinatorTest {
             MAXIMUM_HOLD
         );
         SemanticHold second = overlapFixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -570,7 +570,7 @@ class SemanticControlCoordinatorTest {
         fixture.proofSubjects.arm(leftSubject, leftKey);
         fixture.proofSubjects.arm(rightSubject, rightKey);
         SemanticHold left = fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -579,7 +579,7 @@ class SemanticControlCoordinatorTest {
             MAXIMUM_HOLD
         );
         SemanticHold right = fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -623,7 +623,7 @@ class SemanticControlCoordinatorTest {
         CorrelationKey key = correlationKey(1);
         fixture.proofSubjects.arm(subject, key);
         SemanticHold hold = fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,
@@ -785,7 +785,7 @@ class SemanticControlCoordinatorTest {
             CorrelationContribution.capture(key, CODEC, "bidirectional-native")
         );
         SemanticHold hold = fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.PROVIDER_TO_CONSUMER,
                 CODEC,
@@ -1138,7 +1138,7 @@ class SemanticControlCoordinatorTest {
             selector("late"),
             MAXIMUM_HOLD
         )).isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("cannot arm semantic holds");
+            .hasMessageContaining("cannot arm semantic controls");
         assertThat(fixture.scheduler.closed).isTrue();
     }
 
@@ -1190,7 +1190,7 @@ class SemanticControlCoordinatorTest {
         );
     }
 
-    private static SemanticHoldSelector<String> selector(String expected) {
+    private static SemanticInteractionSelector<String> selector(String expected) {
         return selector(CONNECTION, expected);
     }
 
@@ -1206,11 +1206,11 @@ class SemanticControlCoordinatorTest {
         );
     }
 
-    private static SemanticHoldSelector<String> selector(
+    private static SemanticInteractionSelector<String> selector(
         ConnectionId connectionId,
         String expected
     ) {
-        return SemanticHoldSelector.matching(
+        return SemanticInteractionSelector.matching(
             connectionId,
             FlowDirection.CONSUMER_TO_PROVIDER,
             CODEC,
@@ -1288,7 +1288,7 @@ class SemanticControlCoordinatorTest {
         fixture.proofSubjects.arm(subject, key);
         fixture.proofSubjects.publish(originatingInteraction, contribution);
         SemanticHold hold = fixture.coordinator.arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 CONNECTION,
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 CODEC,

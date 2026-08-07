@@ -46,8 +46,10 @@ commit-success definition, plaintext/TLS boundary, memory limits, and durability
 [`system-proof-postgresql` module](system-proof-postgresql/README.md) and
 [`ADR 0005`](docs/adr/0005-postgresql-wire-evidence.md). The reference example composes that evidence
 with HTTP and SMPP through one canonical SMS fingerprint and attributes one proof subject to one
-transaction as recorded in [`ADR 0008`](docs/adr/0008-aml-subject-transaction-attribution.md). This
-attribution does not establish cross-connection predecessor order or claim the final T1 proof.
+transaction as recorded in [`ADR 0008`](docs/adr/0008-aml-subject-transaction-attribution.md).
+Environment-owned semantic predecessor guards then enforce the two exact cross-connection
+relations recorded in [`ADR 0009`](docs/adr/0009-semantic-predecessor-guards.md). They enforce
+ordering but do not compute a proof outcome or claim the final T1 proof.
 
 The HTTP adapter is likewise a characterized, fail-closed subset rather than a general HTTP
 proxy. Its framing limits, tri-state `ACK/Jasmin` acknowledgement contract, local exchange
@@ -296,7 +298,7 @@ have been sent downstream, and explicitly release it:
 
 ```java
 SemanticHold hold = environment.controls().arm(
-    SemanticHoldSelector.matching(
+    SemanticInteractionSelector.matching(
         connectionId,
         FlowDirection.CONSUMER_TO_PROVIDER,
         evidenceCodec,
@@ -324,6 +326,35 @@ or session never join. The two facts need not share one `InteractionRef`. Its co
 and extractor run synchronously and therefore must be pure, fast, non-blocking, and side-effect
 free. A selector exception or overlapping matching holds fails closed; missing or ambiguous
 subject correlation does not match.
+
+## Semantic predecessor guards
+
+A predecessor guard is an invariant, not a manual hold. Arm it before stimulus with one exact
+subject, predecessor selector and boundary, successor selector, and maximum duration:
+
+```java
+SemanticPredecessorGuard guard = environment.controls().guard(
+    SemanticPredecessorGuardSpec.requiring(
+        subject,
+        SemanticPredecessorRequirement.confirmed(commitSucceededSelector),
+        positiveHttpResponseSelector,
+        Duration.ofSeconds(10)
+    )
+);
+```
+
+`CONFIRMED` is established by matching protocol-confirmation evidence such as
+`CommitSucceeded`. `FORWARDED` is established only after the gateway has written and flushed the
+exact predecessor bytes and called its permit's `forwarded()` callback. A `CommitAttempt`, observed
+interaction, `FORWARD` decision, write start, failed write, abandonment, timestamp, or journal
+position establishes neither boundary.
+
+The shared coordinator is the one linearization point. Predecessor first authorizes the successor;
+after successful successor forwarding the guard records an exact satisfied relation. Successor
+first records a terminal violation, returns `CLOSE_SESSION`, and forwards zero successor bytes. It
+does not wait for or accept a later predecessor. Missing or ambiguous subject/native-reference
+correlation does not match, and other subjects remain independent. The complete state, lifecycle,
+journal, and safety contract is in [`ADR 0009`](docs/adr/0009-semantic-predecessor-guards.md).
 
 Arming is accepted only for an exact connection owned by this environment whose routing rule
 declares semantic-control capability: `ROUTED`, `REQUIRED` observation, a complete-unit protocol

@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile;
 import io.github.jacekkardys.systemproof.observation.RequiredObservationProfile.Capability;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
@@ -43,7 +43,7 @@ final class SemanticControlCapabilityRegistry {
         }
     }
 
-    synchronized void validateArm(SemanticHoldSelector<?> selector) {
+    synchronized void validateSelector(SemanticInteractionSelector<?> selector) {
         selector = Objects.requireNonNull(selector, "selector must not be null");
         ConnectionId connectionId = selector.connectionId();
         Entry entry = connections.get(connectionId);
@@ -80,7 +80,7 @@ final class SemanticControlCapabilityRegistry {
         }
         if (!profile.evidenceSchema().equals(selector.evidenceSchema())) {
             throw new IllegalArgumentException(
-                "Semantic hold evidence schema does not match connection '"
+                "Semantic interaction evidence schema does not match connection '"
                     + connectionId + "'"
             );
         }
@@ -88,7 +88,7 @@ final class SemanticControlCapabilityRegistry {
             if (!profile.capabilities().contains(Capability.CORRELATION_CONTRIBUTIONS)
                 || !profile.nativeFlowReferenceSchema().filter(schema::equals).isPresent()) {
                 throw new IllegalArgumentException(
-                    "Semantic hold native-flow schema does not match connection '"
+                    "Semantic interaction native-flow schema does not match connection '"
                         + connectionId + "'"
                 );
             }

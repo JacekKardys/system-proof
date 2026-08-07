@@ -6,7 +6,6 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import io.github.jacekkardys.systemproof.observation.EvidenceCodec;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
-import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
@@ -20,7 +19,7 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
  * evidence-schema equality have been established. Codec or matcher failures fail the control
  * closed and never authorize forwarding.
  */
-public final class SemanticHoldSelector<T> {
+public final class SemanticInteractionSelector<T> {
     private final ConnectionId connectionId;
     private final FlowDirection direction;
     private final EvidenceCodec<T> codec;
@@ -29,7 +28,7 @@ public final class SemanticHoldSelector<T> {
     private final ProofSubjectRef proofSubject;
     private final NativeFlowConstraint<T, ?> nativeFlowConstraint;
 
-    private SemanticHoldSelector(
+    private SemanticInteractionSelector(
         ConnectionId connectionId,
         FlowDirection direction,
         EvidenceCodec<T> codec,
@@ -52,18 +51,25 @@ public final class SemanticHoldSelector<T> {
         this.nativeFlowConstraint = nativeFlowConstraint;
     }
 
-    public static <T> SemanticHoldSelector<T> matching(
+    public static <T> SemanticInteractionSelector<T> matching(
         ConnectionId connectionId,
         FlowDirection direction,
         EvidenceCodec<T> codec,
         Predicate<? super T> matcher
     ) {
-        return new SemanticHoldSelector<>(connectionId, direction, codec, matcher, null, null);
+        return new SemanticInteractionSelector<>(
+            connectionId,
+            direction,
+            codec,
+            matcher,
+            null,
+            null
+        );
     }
 
     /** Returns a selector constrained to one subject from the same environment execution. */
-    public SemanticHoldSelector<T> forSubject(ProofSubjectRef subject) {
-        return new SemanticHoldSelector<>(
+    public SemanticInteractionSelector<T> forSubject(ProofSubjectRef subject) {
+        return new SemanticInteractionSelector<>(
             connectionId,
             direction,
             codec,
@@ -82,7 +88,7 @@ public final class SemanticHoldSelector<T> {
      * contribution and candidate must share the exact logical connection and physical gateway
      * session; opposite protocol directions on that session remain composable.
      */
-    public <R> SemanticHoldSelector<T> through(
+    public <R> SemanticInteractionSelector<T> through(
         CorrelationKey correlationKey,
         EvidenceCodec<R> nativeReferenceCodec,
         Function<? super T, ? extends R> nativeReference
@@ -97,7 +103,7 @@ public final class SemanticHoldSelector<T> {
                 "A native-flow selector is already configured"
             );
         }
-        return new SemanticHoldSelector<>(
+        return new SemanticInteractionSelector<>(
             connectionId,
             direction,
             codec,
@@ -126,6 +132,11 @@ public final class SemanticHoldSelector<T> {
         return evidenceSchema;
     }
 
+    /** Returns the typed codec supplied when this immutable selector was declared. */
+    public EvidenceCodec<T> evidenceCodec() {
+        return codec;
+    }
+
     public Optional<ProofSubjectRef> proofSubject() {
         return Optional.ofNullable(proofSubject);
     }
@@ -144,21 +155,25 @@ public final class SemanticHoldSelector<T> {
             : Optional.of(nativeFlowConstraint.codec.schemaId());
     }
 
-    /** Evaluates only the typed evidence step after schema equality has been checked. */
-    public boolean matchesEvidence(EvidenceSnapshot evidence) {
+    /** Returns the typed native-reference codec supplied by {@link #through}, when configured. */
+    public Optional<EvidenceCodec<?>> nativeFlowReferenceCodec() {
+        return nativeFlowConstraint == null
+            ? Optional.empty()
+            : Optional.of(nativeFlowConstraint.codec);
+    }
+
+    /** Evaluates only the typed evidence step after infrastructure schema validation. */
+    public boolean matches(T evidence) {
         Objects.requireNonNull(evidence, "evidence must not be null");
-        if (!evidenceSchema.equals(evidence.schemaId())) {
-            throw new IllegalArgumentException("Evidence schema does not match this selector");
-        }
-        return matcher.test(evidence.decode(codec));
+        return matcher.test(evidence);
     }
 
     /**
-     * Compares the native reference extracted from current evidence with a resolved snapshot.
+     * Compares the native reference extracted from typed evidence with a codec-decoded reference.
      */
     public boolean matchesNativeFlow(
-        EvidenceSnapshot evidence,
-        EvidenceSnapshot resolvedNativeReference
+        T evidence,
+        Object resolvedNativeReference
     ) {
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(
@@ -170,15 +185,12 @@ public final class SemanticHoldSelector<T> {
                 "This selector has no native-flow constraint"
             );
         }
-        if (!evidenceSchema.equals(evidence.schemaId())) {
-            throw new IllegalArgumentException("Evidence schema does not match this selector");
-        }
-        return nativeFlowConstraint.matches(evidence.decode(codec), resolvedNativeReference);
+        return nativeFlowConstraint.matches(evidence, resolvedNativeReference);
     }
 
     @Override
     public String toString() {
-        return "SemanticHoldSelector[connectionId=" + connectionId
+        return "SemanticInteractionSelector[connectionId=" + connectionId
             + ", direction=" + direction
             + ", evidenceSchema=" + evidenceSchema
             + ", subjectConstrained=" + (proofSubject != null)
@@ -200,12 +212,25 @@ public final class SemanticHoldSelector<T> {
             this.nativeReference = nativeReference;
         }
 
-        private boolean matches(T evidence, EvidenceSnapshot resolvedNativeReference) {
+        @SuppressWarnings("unchecked")
+        private boolean matches(T evidence, Object resolvedNativeReference) {
             R extracted = Objects.requireNonNull(
                 nativeReference.apply(evidence),
                 "Native-flow reference extractor returned null"
             );
-            return EvidenceSnapshot.capture(codec, extracted).equals(resolvedNativeReference);
+            R resolved = (R) Objects.requireNonNull(
+                resolvedNativeReference,
+                "resolvedNativeReference must not be null"
+            );
+            byte[] extractedEncoded = Objects.requireNonNull(
+                codec.encode(extracted),
+                "Native-reference codec returned null encoded evidence"
+            );
+            byte[] resolvedEncoded = Objects.requireNonNull(
+                codec.encode(resolved),
+                "Native-reference codec returned null encoded evidence"
+            );
+            return java.util.Arrays.equals(extractedEncoded, resolvedEncoded);
         }
     }
 }

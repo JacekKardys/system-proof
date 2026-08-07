@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,8 +78,12 @@ import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.configuration.Secret;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuard;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardSpec;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardState;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorRequirement;
 import io.github.jacekkardys.systemproof.journal.SemanticHoldEvent;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
@@ -316,7 +321,7 @@ class InteractionGatewayTest {
             payload.getBytes(UTF_8)
         );
         SemanticHold hold = environment.controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 ConnectionId.between(client.command, server.command),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 LengthPrefixedProtocolAdapter.CODEC,
@@ -356,6 +361,164 @@ class InteractionGatewayTest {
                 );
         } finally {
             environment.close();
+        }
+    }
+
+    @Test
+    void shouldForwardExactSuccessorBytesOnceAfterConfirmedPredecessor() throws Exception {
+        SemanticGuardGateway fixture = semanticGuardGateway(2);
+        String predecessorPayload = "confirmed-predecessor";
+        String successorPayload = "positive-successor";
+        CorrelationKey predecessorKey = LengthPrefixedProtocolAdapter.correlationKey(
+            predecessorPayload
+        );
+        CorrelationKey successorKey = LengthPrefixedProtocolAdapter.correlationKey(
+            successorPayload
+        );
+        ProofSubjectRef subject = fixture.environment.proofSubjects().create();
+        fixture.environment.proofSubjects().arm(subject, predecessorKey);
+        fixture.environment.proofSubjects().arm(subject, successorKey);
+        SemanticPredecessorGuard guard = fixture.environment.controls().guard(
+            SemanticPredecessorGuardSpec.requiring(
+                subject,
+                SemanticPredecessorRequirement.confirmed(frameSelector(
+                    fixture.connectionId,
+                    subject,
+                    predecessorPayload
+                )),
+                frameSelector(fixture.connectionId, subject, successorPayload),
+                Duration.ofSeconds(5)
+            )
+        );
+
+        try {
+            fixture.environment.start();
+            try (Socket socket = connect(fixture.listenerAddresses.getFirst())) {
+                byte[] predecessor = LengthPrefixedProtocolAdapter.frame(
+                    predecessorPayload
+                );
+                byte[] successor = LengthPrefixedProtocolAdapter.frame(successorPayload);
+                socket.getOutputStream().write(predecessor);
+                socket.getOutputStream().flush();
+                fixture.server.get().awaitFrames(1);
+                socket.getOutputStream().write(successor);
+                socket.getOutputStream().flush();
+
+                assertThat(fixture.server.get().awaitFrames(2))
+                    .containsExactly(predecessor, successor);
+            }
+            assertThat(guard.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                .isEqualTo(SemanticPredecessorGuardState.SATISFIED);
+        } finally {
+            fixture.environment.close();
+        }
+    }
+
+    @Test
+    void shouldCloseSuccessorSessionWithoutForwardingAnyByteOnPredecessorViolation()
+        throws Exception {
+        SemanticGuardGateway fixture = semanticGuardGateway(1);
+        String predecessorPayload = "missing-predecessor";
+        String successorPayload = "early-positive-successor";
+        CorrelationKey predecessorKey = LengthPrefixedProtocolAdapter.correlationKey(
+            predecessorPayload
+        );
+        CorrelationKey successorKey = LengthPrefixedProtocolAdapter.correlationKey(
+            successorPayload
+        );
+        ProofSubjectRef subject = fixture.environment.proofSubjects().create();
+        fixture.environment.proofSubjects().arm(subject, predecessorKey);
+        fixture.environment.proofSubjects().arm(subject, successorKey);
+        SemanticPredecessorGuard guard = fixture.environment.controls().guard(
+            SemanticPredecessorGuardSpec.requiring(
+                subject,
+                SemanticPredecessorRequirement.confirmed(frameSelector(
+                    fixture.connectionId,
+                    subject,
+                    predecessorPayload
+                )),
+                frameSelector(fixture.connectionId, subject, successorPayload),
+                Duration.ofSeconds(5)
+            )
+        );
+
+        try {
+            fixture.environment.start();
+            try (Socket socket = connect(fixture.listenerAddresses.getFirst())) {
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(successorPayload)
+                );
+                socket.getOutputStream().flush();
+
+                assertThat(guard.completion().toCompletableFuture().get(
+                    5,
+                    TimeUnit.SECONDS
+                )).isEqualTo(SemanticPredecessorGuardState.VIOLATED);
+                assertPeerClosed(socket);
+                fixture.server.get().assertClosedWithoutFrames();
+            }
+        } finally {
+            fixture.environment.close();
+        }
+    }
+
+    @Test
+    void shouldNotTreatForwardedCommitAttemptAsCommitConfirmation() throws Exception {
+        SemanticGuardGateway fixture = semanticGuardGateway(2);
+        String commitAttemptPayload = "commit-attempt-forwarded";
+        String commitConfirmationPayload = "commit-confirmation-absent";
+        String httpSuccessorPayload = "positive-http-successor";
+        ProofSubjectRef subject = fixture.environment.proofSubjects().create();
+        fixture.environment.proofSubjects().arm(
+            subject,
+            LengthPrefixedProtocolAdapter.correlationKey(commitAttemptPayload)
+        );
+        fixture.environment.proofSubjects().arm(
+            subject,
+            LengthPrefixedProtocolAdapter.correlationKey(commitConfirmationPayload)
+        );
+        fixture.environment.proofSubjects().arm(
+            subject,
+            LengthPrefixedProtocolAdapter.correlationKey(httpSuccessorPayload)
+        );
+        SemanticPredecessorGuard guard = fixture.environment.controls().guard(
+            SemanticPredecessorGuardSpec.requiring(
+                subject,
+                SemanticPredecessorRequirement.confirmed(frameSelector(
+                    fixture.connectionId,
+                    subject,
+                    commitConfirmationPayload
+                )),
+                frameSelector(fixture.connectionId, subject, httpSuccessorPayload),
+                Duration.ofSeconds(5)
+            )
+        );
+
+        try {
+            fixture.environment.start();
+            try (Socket socket = connect(fixture.listenerAddresses.getFirst())) {
+                byte[] commitAttempt = LengthPrefixedProtocolAdapter.frame(
+                    commitAttemptPayload
+                );
+                socket.getOutputStream().write(commitAttempt);
+                socket.getOutputStream().flush();
+                assertThat(fixture.server.get().awaitFrames(1))
+                    .containsExactly(commitAttempt);
+
+                socket.getOutputStream().write(
+                    LengthPrefixedProtocolAdapter.frame(httpSuccessorPayload)
+                );
+                socket.getOutputStream().flush();
+
+                assertThat(guard.completion().toCompletableFuture().get(
+                    5,
+                    TimeUnit.SECONDS
+                )).isEqualTo(SemanticPredecessorGuardState.VIOLATED);
+                assertPeerClosed(socket);
+                fixture.server.get().assertClosedWithFrames(commitAttempt);
+            }
+        } finally {
+            fixture.environment.close();
         }
     }
 
@@ -487,7 +650,7 @@ class InteractionGatewayTest {
         ProofSubjectRef subject = fixture.environment().proofSubjects().create();
         fixture.environment().proofSubjects().arm(subject, key);
         SemanticHold hold = fixture.environment().controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 fixture.connectionId(),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 LengthPrefixedProtocolAdapter.CODEC,
@@ -602,7 +765,7 @@ class InteractionGatewayTest {
             payload.getBytes(UTF_8)
         );
         SemanticHold hold = environment.controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 ConnectionId.between(client.command, server.command),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 LengthPrefixedProtocolAdapter.CODEC,
@@ -738,7 +901,7 @@ class InteractionGatewayTest {
             payload.getBytes(UTF_8)
         );
         SemanticHold hold = environment.controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 ConnectionId.between(client.command, server.command),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 LengthPrefixedProtocolAdapter.CODEC,
@@ -1445,6 +1608,78 @@ class InteractionGatewayTest {
         );
     }
 
+    private static SemanticGuardGateway semanticGuardGateway(int expectedFrames) {
+        List<InetSocketAddress> listenerAddresses = new ArrayList<>();
+        AtomicReference<FrameSequenceServer> frameServer = new AtomicReference<>();
+        Server server = server(
+            new ArrayList<>(),
+            new AtomicInteger(),
+            () -> {
+                FrameSequenceServer opened = FrameSequenceServer.open(expectedFrames);
+                frameServer.set(opened);
+                return opened;
+            }
+        );
+        Client client = new Client((component, context) -> {
+            Client typed = (Client) component;
+            return ComponentRuntime.<ResolvedRoutes>runtime()
+                .operations(new ResolvedRoutes(
+                    context.resolve(typed.command),
+                    context.resolve(typed.session)
+                ))
+                .build();
+        });
+        EnvironmentBuilder builder = new EnvironmentBuilder()
+            .components(client, server)
+            .connect(client.command, server.command)
+            .connect(client.session, server.session);
+        InteractionGateway gateway = new InteractionGateway(port -> {});
+        ConnectionRouting routing = ConnectionRouting.routed(
+            COMMAND,
+            requiredLengthProfile(),
+            gateway.tcp(
+                commandAdapter(
+                    "semantic-predecessor-route",
+                    listenerAddresses,
+                    new ArrayList<>()
+                ),
+                LengthPrefixedProtocolAdapter.correlating(),
+                new ProtocolLimits(128, 256)
+            )
+        ).withRoute(
+            SESSION,
+            gateway.tcp(sessionAdapter(
+                "semantic-predecessor-session-route",
+                listenerAddresses,
+                new ArrayList<>()
+            ))
+        );
+        return new SemanticGuardGateway(
+            routedEnvironment(builder, routing),
+            listenerAddresses,
+            frameServer,
+            ConnectionId.between(client.command, server.command)
+        );
+    }
+
+    private static SemanticInteractionSelector<
+        LengthPrefixedProtocolAdapter.FrameEvidence
+    > frameSelector(
+        ConnectionId connectionId,
+        ProofSubjectRef subject,
+        String payload
+    ) {
+        byte[] bytes = payload.getBytes(UTF_8);
+        String digest = LengthPrefixedProtocolAdapter.sha256(bytes);
+        return SemanticInteractionSelector.matching(
+            connectionId,
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            LengthPrefixedProtocolAdapter.CODEC,
+            evidence -> evidence.payloadBytes() == bytes.length
+                && evidence.payloadSha256().equals(digest)
+        ).forSubject(subject);
+    }
+
     private static void assertFullGatewayForwardingFailure(
         ForwardingFailurePoint failurePoint
     ) throws Exception {
@@ -1472,7 +1707,7 @@ class InteractionGatewayTest {
         );
         String payload = "full-gateway-" + failurePoint.name().toLowerCase();
         SemanticHold hold = fixture.environment().controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 fixture.connectionId(),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 LengthPrefixedProtocolAdapter.CODEC,
@@ -1602,10 +1837,10 @@ class InteractionGatewayTest {
             .effectiveObservationStatus();
     }
 
-    private static SemanticHoldSelector<
+    private static SemanticInteractionSelector<
         LengthPrefixedProtocolAdapter.FrameEvidence
     > semanticSelector(ConnectionId connectionId) {
-        return SemanticHoldSelector.matching(
+        return SemanticInteractionSelector.matching(
             connectionId,
             FlowDirection.CONSUMER_TO_PROVIDER,
             LengthPrefixedProtocolAdapter.CODEC,
@@ -1910,6 +2145,13 @@ class InteractionGatewayTest {
         ConnectionId connectionId
     ) {}
 
+    private record SemanticGuardGateway(
+        RoutedEnvironment environment,
+        List<InetSocketAddress> listenerAddresses,
+        AtomicReference<FrameSequenceServer> server,
+        ConnectionId connectionId
+    ) {}
+
     private record EmptyConfig() implements RuntimeConfig {}
 
     private enum Invocation implements InteractionSpec {
@@ -2133,6 +2375,120 @@ class InteractionGatewayTest {
         @Override
         public void close() throws Exception {
             allowRead.countDown();
+            listener.close();
+            tasks.close();
+        }
+    }
+
+    private static final class FrameSequenceServer implements TestServer {
+        private final ServerSocket listener;
+        private final int expectedFrames;
+        private final ExecutorService tasks = Executors.newVirtualThreadPerTaskExecutor();
+        private final List<byte[]> frames = new ArrayList<>();
+        private final List<CountDownLatch> milestones;
+        private final CountDownLatch terminated = new CountDownLatch(1);
+        private final AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        private FrameSequenceServer(ServerSocket listener, int expectedFrames) {
+            this.listener = listener;
+            this.expectedFrames = expectedFrames;
+            milestones = java.util.stream.IntStream.range(0, expectedFrames)
+                .mapToObj(ignored -> new CountDownLatch(1))
+                .toList();
+            tasks.submit(this::accept);
+        }
+
+        private static FrameSequenceServer open(int expectedFrames) {
+            if (expectedFrames < 1) {
+                throw new IllegalArgumentException("expectedFrames must be positive");
+            }
+            try {
+                ServerSocket listener = new ServerSocket();
+                listener.bind(new InetSocketAddress("127.0.0.1", 0));
+                return new FrameSequenceServer(listener, expectedFrames);
+            } catch (IOException failure) {
+                throw new IllegalStateException(
+                    "Could not open test frame sequence server",
+                    failure
+                );
+            }
+        }
+
+        @Override
+        public int port() {
+            return listener.getLocalPort();
+        }
+
+        private List<byte[]> awaitFrames(int count) {
+            if (count < 1 || count > expectedFrames) {
+                throw new IllegalArgumentException("count is outside the expected frame range");
+            }
+            try {
+                if (!milestones.get(count - 1).await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Gateway did not forward the expected frames");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("Interrupted while waiting for frames", interrupted);
+            }
+            if (failure.get() != null) {
+                throw new AssertionError("Frame sequence server failed", failure.get());
+            }
+            synchronized (frames) {
+                return frames.stream().map(byte[]::clone).toList();
+            }
+        }
+
+        private void assertClosedWithoutFrames() throws Exception {
+            assertClosedWithFrames();
+        }
+
+        private void assertClosedWithFrames(byte[]... expected) throws Exception {
+            assertThat(terminated.await(5, TimeUnit.SECONDS))
+                .as("guarded upstream session closed")
+                .isTrue();
+            assertThat(failure.get()).isNull();
+            synchronized (frames) {
+                assertThat(frames).containsExactly(expected);
+            }
+        }
+
+        private void accept() {
+            try (
+                Socket client = listener.accept();
+                DataInputStream input = new DataInputStream(client.getInputStream())
+            ) {
+                for (int index = 0; index < expectedFrames; index++) {
+                    int payloadBytes;
+                    try {
+                        payloadBytes = input.readInt();
+                    } catch (EOFException closed) {
+                        break;
+                    }
+                    byte[] payload = input.readNBytes(payloadBytes);
+                    if (payload.length != payloadBytes) {
+                        throw new EOFException(
+                            "Frame ended before its declared payload length"
+                        );
+                    }
+                    byte[] frame = ByteBuffer.allocate(Integer.BYTES + payloadBytes)
+                        .putInt(payloadBytes)
+                        .put(payload)
+                        .array();
+                    synchronized (frames) {
+                        frames.add(frame);
+                    }
+                    milestones.get(index).countDown();
+                }
+            } catch (Throwable receiveFailure) {
+                failure.set(receiveFailure);
+            } finally {
+                terminated.countDown();
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
             listener.close();
             tasks.close();
         }

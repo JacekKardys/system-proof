@@ -11,7 +11,10 @@ public interface SemanticControls {
      * while the selector is merely armed.
      */
     <T> SemanticHold arm(
-        SemanticHoldSelector<T> selector,
+        SemanticInteractionSelector<T> selector,
         Duration maximumHoldDuration
     );
+
+    /** Arms one subject-scoped predecessor guard before either selected interaction occurs. */
+    SemanticPredecessorGuard guard(SemanticPredecessorGuardSpec specification);
 }

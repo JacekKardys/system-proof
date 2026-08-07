@@ -66,7 +66,10 @@ class CoreArchitectureTest {
         component.SystemComponent
         control.SemanticControls
         control.SemanticHold
-        control.SemanticHoldSelector
+        control.SemanticInteractionSelector
+        control.SemanticPredecessorGuard
+        control.SemanticPredecessorGuardSpec
+        control.SemanticPredecessorRequirement
         configuration.ConfigurationSource
         configuration.EnvironmentConfiguration
         configuration.EnvironmentVariable
@@ -132,6 +135,11 @@ class CoreArchitectureTest {
         control.SemanticHoldFailure
         control.SemanticHoldRef
         control.SemanticHoldState
+        control.SemanticPredecessorBoundary
+        control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardRef
+        control.SemanticPredecessorGuardState
+        control.SemanticPredecessorViolation
         diagnostics.EnvironmentDiagnostics
         endpoint.AmqpEndpoint
         endpoint.EndpointAddress
@@ -175,6 +183,8 @@ class CoreArchitectureTest {
         journal.ScenarioEvent
         journal.ScenarioJournalSnapshot
         journal.SemanticHoldEvent
+        journal.SemanticPredecessorGuardEvent
+        journal.SemanticPredecessorGuardEvent$Kind
         observation.EffectiveObservationStatus
         observation.EvidenceSchemaId
         observation.EvidenceSnapshot
@@ -230,6 +240,24 @@ class CoreArchitectureTest {
         control.SemanticHoldState#REACHED_HELD:control.SemanticHoldState
         control.SemanticHoldState#RELEASING:control.SemanticHoldState
         control.SemanticHoldState#TIMED_OUT:control.SemanticHoldState
+        control.SemanticPredecessorBoundary#CONFIRMED:control.SemanticPredecessorBoundary
+        control.SemanticPredecessorBoundary#FORWARDED:control.SemanticPredecessorBoundary
+        control.SemanticPredecessorGuardFailure#CORRELATION_INVALIDATED:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardFailure#INTERNAL_FAILURE:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardFailure#REQUIRED_OBSERVATION_FAILURE:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardFailure#SELECTOR_EVALUATION:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardFailure#SESSION_ABANDONED:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardFailure#WRITE_FAILURE:control.SemanticPredecessorGuardFailure
+        control.SemanticPredecessorGuardState#ARMED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#CANCELLED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#FAILED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#PREDECESSOR_OBSERVED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#PREDECESSOR_SATISFIED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#SATISFIED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#SUCCESSOR_AUTHORIZED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#TIMED_OUT:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorGuardState#VIOLATED:control.SemanticPredecessorGuardState
+        control.SemanticPredecessorViolation#PREDECESSOR_NOT_ESTABLISHED:control.SemanticPredecessorViolation
         observation.RequiredObservationProfile$Capability#CORRELATION_CONTRIBUTIONS:observation.RequiredObservationProfile$Capability
         observation.RequiredObservationProfile$Capability#SEMANTIC_CONTROL:observation.RequiredObservationProfile$Capability
         observation.RequiredObservationProfile$Feature#ENCRYPTED_TRANSPORT:observation.RequiredObservationProfile$Feature
@@ -266,6 +294,11 @@ class CoreArchitectureTest {
         journal.LogLevel#OFF:journal.LogLevel
         journal.LogLevel#TRACE:journal.LogLevel
         journal.LogLevel#WARN:journal.LogLevel
+        journal.SemanticPredecessorGuardEvent$Kind#DECISION:journal.SemanticPredecessorGuardEvent$Kind
+        journal.SemanticPredecessorGuardEvent$Kind#RELATION:journal.SemanticPredecessorGuardEvent$Kind
+        journal.SemanticPredecessorGuardEvent$Kind#STATE:journal.SemanticPredecessorGuardEvent$Kind
+        journal.SemanticPredecessorGuardEvent$Kind#SUPPRESSED_FAILURE:journal.SemanticPredecessorGuardEvent$Kind
+        journal.SemanticPredecessorGuardEvent$Kind#VIOLATION:journal.SemanticPredecessorGuardEvent$Kind
         observation.EffectiveObservationStatus#ACTIVE:observation.EffectiveObservationStatus
         observation.EffectiveObservationStatus#DEGRADED:observation.EffectiveObservationStatus
         observation.EffectiveObservationStatus#DISABLED:observation.EffectiveObservationStatus
@@ -486,6 +519,7 @@ class CoreArchitectureTest {
             );
         assertThat(methodKeys(InteractionDecisionCoordinator.class))
             .containsExactly(
+                "observationFailed(topology.ConnectionId):void",
                 "permit(observation.RecordedInteraction):observation.ForwardingPermit"
             );
         assertThat(methodKeys(EnvironmentTopology.class))

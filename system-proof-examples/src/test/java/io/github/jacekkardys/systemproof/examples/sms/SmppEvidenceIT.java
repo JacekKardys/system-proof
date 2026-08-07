@@ -14,7 +14,7 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
-import io.github.jacekkardys.systemproof.control.SemanticHoldSelector;
+import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
 import io.github.jacekkardys.systemproof.endpoint.SmppEndpoint;
 import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
@@ -247,7 +247,7 @@ final class SmppEvidenceIT {
         CorrelationKey key
     ) {
         return environment.controls().arm(
-            SemanticHoldSelector.matching(
+            SemanticInteractionSelector.matching(
                 environment.smppConnectionId(),
                 FlowDirection.CONSUMER_TO_PROVIDER,
                 environment.smppAdapter().evidenceCodec(),
