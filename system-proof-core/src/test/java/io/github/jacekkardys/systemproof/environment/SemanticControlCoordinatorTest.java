@@ -1074,7 +1074,7 @@ class SemanticControlCoordinatorTest {
             ),
             MAXIMUM_HOLD
         )).isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("is not armed for proof subject");
+            .hasMessageContaining("is not armed for the selected proof subject");
     }
 
     @Test

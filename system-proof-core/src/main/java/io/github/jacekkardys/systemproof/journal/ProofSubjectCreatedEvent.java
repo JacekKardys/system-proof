@@ -13,4 +13,9 @@ public record ProofSubjectCreatedEvent(
             "proofSubject must not be null"
         );
     }
+
+    @Override
+    public String toString() {
+        return "ProofSubjectCreatedEvent[proofSubject=opaque]";
+    }
 }

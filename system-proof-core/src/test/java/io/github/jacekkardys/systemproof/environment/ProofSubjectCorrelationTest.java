@@ -112,6 +112,24 @@ class ProofSubjectCorrelationTest {
     }
 
     @Test
+    void shouldNotRenderProofSubjectIdentityInUnarmedValidationFailures() {
+        Fixture fixture = fixture();
+        ProofSubjectRef subject = fixture.registry.create();
+        CorrelationKey key = key("unarmed");
+        String expected = "Correlation key schema 'system-proof-test:operation:v1'"
+            + " is not armed for the selected proof subject";
+
+        assertThatThrownBy(() -> fixture.registry.correlation(
+            subject,
+            key,
+            NATIVE_REFERENCE_CODEC
+        )).hasMessage(expected).hasMessageNotContaining("proof-subject-1");
+        assertThatThrownBy(() -> fixture.registry.validateSubjectFlow(subject, key))
+            .hasMessage(expected)
+            .hasMessageNotContaining("proof-subject-1");
+    }
+
+    @Test
     void shouldProgressFromMissingToUniqueAndTerminalAmbiguous() {
         Fixture fixture = fixture();
         ProofSubjectRef subject = fixture.registry.create();

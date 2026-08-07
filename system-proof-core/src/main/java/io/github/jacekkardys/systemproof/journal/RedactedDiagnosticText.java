@@ -60,6 +60,22 @@ public final class RedactedDiagnosticText {
     }
 
     @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof RedactedDiagnosticText text)) {
+            return false;
+        }
+        return truncated == text.truncated && content.equals(text.content);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * content.hashCode() + Boolean.hashCode(truncated);
+    }
+
+    @Override
     public String toString() {
         return "RedactedDiagnosticText[length=" + content.length()
             + ", truncated=" + truncated + "]";

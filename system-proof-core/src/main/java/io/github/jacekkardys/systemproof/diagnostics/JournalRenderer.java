@@ -31,7 +31,6 @@ import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
-import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 /** Linear human-readable rendering over detached immutable journal read models. */
 public final class JournalRenderer {
@@ -161,11 +160,11 @@ public final class JournalRenderer {
                 interactionMessage(observation)
             );
             case ProofSubjectCreatedEvent created -> new RenderedEvent(
-                proofSubjectLabels(created.proofSubject()),
+                proofSubjectLabels(),
                 "Created proof subject"
             );
             case ProofSubjectArmedEvent armed -> new RenderedEvent(
-                proofSubjectLabels(armed.proofSubject()),
+                proofSubjectLabels(),
                 "Armed proof subject keySchema=" + armed.key().schema()
                     + " sharedKey=" + armed.sharedKey()
             );
@@ -288,15 +287,15 @@ public final class JournalRenderer {
             + " encodedBytes=" + observation.evidence().encodedSize();
     }
 
-    private static String proofSubjectLabels(ProofSubjectRef proofSubject) {
-        return "[PROOF-SUBJECT] [ref=" + proofSubject + "]";
+    private static String proofSubjectLabels() {
+        return "[PROOF-SUBJECT] [ref=opaque]";
     }
 
     private static String correlationLabels(CorrelationCandidateEvent candidate) {
         return "[CORRELATION]"
-            + candidate.proofSubject()
-                .map(subject -> " [subject=" + subject + "]")
-                .orElse(" [subject=unassigned]")
+            + (candidate.proofSubject().isPresent()
+                ? " [subject=assigned]"
+                : " [subject=unassigned]")
             + " [connection=" + candidate.interactionRef().connectionId() + "]"
             + " [interaction=" + candidate.interactionRef() + "]";
     }
@@ -313,12 +312,10 @@ public final class JournalRenderer {
 
     private static String semanticHoldLabels(SemanticHoldEvent hold) {
         return "[SEMANTIC-HOLD]"
-            + " [ref=" + hold.holdRef() + "]"
+            + " [ref=opaque]"
             + " [connection=" + hold.connectionId() + "]"
             + " [flow=" + hold.direction() + "]"
-            + hold.proofSubject()
-                .map(subject -> " [subject=" + subject + "]")
-                .orElse("");
+            + (hold.proofSubject().isPresent() ? " [subject=assigned]" : "");
     }
 
     private static String semanticHoldMessage(SemanticHoldEvent hold) {
@@ -338,8 +335,8 @@ public final class JournalRenderer {
         SemanticPredecessorGuardEvent guard
     ) {
         return "[SEMANTIC-PREDECESSOR-GUARD]"
-            + " [ref=" + guard.guardRef() + "]"
-            + " [subject=" + guard.proofSubject() + "]";
+            + " [ref=opaque]"
+            + " [subject=assigned]";
     }
 
     private static String semanticPredecessorGuardMessage(

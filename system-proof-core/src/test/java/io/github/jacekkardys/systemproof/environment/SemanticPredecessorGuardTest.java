@@ -37,6 +37,9 @@ import io.github.jacekkardys.systemproof.observation.SessionId;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture.Behavior;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture.Probe;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +55,42 @@ class SemanticPredecessorGuardTest {
         codec("predecessor-ref");
     private static final EvidenceCodec<String> SUCCESSOR_REF_CODEC =
         codec("successor-ref");
+
+    @Test
+    void shouldNotInspectOpaqueSubjectWhenRenderingGuardSpecificationMetadata() {
+        String[] canaries = OpaqueReferenceDiagnosticsFixture.allCanaries()
+            .toArray(String[]::new);
+        for (Behavior behavior : Behavior.values()) {
+            Probe probe = new Probe(behavior);
+            SemanticInteractionSelector<String> predecessor = SemanticInteractionSelector
+                .matching(
+                    PREDECESSOR_CONNECTION,
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    PREDECESSOR_CODEC,
+                    ignored -> true
+                )
+                .forSubject(probe.proofSubject());
+            SemanticInteractionSelector<String> successor = SemanticInteractionSelector
+                .matching(
+                    SUCCESSOR_CONNECTION,
+                    FlowDirection.CONSUMER_TO_PROVIDER,
+                    SUCCESSOR_CODEC,
+                    ignored -> true
+                )
+                .forSubject(probe.proofSubject());
+            SemanticPredecessorGuardSpec spec = SemanticPredecessorGuardSpec.requiring(
+                probe.proofSubject(),
+                SemanticPredecessorRequirement.confirmed(predecessor),
+                successor,
+                MAXIMUM_DURATION
+            );
+
+            assertThat(spec.toString())
+                .contains("subject=opaque", "subjectConstrained=true")
+                .doesNotContain(canaries);
+            assertThat(probe.toStringCalls()).isZero();
+        }
+    }
 
     @Test
     void shouldAuthorizeAndRecordConfirmedPredecessorRelationBeforeForwardingOnce()
@@ -450,8 +489,8 @@ class SemanticPredecessorGuardTest {
 
         String rendered = new JournalRenderer().render(fixture.journal.snapshot());
         assertThat(rendered)
-            .contains("PREDECESSOR_NOT_ESTABLISHED", guard.ref().toString())
-            .doesNotContain(secret, "positive:s-15");
+            .contains("PREDECESSOR_NOT_ESTABLISHED", "[ref=opaque]")
+            .doesNotContain(secret, "positive:s-15", "semantic-predecessor-guard-1");
         assertThat(guard.toString()).doesNotContain(secret);
     }
 

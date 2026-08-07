@@ -6,6 +6,8 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
@@ -17,6 +19,7 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
+import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardRef;
 
 class ScenarioEventTest {
     private static final Set<Class<? extends ScenarioEvent>> FRAMEWORK_EVENTS = Set.of(
@@ -30,6 +33,7 @@ class ScenarioEventTest {
         ProofSubjectArmedEvent.class,
         CorrelationCandidateEvent.class,
         SemanticHoldEvent.class,
+        SemanticPredecessorGuardEvent.class,
         CheckpointEvent.class,
         DisruptionLifecycleEvent.class
     );
@@ -45,7 +49,35 @@ class ScenarioEventTest {
     }
 
     @Test
-    void shouldNeverRetainThrowableInTheEventOrReadModelSurface() {
+    void shouldInventoryEveryTopLevelFrameworkEventInTheJournalPackage() throws Exception {
+        Path packageDirectory = Path.of(
+            ScenarioEvent.class.getProtectionDomain().getCodeSource().getLocation().toURI()
+        ).resolve(ScenarioEvent.class.getPackageName().replace('.', '/'));
+        Set<Class<? extends ScenarioEvent>> discovered = new HashSet<>();
+        try (var classes = Files.list(packageDirectory)) {
+            for (Path path : classes
+                .filter(candidate -> candidate.getFileName().toString().endsWith(".class"))
+                .filter(candidate -> !candidate.getFileName().toString().contains("$"))
+                .toList()) {
+                String simpleName = path.getFileName().toString().replaceFirst("\\.class$", "");
+                Class<?> type = Class.forName(
+                    ScenarioEvent.class.getPackageName() + "." + simpleName,
+                    false,
+                    ScenarioEvent.class.getClassLoader()
+                );
+                if (type != ScenarioEvent.class
+                    && Modifier.isPublic(type.getModifiers())
+                    && ScenarioEvent.class.isAssignableFrom(type)) {
+                    discovered.add(type.asSubclass(ScenarioEvent.class));
+                }
+            }
+        }
+
+        assertThat(discovered).containsExactlyInAnyOrderElementsOf(FRAMEWORK_EVENTS);
+    }
+
+    @Test
+    void shouldNeverRetainThrowableOrFailureClassInTheEventOrReadModelSurface() {
         Set<Class<?>> inspected = new HashSet<>();
         FRAMEWORK_EVENTS.forEach(eventType -> assertNoThrowable(eventType, inspected));
         assertThat(JournalEntry.class.getDeclaredFields())
@@ -59,7 +91,8 @@ class ScenarioEventTest {
             return;
         }
         assertThat(type.getDeclaredFields())
-            .noneMatch(field -> Throwable.class.isAssignableFrom(field.getType()));
+            .noneMatch(field -> Throwable.class.isAssignableFrom(field.getType())
+                || Class.class.isAssignableFrom(field.getType()));
         if (type.isSealed()) {
             for (Class<?> permitted : type.getPermittedSubclasses()) {
                 assertNoThrowable(permitted, inspected);
@@ -90,12 +123,6 @@ class ScenarioEventTest {
 
     private static void assertImmutableType(Type type, Set<Class<?>> inspected) {
         if (type instanceof ParameterizedType parameterized) {
-            if (parameterized.getRawType() == Class.class) {
-                assertThat(parameterized.getActualTypeArguments()).hasSize(1);
-                assertThat(parameterized.getActualTypeArguments()[0].getTypeName())
-                    .isEqualTo("? extends java.lang.Throwable");
-                return;
-            }
             assertThat(parameterized.getRawType()).isEqualTo(Optional.class);
             for (Type argument : parameterized.getActualTypeArguments()) {
                 assertImmutableType(argument, inspected);
@@ -114,7 +141,9 @@ class ScenarioEventTest {
             assertEvidenceSnapshotBoundary();
             return;
         }
-        if (valueType == ProofSubjectRef.class || valueType == SemanticHoldRef.class) {
+        if (valueType == ProofSubjectRef.class
+            || valueType == SemanticHoldRef.class
+            || valueType == SemanticPredecessorGuardRef.class) {
             assertThat(valueType.isInterface()).isTrue();
             assertThat(valueType.getDeclaredMethods()).isEmpty();
             return;
@@ -124,6 +153,10 @@ class ScenarioEventTest {
             return;
         }
         if (valueType == RedactedDiagnosticText.class) {
+            assertOpaqueImmutableValue(valueType);
+            return;
+        }
+        if (valueType == FailureDetails.class) {
             assertOpaqueImmutableValue(valueType);
             return;
         }

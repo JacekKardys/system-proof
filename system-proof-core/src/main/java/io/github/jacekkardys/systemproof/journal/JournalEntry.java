@@ -71,6 +71,24 @@ public final class JournalEntry {
     public String toString() {
         return "JournalEntry[journalSequence=" + journalSequence
             + ", diagnosticElapsedTime=" + diagnosticElapsedTime
-            + ", event=" + event + "]";
+            + ", eventType=" + normalizedEventType(event.getClass()) + "]";
+    }
+
+    private static String normalizedEventType(Class<?> eventType) {
+        String candidate = eventType.getSimpleName();
+        if (candidate == null || candidate.isBlank()) {
+            return "ScenarioEvent";
+        }
+        StringBuilder normalized = new StringBuilder(Math.min(candidate.length(), 128));
+        for (int index = 0;
+             index < candidate.length() && normalized.length() < 128;
+             index++) {
+            char character = candidate.charAt(index);
+            if (Character.isLetterOrDigit(character) || character == '_'
+                || character == '$') {
+                normalized.append(character);
+            }
+        }
+        return normalized.isEmpty() ? "ScenarioEvent" : normalized.toString();
     }
 }

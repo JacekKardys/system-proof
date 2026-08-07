@@ -22,9 +22,11 @@ that boundary; it does not evaluate evidence or create proof outcomes.
 Every diagnostics source has one of four trust classifications:
 
 1. `SAFE_BY_CONSTRUCTION` is a framework-owned typed fact. Allowed values are enums, lifecycle
-   states, boolean capabilities, normalized stable component/connection/interaction/subject
-   identities, explicitly allowed schema identifiers, encoded-size metadata, and digest metadata.
-   Arbitrary payload `toString()` is never safe by construction.
+   states, boolean capabilities, normalized stable component/connection/interaction identities,
+   explicitly allowed schema identifiers, encoded-size metadata, and digest metadata. Open opaque
+   proof-subject, hold, and predecessor-guard references are retained for ownership and equality
+   semantics but rendered only as fixed presence/type labels. Arbitrary payload or reference
+   `toString()` is never safe by construction.
 2. `REDACTED_TEXT` is extension text processed by an explicit bounded sanitizer before it enters a
    journal event or default diagnostic source. Safety depends on the supplied redaction policy.
    There is no implicit identity sanitizer and no public `safe(String)` equivalent.
@@ -55,10 +57,13 @@ the diagnostics artifact contract.
 
 ## Failure metadata
 
-`FailureDetails` retains only `Class<? extends Throwable>`. Rendering normalizes and bounds the
-simple failure type to 128 characters. Creation and rendering do not call or retain `getMessage()`,
-`Throwable.toString()`, stack traces, cause messages, or suppressed messages. Lifecycle stage and
-component, connection, or driver-resource identity remain typed event fields.
+`FailureDetails.from(Throwable)` reads the runtime class once, immediately normalizes its simple
+name to a 128-character classification, and retains only that `String`. It retains neither the
+throwable nor its `Class` object. Anonymous, blank, or fully removed type names become `Throwable`.
+Creation and rendering do not call or retain `getMessage()`, localized messages,
+`Throwable.toString()`, stack traces, causes, or suppressed failures. Equality and hashing use only
+the retained classification. Lifecycle stage and component, connection, or driver-resource
+identity remain typed event fields.
 
 The former `FailureRedactor` is removed because replacing one arbitrary message with another did
 not create a trustworthy boundary. Runtime diagnostic capture failures, Testcontainers startup
@@ -73,7 +78,13 @@ explicit sanitizer. `DiagnosticEvent` stores that opaque bounded value. The envi
 appends it first and `JournalSlf4jEmitter` uses the same `JournalRenderer.renderLines(...)`
 representation as journal rendering. Detached client events cannot enter the environment-owned
 journal. Unknown `ScenarioEvent` implementations use a type-only fallback and their `toString()` is
-never called.
+never called. Known framework events containing open `ProofSubjectRef`, `SemanticHoldRef`, or
+`SemanticPredecessorGuardRef` values use the same safe-by-construction rule: renderers never invoke
+`toString()`, `String.valueOf()`, `hashCode()`, or any other client-controlled reference method.
+Their labels expose only fixed `opaque` or `assigned` metadata. Framework event `toString()`
+implementations follow the same metadata-only rule, `JournalEntry.toString()` renders only the
+normalized event type, and `RedactedDiagnosticText.toString()` exposes length and truncation state
+without content.
 
 Component configuration is not rendered. Evidence rendering uses only typed schema and size
 metadata. No configuration, evidence value, decoded value, endpoint, or extension object is made
@@ -134,7 +145,8 @@ remain suppressed against the primary failure.
 | Source | Classification and default behavior |
 | --- | --- |
 | Lifecycle, topology identity, state, capability, schema, digest, and size facts | `SAFE_BY_CONSTRUCTION`; rendered from typed fields only |
-| Throwable graph | Type-only `FailureDetails`; messages and traces excluded |
+| Throwable graph | One normalized bounded `String` in `FailureDetails`; throwable, `Class`, messages, and traces excluded |
+| Open proof-subject / semantic-control references | Retained as typed opaque values for semantics; rendered as fixed `opaque` / presence labels without invoking reference methods |
 | Driver log text and `DiagnosticEvent` | `REDACTED_TEXT`; opaque bounded value required before append |
 | `DiagnosticSource.redacted` | Supplier invoked once; bounded sanitizer required |
 | `DiagnosticSource.sensitive` | `OPT_IN_SENSITIVE`; supplier never invoked or exported by System Proof |

@@ -44,6 +44,18 @@ public record SemanticPredecessorGuardEvent(
         validate(kind, state, predecessor, successor, decision, violation, failure);
     }
 
+    @Override
+    public String toString() {
+        return "SemanticPredecessorGuardEvent[guardRef=opaque, kind=" + kind
+            + ", proofSubject=assigned, state=" + state
+            + ", requiredBoundary=" + requiredBoundary
+            + ", predecessorPresent=" + predecessor.isPresent()
+            + ", successorPresent=" + successor.isPresent()
+            + ", decision=" + decision.map(Enum::name).orElse("none")
+            + ", violation=" + violation.map(Enum::name).orElse("none")
+            + ", failure=" + failure.map(Enum::name).orElse("none") + "]";
+    }
+
     private static void validate(
         Kind kind,
         SemanticPredecessorGuardState state,

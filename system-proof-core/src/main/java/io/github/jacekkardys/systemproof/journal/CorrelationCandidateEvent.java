@@ -50,4 +50,14 @@ public record CorrelationCandidateEvent(
             );
         }
     }
+
+    @Override
+    public String toString() {
+        return "CorrelationCandidateEvent[proofSubject="
+            + (proofSubject.isPresent() ? "assigned" : "unassigned")
+            + ", keySchema=" + key.schema()
+            + ", interactionRef=" + interactionRef
+            + ", nativeReference=" + nativeReference
+            + ", cardinality=" + cardinality + "]";
+    }
 }

@@ -60,7 +60,7 @@ public final class SemanticPredecessorGuardSpec {
 
     @Override
     public String toString() {
-        return "SemanticPredecessorGuardSpec[subject=" + subject
+        return "SemanticPredecessorGuardSpec[subject=opaque"
             + ", predecessor=" + predecessor
             + ", successor=" + successor
             + ", maximumDuration=" + maximumDuration + "]";

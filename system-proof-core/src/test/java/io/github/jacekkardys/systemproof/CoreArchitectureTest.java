@@ -340,7 +340,6 @@ class CoreArchitectureTest {
         diagnostics -> environment.state
         diagnostics -> journal
         diagnostics -> observation
-        diagnostics -> proof
         diagnostics -> topology
         driver -> component
         driver -> configuration
