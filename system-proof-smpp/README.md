@@ -119,12 +119,12 @@ is identical to the existing HTTP callback and PostgreSQL RAW-write policies. Pu
 native references for the same armed key remains intentionally ambiguous in the proof-subject
 model; cross-connection order is not inferred from equal fingerprints.
 
-Evidence, reference codecs, default `toString` output, journal snapshots, and framework diagnostics
-never contain credentials, raw PDUs, endpoint data, addresses, message content, or optional
-parameter values. Policy exceptions fail required observation closed and their messages are not
-published.
+Default evidence projections, reference-codec metadata, `toString` output, journal snapshots, and
+framework diagnostics omit credentials, raw PDUs, endpoint data, addresses, message content, and
+optional parameter values. Policy exceptions fail required observation closed and their messages
+are not published.
 
-The current `clean verify` suite contains 481 tests. Deterministic sequence regressions cover
+Deterministic sequence regressions cover
 `0x7FFFFFFF`, `0x80000000`, `0xFFFFFFFF`, and zero, including REQUIRED-route no-forwarding,
 high-bit response matching, mismatch rejection, and exchange/evidence codec round trips.
 Remaining fail-closed exclusions include all

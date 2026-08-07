@@ -31,9 +31,9 @@ fingerprinting and reference-table policy remain in the examples module.
 - `PostgresqlDurabilityVerifier` runs a pre-proof environmental preflight on a test-owned JDBC
   connection. It does not access or administer a SUT JDBC connection.
 
-PostgreSQL evidence, correlation state, journal entries, renderers, and diagnostics never retain or
-render SQL text, bind values, credentials, database URLs, usernames, authentication payloads,
-cancellation keys, or raw frames. The gateway retains a bounded raw protocol unit only while it is
+Default PostgreSQL evidence, correlation state, journal entries, renderers, and diagnostics exclude
+SQL text, bind values, credentials, database URLs, usernames, authentication payloads,
+cancellation keys, and raw frames. The gateway retains a bounded raw protocol unit only while it is
 pending a forwarding decision and write; it is released afterwards and never enters the journal or
 diagnostics. Statement evidence contains only typed classes and transaction references. The
 structured write shape renders only kind, schema-qualification presence, and column count.

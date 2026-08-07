@@ -24,8 +24,19 @@ Public composition API:
   restricted checkpoint/disruption contributions without exposing `ScenarioJournal`.
 
 The base driver obtains one environment-scoped network, applies aliases and wait strategies,
-forwards container logs, starts the container, materializes runtime bindings, creates optional
-operations, runs component bootstrap, and returns the cleanup handle.
+applies the configured container-output policy, starts the container, materializes runtime
+bindings, creates optional operations, runs component bootstrap, and returns the cleanup handle.
+
+## Container diagnostics
+
+Raw stdout/stderr is omitted from the journal, framework SLF4J, JUnit reports, and
+`Environment.diagnostics()`. `TestcontainersDriver.containerLogSanitizer(...)` returns
+`null` by default; an override is an explicit policy that receives at most 16 KiB of one frame and
+produces bounded `RedactedDiagnosticText` (4 KiB, 64 lines). Throwing, `null`, blank, or oversized
+sanitizer output fails closed without raw fallback. Log-level detection inspects only the bounded
+transient frame and does not retain it. The framework exposes no raw container-output attachment
+or fallback path. The complete contract is in
+[`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md).
 
 Testcontainers maps host ports dynamically. Ports and container objects remain inside this adapter;
 logical components and connections contain no runtime address data. Core owns lifecycle ordering
@@ -86,8 +97,8 @@ The gateway owns sockets, listeners, route lifecycle, `SessionId`, ordinals, and
 It passes the exact logical `ConnectionId` when opening an adapter session so route-scoped protocol
 authorization cannot fall back to endpoint-local identifiers. Native reference types remain
 adapter-local and cross the existing
-schema-checked `EvidenceSnapshot` copy boundary. Real bounded PostgreSQL and HTTP adapters are
-provided by their own downstream modules; an SMPP adapter is not yet included. Semantic hold and
+schema-checked `EvidenceSnapshot` copy boundary. Real bounded PostgreSQL, HTTP, and SMPP adapters
+are provided by their own downstream modules. Semantic hold and
 one-shot release use the generic forwarding-permit boundary described above. TLS termination,
 fault mutation, cross-connection causal proof, and the final verdict remain outside this module. One
 gateway can serve different contract types concurrently without a gateway registry or global

@@ -394,9 +394,16 @@ hold queue is introduced.
 
 External values enter through immutable `EnvironmentConfiguration`. Each environment builder owns
 that snapshot and binds the component and driver configuration interfaces declared by component
-metadata. Secrets use `Secret<T>` and are redacted from diagnostics.
+metadata. Secrets use `Secret<T>`, but configuration is excluded from diagnostics regardless of its
+`toString()` implementation.
 
 ## Diagnostics
+
+`Environment.diagnostics()` is secret-safe by policy. It combines typed state, one bounded
+journal rendering, and at most 32 explicitly sanitized diagnostic sources. The complete result is
+bounded to 256 KiB characters. The framework exposes no raw or sensitive attachment path. The
+trust classifications, prohibited data, exact limits, and residual limitations are defined by
+[`ADR 0010`](docs/adr/0010-secret-safe-diagnostics.md).
 
 Every environment execution owns exactly one package-private append-only `ScenarioJournal`. It is
 the authoritative structured history and the only owner of sequence allocation, insertion order,
@@ -407,6 +414,8 @@ diagnostic-time capture, and snapshot copying. There is no public mutable journa
   diagnostics;
 - externally contributed interaction observations;
 - proof-subject creation, safe key arming, and typed correlation candidate/cardinality facts;
+- semantic hold and predecessor-guard state, decisions, relations, violations, and safe failure
+  classifications;
 - checkpoint or barrier records;
 - disruption lifecycle records.
 
@@ -443,8 +452,9 @@ cases never select the first, latest, earliest, or next journal entry.
 The environment owns one thread-safe `InteractionDecisionCoordinator` shared by all route contexts.
 It performs exact semantic-hold matching and state transitions under a short serialized boundary;
 permit waits, public awaits, socket writes, flushes, and callbacks never hold that coordinator lock.
-Traffic that matches no armed hold receives an immediate forwarding permit. Predecessor guards and
-causal proof remain outside this milestone.
+Traffic that matches no armed hold or predecessor guard receives an immediate forwarding permit.
+Semantic holds and predecessor guards share the coordinator; proof outcomes and the final T1
+scenario remain later work.
 
 Core invokes the codec synchronously, copies the encoded bytes into a private `EvidenceSnapshot`,
 and retains neither the source value, codec, nor codec-produced array. Typed inspection uses the
@@ -461,25 +471,27 @@ history.
 Component-originated and connection-originated contributions are separate. The component-scoped
 `JournalContributions` capability on `DriverContext` retains only checkpoints and disruption
 lifecycle records; it cannot publish traffic observations. It cannot append environment/component
-lifecycle, framework failure, or free-form diagnostic events, and it never exposes the mutable
-journal. Existing `DriverContext.log(...)` remains journal-backed and restricted to the
-driver-owned component. `Environment.journalSnapshot()` returns a detached immutable snapshot for
-typed assertions.
+lifecycle or framework failure events, and it never exposes the mutable journal.
+`DriverContext.log(...)` remains journal-backed and restricted to the driver-owned component, but
+accepts only bounded `RedactedDiagnosticText` produced through an explicit sanitizer. There is no
+arbitrary `String` overload or `safe(String)` factory. `Environment.journalSnapshot()` returns a
+detached immutable snapshot for typed assertions.
 
-Publication validates scope and identity, freezes or redacts a failure, appends the immutable event,
-and only then applies the logging threshold and emits through SLF4J. Identity-based route-failure
-redaction therefore happens before storage; journal events, loggers, and renderers never retain or
-re-read a `Throwable`. Protected messages contain only failure type, route stage, and structured
-connection identity.
+Publication validates scope and identity, freezes type-only failure metadata, appends the immutable
+event, and only then applies the logging threshold and emits through SLF4J. Journal events, loggers,
+and renderers never retain or re-read a `Throwable`; messages, causes, suppressed messages, and
+stack traces remain only in the programmatic exception chain. Lifecycle stage and component,
+connection, or resource identity remain structured event fields.
 
 Textual environment logs are rendered views of one captured journal snapshot. They retain the
 readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
-components, container output, bootstrap messages, and cleanup failures, but own no independent
-event history. Logging thresholds control only SLF4J emission; lower-level events remain in the
-journal and therefore remain available to failure diagnostics. `OFF` likewise suppresses emission,
-not storage. `JournalRenderer` accepts only detached immutable entries/snapshots, renders full or
-component-scoped views, repeats the same prefix for every multiline entry, and builds complete
-output with one `StringBuilder`, linear in the total generated character count.
+components, explicitly sanitized driver/container text, and cleanup failures, but own no
+independent event history. Raw container output is omitted by default. Logging thresholds control
+only SLF4J emission; lower-level events remain in the journal and therefore remain available to
+failure diagnostics. `OFF` likewise suppresses emission, not storage. `JournalRenderer` accepts
+only detached immutable entries/snapshots, renders full or component-scoped views, repeats the same
+prefix for every multiline entry, uses type-only fallback for unknown events, and bounds full
+output to 256 KiB characters.
 
 `journalSequence` is a one-based position local to one journal. It provides unique storage order
 and deterministic rendering only. It is not a wall-clock or distributed sequence, an
@@ -504,6 +516,10 @@ target/system-proof-artifacts/<test-class>-<test-method>/environment.log
 ```
 
 Set `system.proof.artifacts` to override the artifact root.
+
+The default `environment.log` contains only `Environment.diagnostics()`. The framework does not
+capture or write raw troubleshooting attachments. Sensitive or unsupported diagnostic suppliers
+are never invoked by default report generation.
 
 ## Build
 

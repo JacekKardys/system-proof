@@ -57,6 +57,32 @@ Core validates component ID uniqueness, port ownership and direction, contract/i
 compatibility, exactly one provider per required port, logging references, dependency cycles, and
 complete provided-port materialization.
 
+## Secret-safe diagnostics
+
+`Environment.diagnostics()` is the only default environment report and returns an
+`EnvironmentDiagnostics` instance that callers cannot construct from arbitrary text. It contains
+typed state, a bounded safe journal rendering, and only `DiagnosticSource.redacted(...)` values.
+The complete report and journal rendering are each limited to 256 KiB characters; at most 32
+redacted sources are captured.
+
+Driver text crosses the journal boundary only as `RedactedDiagnosticText`, created with an explicit
+sanitizer over at most 16 KiB characters and retaining at most 4 KiB/64 lines. Sanitizer failure,
+`null`, blank, or oversized output never falls back to raw input. `DiagnosticSource.sensitive(...)`
+and `DiagnosticSource.unsupported(...)` classify content that the framework never invokes or
+exports. There is no raw or sensitive attachment API.
+
+`FailureDetails` retains only the throwable class and renders a bounded type. It never reads an
+exception message, cause/suppressed message, stack trace, or `Throwable.toString()`. Component
+configuration and arbitrary evidence/extension objects are not rendered. See
+[`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md) for the source inventory, prohibited data,
+limits, and residual sanitizer limitations.
+
+Public diagnostic metadata is validated before storage: component type/qualifier values are at
+most 64 ASCII identifier characters; port names are at most 64 non-control characters; contract,
+interaction, protocol, schema, checkpoint, disruption, diagnostic-source, and driver-resource
+identifiers are at most 128 characters under their documented character sets. Diagnostic-source
+names are exported only as stable 16-hex-character digest identities.
+
 ## Declarative component model
 
 Concrete component classes declare their stable `ComponentType` and driver with
@@ -150,10 +176,10 @@ invalidates direct targets before closing the provider. Route cleanup failure ma
 connection terminally `FAILED` without preventing remaining provider cleanup.
 
 Route preparation and cleanup exceptions remain unchanged for the caller, including suppressed
-failure ordering. Before those failures enter the environment journal, their endpoint-bearing messages are
-replaced with safe metadata containing the failure type, route stage, and structured connection
-identity. Connection, component, and environment rendering therefore share the same redacted
-details without creating a second history.
+failure ordering. Before those failures enter the environment journal, only type-only
+`FailureDetails` is retained; route stage and connection identity remain structured event fields.
+Connection, component, and environment rendering therefore share the same safe representation
+without creating a second history.
 
 `ROUTED` is not `OBSERVED`: access to a connection-bound capability records nothing by itself.
 `ConnectionRouting` keeps `RoutingMode` at `DIRECT | ROUTED` and attaches the separate
@@ -290,7 +316,7 @@ correlation or causality.
 
 The environment execution owns one package-private mutable `ScenarioJournal`. Its append method is
 package-private and only `EnvironmentEventPublisher` receives it. The publisher constructs narrow
-framework facts, validates contribution scope, applies identity-based route-failure redaction, and
+framework facts, validates contribution scope, freezes type-only failure metadata, and
 appends exactly once at the existing pipeline point. `JournalSlf4jEmitter` consumes the returned
 immutable stored entry only after append, owns logging thresholds, and treats `OFF` as no emission
 rather than no history. Neither collaborator owns a second event list.

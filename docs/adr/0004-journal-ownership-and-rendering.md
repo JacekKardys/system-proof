@@ -25,9 +25,10 @@ validates scope and identity and publishes each non-idempotent fact exactly once
 pipeline point. `JournalContributions` remains limited to component-scoped checkpoint and
 disruption facts.
 
-`FailureRedactor` owns identity-based protection state for route preparation and cleanup failures.
-It creates detached `FailureDetails` before append. Stored events and snapshots never retain a
-`Throwable`; renderers and loggers consume only the frozen details.
+`EnvironmentEventPublisher` creates detached `FailureDetails` before append. Stored events and
+snapshots never retain a `Throwable`; renderers and loggers consume only the frozen details. ADR
+0010 later tightened those details to bounded type-only metadata and removed the separate
+`FailureRedactor`.
 
 `EnvironmentLogging` and its builder belong to `environment`, where topology membership is known
 and validation can stay package-private. `LogLevel` belongs to `journal` because severity is part
@@ -38,9 +39,9 @@ including `OFF`, can suppress emission but cannot suppress storage or change `Jo
 `JournalRenderer` is a stateless public diagnostics view over `JournalEntry` and
 `ScenarioJournalSnapshot`. It handles every framework event explicitly, performs structured
 component filtering, repeats the complete prefix on every multiline output line, and builds a
-complete history with one `StringBuilder`. An unknown event uses a type-only fallback that does not
-inspect or render its payload. Its complexity is linear in the total number of generated
-characters.
+bounded history with one `StringBuilder`. An unknown event uses a type-only fallback that does not
+inspect or render its payload. Its complexity is linear in the retained number of generated
+characters. ADR 0010 defines the output bound and arbitrary-text ingress policy.
 
 `ScenarioEvent` is a public open inspection contract. Client switches over it must include a
 default branch, so adding a framework fact does not invalidate those switches. Implementing the
@@ -61,12 +62,12 @@ mutable execution types.
 - There is exactly one mutable event history per environment execution.
 - Storage tests need no logging or renderer configuration.
 - Logging and rendering cannot append or mutate journal state.
-- Route-failure redaction happens before durable storage.
+- Type-only failure freezing happens before durable storage.
 - Large-history rendering no longer performs quadratic growing-string reduction.
-- Existing storage order, event semantics, diagnostic formatting, evidence copying, correlation,
-  driver SPI, JUnit artifact persistence, gateway behavior, and container integrations remain
-  unchanged.
-- New control or proof events extend the framework vocabulary without changing storage, redaction,
+- Existing storage order, event semantics, evidence copying, correlation, gateway behavior, and
+  container lifecycle remain unchanged. ADR 0010 deliberately replaces the unsafe diagnostics,
+  driver-text, JUnit artifact, and container-output compatibility surface before 1.0.
+- New control or proof events extend the framework vocabulary without changing storage, failure freezing,
   SLF4J ownership, or the source compatibility of client switches over the open root.
 
 ## Rejected alternatives
