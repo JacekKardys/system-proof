@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import java.util.Objects;
-import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
@@ -12,8 +11,7 @@ import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 
 /**
- * Base driver that owns Testcontainers materialization without subscribing to container output;
- * core owns lifecycle ordering.
+ * Base driver that owns a restricted Testcontainers lifecycle; core owns lifecycle ordering.
  */
 public abstract class TestcontainersDriver<
     C extends RuntimeConfig,
@@ -41,7 +39,7 @@ public abstract class TestcontainersDriver<
         );
         plan.validateFor(component);
         Network network = driverContext.sharedResource(NETWORK, Network::newNetwork);
-        GenericContainer<?> container = plan.container()
+        ManagedGenericContainer container = plan.container()
             .withNetwork(network)
             .withNetworkAliases(component.id().toString(), networkAlias(component))
             .withExposedPorts(plan.exposedPorts());
@@ -49,6 +47,7 @@ public abstract class TestcontainersDriver<
         try {
             container.start();
             StartedContainer started = new StartedContainer(container, plan);
+            plan.awaitReadiness(started);
             O operations = createOperations(typed, started, driverContext);
             afterStart(typed, operations, started, driverContext);
 

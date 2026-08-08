@@ -8,8 +8,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import lombok.NonNull;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.jasmin.JasminConfig.Driver;
@@ -39,21 +37,18 @@ public final class JasminTestcontainersDriver
         RedisEndpoint redis = context.resolve(component.redis());
         String jasminConfiguration = jasminConfiguration(component, rabbitMq, redis);
         PortBinding administrationPort = port(configuration.administrationPort());
-        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
-            .withCopyToContainer(
+        return ContainerPlan.container(DockerImageName.parse(configuration.image()))
+            .copyToContainer(
                 Transferable.of(jasminConfiguration.getBytes(StandardCharsets.UTF_8), 0644),
                 configuration.configurationPath()
             )
-            .withCommand(
+            .command(
                 configuration.executable(),
                 configuration.configurationOption(),
                 configuration.configurationPath()
             )
-            .waitingFor(
-                Wait.forLogMessage(".*jCli Started\\.\\s*\\n", 1)
-                    .withStartupTimeout(configuration.startupTimeout())
-            );
-        return ContainerPlan.container(container)
+            .waitForListeningPorts(administrationPort)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.administration(),
                 administrationPort,
@@ -81,7 +76,8 @@ public final class JasminTestcontainersDriver
             smsc.password().reveal(),
             component.configuration().bindMode(),
             component.configuration().adminUsername(),
-            component.configuration().adminPassword().reveal()
+            component.configuration().adminPassword().reveal(),
+            configuration.startupTimeout()
         ).configure();
         context.log(
             component,

@@ -7,7 +7,8 @@ Public composition API:
 
 - `TestcontainersDriver<C, O, T>`: typed base driver for component `T`, configuration `C`, and
   operations `O`.
-- `ContainerPlan`: prepared container plus provided-port bindings.
+- `ContainerPlan`: restricted image, command, environment, copy, host-access, non-log readiness,
+  and provided-port specification. It does not accept an arbitrary `GenericContainer`.
 - `PortBinding.port(port)`: known internal container port selection.
 - `StartedContainer`: restricted mapped-address view for operations and bootstrap hooks.
 - `InteractionGateway` and `TcpEndpointAdapter<C>`: connection-owned TCP routes from consumer
@@ -23,18 +24,27 @@ Public composition API:
 - component-scoped `DriverContext`: typed dependency resolution, journal-backed diagnostics, and
   restricted checkpoint/disruption contributions without exposing `ScenarioJournal`.
 
-The base driver obtains one environment-scoped network, applies aliases and wait strategies,
-does not subscribe to container output, starts the container, materializes runtime bindings,
-creates optional operations, runs component bootstrap, and returns the cleanup handle.
+The base driver obtains one environment-scoped network, applies aliases, starts its own restricted
+container lifecycle, executes framework-owned TCP or HTTP readiness probes, materializes runtime
+bindings, creates optional operations, runs component bootstrap, and returns the cleanup handle.
 
 ## Container diagnostics
 
-System Proof does not call `GenericContainer.withLogConsumer(...)` and exposes no container-log
-capture hook. It therefore does not subscribe to, buffer, split into lines, materialize, journal,
-or attach container stdout/stderr. This avoids Testcontainers' line-oriented consumer path, which
-may accumulate a complete unterminated line before delivering an `OutputFrame` to an application
-callback. Drivers that require container logs must acquire and govern them through external
-tooling outside System Proof diagnostics. The complete contract is in
+`ContainerPlan` deliberately cannot wrap a caller-owned `GenericContainer`. Its package-private,
+final lifecycle disables Testcontainers logging for that container, denies both `getLogs()`
+overloads before `LogUtils` can attach an unbounded `ToStringConsumer`, installs no-op internal
+startup waiting, exposes no `waitingFor(...)` or `withLogConsumer(...)` surface, and runs only
+System Proof-owned TCP/HTTP readiness after `GenericContainer.start()` returns. This also excludes
+`LogMessageWaitStrategy`, whose Docker-log subscription is not represented by
+`GenericContainer.getLogConsumers()`.
+
+The boundary does not rely on an empty `getLogConsumers()` list. It prevents the upstream startup
+failure path from emitting its exception through the container logger and turns its fallback
+full-log request into an empty, counted denial. Consequently the standard System Proof lifecycle
+does not subscribe to or materialize container stdout/stderr, including unterminated output. There
+is no container-log capture or sanitized-container-text path. Drivers that require container logs
+must acquire and govern them through external tooling outside System Proof diagnostics; they cannot
+reintroduce that path through `ContainerPlan`. The complete contract is in
 [`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md).
 
 Testcontainers maps host ports dynamically. Ports and container objects remain inside this adapter;

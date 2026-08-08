@@ -44,15 +44,44 @@ final class EnvironmentRuntime {
     }
 
     void start() {
-        EnvironmentExecution.StartupFailure failure;
+        EnvironmentExecution.StartupFailure initialFailure;
         synchronized (this) {
-            failure = execution.start();
+            initialFailure = execution.beginStart();
         }
-        if (failure != null) {
-            throw new EnvironmentStartException(
-                failure.cause(),
-                inspector.renderDiagnostics(failure.diagnostics())
-            );
+        if (initialFailure != null) {
+            throwStartFailure(initialFailure);
+        }
+
+        while (true) {
+            EnvironmentExecution.StartStep step;
+            synchronized (this) {
+                step = execution.nextStartStep();
+            }
+            if (step.failure() != null) {
+                throwStartFailure(step.failure());
+            }
+            if (step.complete()) {
+                return;
+            }
+
+            RuntimeConnectionRegistry.ObservationResults observationResults = null;
+            Throwable observationFailure = null;
+            try {
+                observationResults = step.observationBatch().evaluate();
+            } catch (RuntimeException | Error failure) {
+                observationFailure = failure;
+            }
+
+            EnvironmentExecution.StartupFailure startupFailure;
+            synchronized (this) {
+                startupFailure = execution.completeStartStep(
+                    observationResults,
+                    observationFailure
+                );
+            }
+            if (startupFailure != null) {
+                throwStartFailure(startupFailure);
+            }
         }
     }
 
@@ -71,6 +100,7 @@ final class EnvironmentRuntime {
     }
 
     EnvironmentDiagnostics diagnostics() {
+        refreshObservationStatuses();
         RuntimeDiagnostics.Snapshot snapshot;
         synchronized (this) {
             snapshot = inspector.diagnosticsSnapshot();
@@ -86,19 +116,49 @@ final class EnvironmentRuntime {
         return inspector.proofSubjects();
     }
 
-    synchronized SemanticControls controls() {
+    SemanticControls controls() {
+        refreshObservationStatuses();
         return controls;
     }
 
-    synchronized List<RuntimeConnectionSnapshot> connectionSnapshots() {
-        return inspector.connectionSnapshots();
+    List<RuntimeConnectionSnapshot> connectionSnapshots() {
+        refreshObservationStatuses();
+        synchronized (this) {
+            return inspector.connectionSnapshots();
+        }
     }
 
-    synchronized RuntimeConnectionSnapshot connectionSnapshot(ConnectionId id) {
-        return inspector.connectionSnapshot(id);
+    RuntimeConnectionSnapshot connectionSnapshot(ConnectionId id) {
+        refreshObservationStatuses();
+        synchronized (this) {
+            return inspector.connectionSnapshot(id);
+        }
     }
 
     synchronized void close() {
         execution.close();
+    }
+
+    private void refreshObservationStatuses() {
+        RuntimeConnectionRegistry.ObservationBatch batch;
+        synchronized (this) {
+            if (execution.state() != EnvironmentState.RUNNING) {
+                return;
+            }
+            batch = execution.observationRefreshBatch();
+        }
+        RuntimeConnectionRegistry.ObservationResults results = batch.evaluate();
+        synchronized (this) {
+            if (execution.state() == EnvironmentState.RUNNING) {
+                execution.applyObservationRefresh(results);
+            }
+        }
+    }
+
+    private void throwStartFailure(EnvironmentExecution.StartupFailure failure) {
+        throw new EnvironmentStartException(
+            failure.cause(),
+            inspector.renderDiagnostics(failure.diagnostics())
+        );
     }
 }

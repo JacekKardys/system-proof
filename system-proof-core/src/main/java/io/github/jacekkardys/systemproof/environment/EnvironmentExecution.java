@@ -34,20 +34,58 @@ final class EnvironmentExecution {
         this.inspector = Objects.requireNonNull(inspector, "inspector must not be null");
     }
 
-    StartupFailure start() {
+    StartupFailure beginStart() {
         lifecycle.beginStart();
         try {
             connections.beginStartup();
-            components.startAll();
-            lifecycle.markReady();
             return null;
         } catch (RuntimeException | Error failure) {
             return handleStartupFailure(failure);
         }
     }
 
+    StartStep nextStartStep() {
+        try {
+            if (components.startNext()) {
+                return StartStep.pending(connections.startupObservationBatch());
+            }
+            connections.validateStartupComplete();
+            lifecycle.markReady();
+            return StartStep.completed();
+        } catch (RuntimeException | Error failure) {
+            return StartStep.failed(handleStartupFailure(failure));
+        }
+    }
+
+    StartupFailure completeStartStep(
+        RuntimeConnectionRegistry.ObservationResults observationResults,
+        Throwable observationFailure
+    ) {
+        if (observationFailure != null) {
+            failObservationMaterialization(observationFailure);
+            return handleStartupFailure(observationFailure);
+        }
+        try {
+            connections.applyStartupObservationResults(observationResults);
+            return null;
+        } catch (RuntimeException | Error failure) {
+            failObservationMaterialization(failure);
+            return handleStartupFailure(failure);
+        }
+    }
+
     EnvironmentState state() {
         return lifecycle.state();
+    }
+
+    RuntimeConnectionRegistry.ObservationBatch observationRefreshBatch() {
+        return connections.observationRefreshBatch();
+    }
+
+    void applyObservationRefresh(
+        RuntimeConnectionRegistry.ObservationResults observationResults
+    ) {
+        connections.applyObservationRefresh(observationResults);
     }
 
     void close() {
@@ -67,6 +105,14 @@ final class EnvironmentExecution {
         EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
         lifecycle.markStopped();
         return new StartupFailure(failure, inspector.diagnosticsSnapshot());
+    }
+
+    private void failObservationMaterialization(Throwable primaryFailure) {
+        try {
+            connections.failObservationMaterialization(primaryFailure);
+        } catch (RuntimeException | Error cleanupFailure) {
+            EnvironmentRuntimeFailures.accumulate(primaryFailure, cleanupFailure);
+        }
     }
 
     private void closeDeclaredExecution() {
@@ -154,6 +200,45 @@ final class EnvironmentExecution {
         StartupFailure {
             Objects.requireNonNull(cause, "cause must not be null");
             Objects.requireNonNull(diagnostics, "diagnostics must not be null");
+        }
+    }
+
+    record StartStep(
+        RuntimeConnectionRegistry.ObservationBatch observationBatch,
+        StartupFailure failure,
+        boolean complete
+    ) {
+        StartStep {
+            int outcomes = (observationBatch == null ? 0 : 1)
+                + (failure == null ? 0 : 1)
+                + (complete ? 1 : 0);
+            if (outcomes != 1) {
+                throw new IllegalArgumentException(
+                    "Start step must contain exactly one observation batch, failure, or completion"
+                );
+            }
+        }
+
+        static StartStep pending(
+            RuntimeConnectionRegistry.ObservationBatch observationBatch
+        ) {
+            return new StartStep(
+                Objects.requireNonNull(observationBatch, "observationBatch must not be null"),
+                null,
+                false
+            );
+        }
+
+        static StartStep failed(StartupFailure failure) {
+            return new StartStep(
+                null,
+                Objects.requireNonNull(failure, "failure must not be null"),
+                false
+            );
+        }
+
+        static StartStep completed() {
+            return new StartStep(null, null, true);
         }
     }
 }

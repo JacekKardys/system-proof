@@ -3,7 +3,6 @@ package io.github.jacekkardys.systemproof.examples.sms.environment.component.pos
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 
 import lombok.NonNull;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.postgres.PostgresConfig.Driver;
 import io.github.jacekkardys.systemproof.endpoint.JdbcEndpoint;
@@ -28,19 +27,19 @@ public final class PostgresTestcontainersDriver
         PortBinding jdbcPort = port(configuration.jdbcPort());
         DockerImageName dockerImage = DockerImageName.parse(configuration.image())
             .asCompatibleSubstituteFor(configuration.compatibleImage());
-        var container = new PostgreSQLContainer<>(dockerImage)
-            .withDatabaseName(componentConfiguration.database())
-            .withUsername(componentConfiguration.username())
-            .withPassword(componentConfiguration.password().reveal())
-            .withCommand(
+        return ContainerPlan.container(dockerImage)
+            .environment("POSTGRES_DB", componentConfiguration.database())
+            .environment("POSTGRES_USER", componentConfiguration.username())
+            .environment("POSTGRES_PASSWORD", componentConfiguration.password().reveal())
+            .command(
                 "postgres",
                 "-c",
                 "fsync=on",
                 "-c",
                 "synchronous_commit=on"
             )
-            .withStartupTimeout(configuration.startupTimeout());
-        return ContainerPlan.container(container)
+            .waitForListeningPorts(jdbcPort)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.jdbc(),
                 jdbcPort,

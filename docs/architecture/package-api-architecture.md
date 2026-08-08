@@ -52,7 +52,7 @@ duplicate models. Java-public internal types may change at any time.
 | `topology` | Contracts, ports, protocol/interaction declarations, and logical connections. |
 | `junit.annotation` | Supported JUnit declaration annotations. |
 | `junit.internal` | Unsupported JUnit lifecycle implementation. |
-| `testcontainers.component` | Container-backed driver plans, runtime materialization, and internal container log capture. |
+| `testcontainers.component` | Restricted container specifications, enforced non-log startup/readiness, and runtime materialization. |
 | `testcontainers.gateway` | Protocol adapters and the observe-before-forward gateway. |
 | `postgresql` | Bounded PostgreSQL protocol observation, transaction evidence, write correlation, and durability checks. |
 | `http` | Bounded HTTP/1.1 callback framing, exchange evidence, acknowledgement classification, and request correlation. |
@@ -166,6 +166,12 @@ whole.
 
 Route selection, preparation, consumer-target access, observation-status extraction, and route
 cleanup are not SPI. They remain package-private execution mechanics.
+
+Observation-status callbacks are evaluated only from detached probe batches after the
+`EnvironmentRuntime`, `RuntimeConnectionRegistry`, and `RuntimeConnection` monitors are released.
+Startup results are validated and committed before dependent consumers run; later inspection
+refreshes are atomically committed to a framework-owned cache. Snapshot rendering and cleanup read
+that cache and never call the public SPI while holding a lifecycle monitor.
 
 ## Inspectable core read-only model whitelist
 
@@ -303,7 +309,7 @@ named by the module whitelists above or by the Java-public internal table.
 | Topology contracts | Scenario/environment assembly / drivers and execution | Immutable after validated assembly | Connections/components preserve declared identity; descriptors/IDs use value equality | No runtime endpoint values | Logical topology semantics |
 | JUnit annotations | Test authors / JUnit extensions | None | Annotation values | Metadata only | JUnit declaration contract |
 | JUnit internal extensions | `@ExtendWith`/JUnit reflection / JUnit callbacks | Per-test shared context and lifecycle only | Internal identity | Only the bounded safe artifact is written; no raw attachment path | JUnit lifecycle implementation |
-| Testcontainers API/SPI | Adapter authors and examples / environment routing and drivers | Container/route resources have explicit owners | Plans and protocol results use documented value/identity semantics | Raw container logs are omitted; an explicit bounded sanitizer is required for journal output | Container or protocol adapter contract |
+| Testcontainers API/SPI | Adapter authors and examples / environment routing and drivers | System Proof creates and owns the restricted container lifecycle; route resources have explicit owners | Plans and protocol results use documented value/identity semantics; arbitrary `GenericContainer` instances are rejected by construction | Container logging, full-log retrieval, log consumers, and log-based waits are unavailable; driver-authored journal text still requires bounded redaction | Container or protocol adapter contract |
 
 ## Event and sealed hierarchy evolution
 

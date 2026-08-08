@@ -4,8 +4,6 @@ import static io.github.jacekkardys.systemproof.testcontainers.component.PortBin
 
 import java.net.URI;
 import lombok.NonNull;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.ingestion.SmsIngestionConfig.Driver;
@@ -28,17 +26,21 @@ public final class SmsIngestionTestcontainersDriver
     protected ContainerPlan create(SmsIngestionComponent component, DriverContext context) {
         JdbcEndpoint database = context.resolve(component.jdbc());
         PortBinding httpPort = port(configuration.httpPort());
-        GenericContainer<?> container = referenceContainer()
-            .withEnv(configuration.databaseUrlVariable(), database.url())
-            .withEnv(configuration.databaseUsernameVariable(), database.username())
-            .withEnv(configuration.databasePasswordVariable(), database.password().reveal())
-            .withEnv("SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE", "2")
-            .withEnv("SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE", "1")
-            .waitingFor(Wait.forHttp(configuration.readinessPath())
-                .forPort(httpPort.port())
-                .forStatusCode(configuration.readinessStatus())
-                .withStartupTimeout(configuration.startupTimeout()));
-        return ContainerPlan.container(container)
+        return referenceContainer()
+            .environment(configuration.databaseUrlVariable(), database.url())
+            .environment(configuration.databaseUsernameVariable(), database.username())
+            .environment(
+                configuration.databasePasswordVariable(),
+                database.password().reveal()
+            )
+            .environment("SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE", "2")
+            .environment("SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE", "1")
+            .waitForHttp(
+                httpPort,
+                configuration.readinessPath(),
+                configuration.readinessStatus()
+            )
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.sms(),
                 httpPort,
@@ -48,10 +50,10 @@ public final class SmsIngestionTestcontainersDriver
             .build();
     }
 
-    private GenericContainer<?> referenceContainer() {
+    private ContainerPlan.Builder referenceContainer() {
         if (ReferenceImages.INGESTION.equals(configuration.image())) {
-            return new GenericContainer<>(ReferenceImages.ingestion());
+            return ContainerPlan.container(ReferenceImages.ingestion());
         }
-        return new GenericContainer<>(DockerImageName.parse(configuration.image()));
+        return ContainerPlan.container(DockerImageName.parse(configuration.image()));
     }
 }

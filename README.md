@@ -245,6 +245,13 @@ detached immutable snapshots with semantic metadata, lifecycle state, routing mo
 `ObservationRequirement`, `EffectiveObservationStatus`, and separate direct/consumer target
 availability.
 
+An `ObservationStatusProvider` is sampled after its route is committed but before a dependent
+consumer starts. Dynamic refresh uses a separate capture/evaluate/commit cycle: the runtime first
+captures stable route handles, releases the `EnvironmentRuntime`, registry, and connection
+monitors, invokes each provider, then atomically validates and publishes the cached statuses.
+Diagnostics and runtime-connection read models use that framework-owned cache. Cleanup never calls
+the provider under a lifecycle lock.
+
 `DIRECT` makes the consumer target the direct provider binding and creates no routing resource.
 `ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
 An immutable routing policy can contain multiple rules keyed by semantic `Contract<C>` or a stable
@@ -408,8 +415,10 @@ trust classifications, prohibited data, exact limits, and residual limitations a
 Capture copies one immutable lifecycle/component/connection/journal/source snapshot under the
 environment monitor and invokes eligible suppliers only after releasing it. A redacted source is
 bounded after `Supplier.get()` returns; its trusted driver must bound acquisition work and memory.
-The Testcontainers adapter registers no container-log consumer, so System Proof does not subscribe
-to or materialize container stdout/stderr.
+The Testcontainers adapter accepts only its own restricted container lifecycle. It disables the
+upstream container logger, denies upstream full-log retrieval, exposes neither log consumers nor
+log-based wait strategies, and uses non-log readiness probes. These enforced controls—not an empty
+`getLogConsumers()` list—keep container stdout/stderr outside System Proof diagnostics.
 
 Every environment execution owns exactly one package-private append-only `ScenarioJournal`. It is
 the authoritative structured history and the only owner of sequence allocation, insertion order,
@@ -486,15 +495,19 @@ detached immutable snapshot for typed assertions.
 Publication validates scope and identity, freezes type-only failure metadata, appends the immutable
 event, and only then applies the logging threshold and emits through SLF4J. Journal events, loggers,
 and renderers never retain or re-read a `Throwable`; messages, causes, suppressed messages, and
-stack traces remain only in the programmatic exception chain. Lifecycle stage and component,
+stack traces remain only in the programmatic exception chain. That chain is intentionally returned
+to callers. If it escapes a test, JUnit or Surefire may independently render its messages and stack
+traces in console or XML reports; those external reports are not covered by the System Proof
+`environment.log` contract. Lifecycle stage and component,
 connection, or resource identity remain structured event fields.
 
 Textual environment logs are rendered views of one captured journal snapshot. They retain the
 readable monotonic `T+HH:mm:ss.SSS` diagnostic timeline for framework events, connections,
-components, explicitly sanitized driver/container text, and cleanup failures, but own no
-independent event history. Raw container output is omitted by default. Logging thresholds control
-only SLF4J emission; lower-level events remain in the journal and therefore remain available to
-failure diagnostics. `OFF` likewise suppresses emission, not storage. `JournalRenderer` accepts
+components, explicitly sanitized driver text, and cleanup failures, but own no independent event
+history. The restricted Testcontainers lifecycle has no container-text contribution path. Logging
+thresholds control only SLF4J emission; lower-level events remain in the journal and therefore
+remain available to failure diagnostics. `OFF` likewise suppresses emission, not storage.
+`JournalRenderer` accepts
 only detached immutable entries/snapshots, renders full or component-scoped views, repeats the same
 prefix for every multiline entry, uses type-only fallback for unknown events, and bounds full
 output to 256 KiB characters.

@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.observation.InteractionDecisionCoordinator;
 import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.topology.Connection;
@@ -21,9 +22,9 @@ import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnap
  *
  * <p>Only the environment-owned registry can mutate lifecycle state or bind direct and consumer
  * targets. A prepared route remains transaction-owned until an installation commits it here;
- * normal shutdown then closes the runtime-owned route, captures its final dynamic observation
- * status while retaining the reference, and only then discards it. Public callers can inspect
- * immutable metadata and detached snapshots only.
+ * normal shutdown then closes the runtime-owned route and discards it. Observation status is
+ * sampled and refreshed outside every runtime monitor, then atomically copied into a
+ * framework-owned cache. Public callers inspect only that cached status in detached snapshots.
  */
 final class RuntimeConnection<C> {
     private final Connection<C> declaration;
@@ -142,7 +143,7 @@ final class RuntimeConnection<C> {
             state,
             routingMode,
             observationRequirement,
-            currentObservationStatus(),
+            observationStatus,
             directTarget != null,
             consumerTarget != null
         );
@@ -189,11 +190,6 @@ final class RuntimeConnection<C> {
             );
         }
         validateTarget(routing.consumerTarget(ownership.route()), "consumerTarget");
-        EffectiveObservationStatus initialStatus = routing.observationStatus(
-            ownership.route()
-        );
-        validateObservationStatus(initialStatus);
-        validateSemanticControlCapability(ownership.route(), initialStatus);
         return new PreparedTargets<>(ownership);
     }
 
@@ -213,16 +209,7 @@ final class RuntimeConnection<C> {
             routing.consumerTarget(prepared.route()),
             "consumerTarget"
         );
-        EffectiveObservationStatus initialObservationStatus = routing.observationStatus(
-            prepared.route()
-        );
-        validateObservationStatus(initialObservationStatus);
-        validateSemanticControlCapability(prepared.route(), initialObservationStatus);
-        return new Installation<>(
-            prepared,
-            preparedConsumerTarget,
-            initialObservationStatus
-        );
+        return new Installation<>(prepared, preparedConsumerTarget);
     }
 
     synchronized void bindTargets(Installation<C> installation) {
@@ -232,10 +219,12 @@ final class RuntimeConnection<C> {
         routeOwnership = prepared.ownership();
         directTarget = prepared.directTarget();
         consumerTarget = installation.consumerTarget();
-        observationStatus = installation.initialObservationStatus();
+        observationStatus = initialObservationStatus();
         prepared.transferToRuntime();
         directTargetWasBound = true;
-        transition(ConnectionState.RUNNING);
+        if (observationRequirement == ObservationRequirement.DISABLED) {
+            transition(ConnectionState.RUNNING);
+        }
     }
 
     synchronized void rollbackTargets(PreparedTargets<C> prepared) throws Exception {
@@ -282,25 +271,10 @@ final class RuntimeConnection<C> {
         if (routeOwnership == null || routeOwnership.closed()) {
             return;
         }
-        Throwable cleanupFailure = null;
         try {
             routeOwnership.closeRuntimeRoute(this);
-        } catch (Exception | Error failure) {
-            cleanupFailure = failure;
-        }
-        try {
-            observationStatus = routing.observationStatus(routeOwnership.route());
-        } catch (RuntimeException | Error failure) {
-            cleanupFailure = EnvironmentRuntimeFailures.accumulate(
-                cleanupFailure,
-                failure
-            );
-        }
-        if (cleanupFailure instanceof Exception exception) {
-            throw exception;
-        }
-        if (cleanupFailure instanceof Error error) {
-            throw error;
+        } finally {
+            observationStatus = stoppedObservationStatus();
         }
     }
 
@@ -392,7 +366,7 @@ final class RuntimeConnection<C> {
             || routeOwnership == null
             || routeOwnership.closed()
             || !routing.semanticControlsMaterialized(routeOwnership.route())
-            || currentObservationStatus() != EffectiveObservationStatus.ACTIVE) {
+            || observationStatus != EffectiveObservationStatus.ACTIVE) {
             return SemanticControlCapabilityRegistry.Availability.UNAVAILABLE;
         }
         return SemanticControlCapabilityRegistry.Availability.AVAILABLE;
@@ -408,11 +382,77 @@ final class RuntimeConnection<C> {
         return target;
     }
 
-    private EffectiveObservationStatus currentObservationStatus() {
-        if (routeOwnership != null && !routeOwnership.closed()) {
-            observationStatus = routing.observationStatus(routeOwnership.route());
+    synchronized ObservationProbe startupObservationProbe() {
+        if (observationRequirement == ObservationRequirement.DISABLED
+            || observationStatus != EffectiveObservationStatus.PENDING) {
+            return null;
         }
-        return observationStatus;
+        if (state != ConnectionState.STARTING
+            || routeOwnership == null
+            || routeOwnership.closed()) {
+            return null;
+        }
+        RouteOwnership<C> capturedOwnership = routeOwnership;
+        return new ObservationProbe(
+            this,
+            capturedOwnership,
+            () -> routing.observationStatus(capturedOwnership.route()),
+            true
+        );
+    }
+
+    synchronized ObservationProbe refreshObservationProbe() {
+        if (observationRequirement == ObservationRequirement.DISABLED
+            || state != ConnectionState.RUNNING
+            || routeOwnership == null
+            || routeOwnership.closed()) {
+            return null;
+        }
+        RouteOwnership<C> capturedOwnership = routeOwnership;
+        return new ObservationProbe(
+            this,
+            capturedOwnership,
+            () -> routing.observationStatus(capturedOwnership.route()),
+            false
+        );
+    }
+
+    synchronized void validateStartupObservationResult(ObservationResult result) {
+        Objects.requireNonNull(result, "result must not be null");
+        if (result.connection() != this
+            || state != ConnectionState.STARTING
+            || routeOwnership != result.ownership()
+            || routeOwnership.closed()) {
+            throw new IllegalStateException(
+                "Observation sample no longer belongs to active connection '" + id() + "'"
+            );
+        }
+        validateObservationStatus(result.status());
+        validateSemanticControlCapability(routeOwnership.route(), result.status());
+    }
+
+    synchronized void applyStartupObservationResult(ObservationResult result) {
+        validateStartupObservationResult(result);
+        observationStatus = result.status();
+        transition(ConnectionState.RUNNING);
+    }
+
+    synchronized void validateObservationRefresh(ObservationResult result) {
+        Objects.requireNonNull(result, "result must not be null");
+        if (result.connection() != this
+            || result.startup()
+            || state != ConnectionState.RUNNING
+            || routeOwnership != result.ownership()
+            || routeOwnership.closed()) {
+            throw new IllegalStateException(
+                "Observation refresh no longer belongs to active connection '" + id() + "'"
+            );
+        }
+    }
+
+    synchronized void applyObservationRefresh(ObservationResult result) {
+        validateObservationRefresh(result);
+        observationStatus = result.status();
     }
 
     private void validateObservationStatus(EffectiveObservationStatus effectiveStatus) {
@@ -687,8 +727,7 @@ final class RuntimeConnection<C> {
     /** Fully materialized values whose commit performs no extension SPI calls. */
     record Installation<C>(
         PreparedTargets<C> prepared,
-        EndpointBinding<C> consumerTarget,
-        EffectiveObservationStatus initialObservationStatus
+        EndpointBinding<C> consumerTarget
     ) {
         Installation {
             prepared = Objects.requireNonNull(prepared, "prepared must not be null");
@@ -696,14 +735,58 @@ final class RuntimeConnection<C> {
                 consumerTarget,
                 "consumerTarget must not be null"
             );
-            initialObservationStatus = Objects.requireNonNull(
-                initialObservationStatus,
-                "initialObservationStatus must not be null"
-            );
         }
 
         RuntimeConnection<C> connection() {
             return prepared.connection();
+        }
+    }
+
+    /** Immutable handle captured under locks and evaluated only after all locks are released. */
+    record ObservationProbe(
+        RuntimeConnection<?> connection,
+        RouteOwnership<?> ownership,
+        Supplier<EffectiveObservationStatus> sampler,
+        boolean startup
+    ) {
+        ObservationProbe {
+            Objects.requireNonNull(connection, "connection must not be null");
+            Objects.requireNonNull(ownership, "ownership must not be null");
+            Objects.requireNonNull(sampler, "sampler must not be null");
+        }
+
+        ObservationResult evaluate() {
+            EffectiveObservationStatus status;
+            try {
+                status = sampler.get();
+            } catch (RuntimeException | Error failure) {
+                if (startup) {
+                    throw failure;
+                }
+                status = connection.observationRequirement == ObservationRequirement.OPTIONAL
+                    ? EffectiveObservationStatus.DEGRADED
+                    : EffectiveObservationStatus.FAILED;
+            }
+            return new ObservationResult(
+                connection,
+                ownership,
+                status,
+                startup
+            );
+        }
+    }
+
+    /** Detached result of one extension callback, ready for an atomic framework-owned commit. */
+    record ObservationResult(
+        RuntimeConnection<?> connection,
+        RouteOwnership<?> ownership,
+        EffectiveObservationStatus status,
+        boolean startup
+    ) {
+        ObservationResult {
+            Objects.requireNonNull(connection, "connection must not be null");
+            Objects.requireNonNull(ownership, "ownership must not be null");
+            Objects.requireNonNull(status, "status must not be null");
         }
     }
 }

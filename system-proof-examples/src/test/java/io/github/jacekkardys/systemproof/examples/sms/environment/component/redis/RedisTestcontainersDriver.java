@@ -3,8 +3,6 @@ package io.github.jacekkardys.systemproof.examples.sms.environment.component.red
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 
 import lombok.NonNull;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.redis.RedisConfig.Driver;
 import io.github.jacekkardys.systemproof.endpoint.RedisEndpoint;
@@ -25,9 +23,9 @@ public final class RedisTestcontainersDriver
     @Override
     protected ContainerPlan create(RedisComponent component, DriverContext context) {
         PortBinding redisPort = port(configuration.port());
-        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
-            .waitingFor(Wait.forListeningPort().withStartupTimeout(configuration.startupTimeout()));
-        return ContainerPlan.container(container)
+        return ContainerPlan.container(DockerImageName.parse(configuration.image()))
+            .waitForListeningPorts(redisPort)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.redis(),
                 redisPort,

@@ -21,6 +21,7 @@ final class ComponentRuntimeSupervisor {
     private final Map<Component, ComponentExecution<?, ?>> executions =
         new IdentityHashMap<>();
     private final DriverServices driverServices;
+    private int nextStartIndex;
 
     ComponentRuntimeSupervisor(
         ComponentExecutionPlan plan,
@@ -45,8 +46,13 @@ final class ComponentRuntimeSupervisor {
         );
     }
 
-    void startAll() {
-        plan.startOrder().forEach(this::start);
+    boolean startNext() {
+        if (nextStartIndex == plan.startOrder().size()) {
+            return false;
+        }
+        start(plan.startOrder().get(nextStartIndex));
+        nextStartIndex++;
+        return true;
     }
 
     Throwable stopStartedComponents() {

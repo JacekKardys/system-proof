@@ -22,9 +22,11 @@ final class JasminBootstrap {
     private final SmppBindMode bindMode;
     private final String jcliUsername;
     private final String jcliPassword;
+    private final Duration readinessTimeout;
 
     public String configure() {
         try {
+            awaitJcliReady();
             withClient(client -> {
                 client.commandToleratingFailure("httpccm -r " + HTTP_CONNECTOR_ID);
                 client.interactive("httpccm -a", List.of(
@@ -77,13 +79,24 @@ final class JasminBootstrap {
 
     private void awaitBound() {
         Awaitility.await("Jasmin SMPP connector bound")
-            .atMost(Duration.ofSeconds(60))
+            .atMost(readinessTimeout)
             .pollInterval(Duration.ofMillis(500))
             .ignoreExceptions()
             .until(() -> {
                 String connectors = queryWithClient(client -> client.command("smppccm -l"));
                 return connectors.contains(SMPP_CONNECTOR_ID)
                     && connectors.contains(bindMode.boundState());
+            });
+    }
+
+    private void awaitJcliReady() {
+        Awaitility.await("Jasmin jCli ready")
+            .atMost(readinessTimeout)
+            .pollInterval(Duration.ofMillis(250))
+            .ignoreExceptions()
+            .until(() -> {
+                withClient(client -> {});
+                return true;
             });
     }
 

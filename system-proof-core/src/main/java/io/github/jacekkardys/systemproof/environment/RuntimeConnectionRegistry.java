@@ -143,6 +143,93 @@ final class RuntimeConnectionRegistry {
         return catalog.all().stream().map(RuntimeConnection::snapshot).toList();
     }
 
+    /**
+     * Captures stable handles for the one startup observation sample. The returned batch performs
+     * extension callbacks only when {@link ObservationBatch#evaluate()} is invoked by the caller,
+     * after the environment, registry, and connection monitors have all been released.
+     */
+    synchronized ObservationBatch startupObservationBatch() {
+        return new ObservationBatch(catalog.all().stream()
+            .map(RuntimeConnection::startupObservationProbe)
+            .filter(Objects::nonNull)
+            .toList());
+    }
+
+    /** Validates every detached result before atomically publishing any cached status. */
+    synchronized void applyStartupObservationResults(ObservationResults results) {
+        Objects.requireNonNull(results, "results must not be null");
+        List<RuntimeConnection.ObservationProbe> expected = catalog.all().stream()
+            .map(RuntimeConnection::startupObservationProbe)
+            .filter(Objects::nonNull)
+            .toList();
+        if (results.values().size() != expected.size()) {
+            throw new IllegalStateException(
+                "Observation result count changed during environment startup"
+            );
+        }
+        for (int index = 0; index < expected.size(); index++) {
+            RuntimeConnection.ObservationResult result = results.values().get(index);
+            if (result.connection() != expected.get(index).connection()) {
+                throw new IllegalStateException(
+                    "Observation result order changed during environment startup"
+                );
+            }
+            expected.get(index).connection().validateStartupObservationResult(result);
+        }
+        for (RuntimeConnection.ObservationResult result : results.values()) {
+            result.connection().applyStartupObservationResult(result);
+        }
+        results.values().forEach(result -> recordLifecycle(result.connection()));
+    }
+
+    synchronized ObservationBatch observationRefreshBatch() {
+        return new ObservationBatch(catalog.all().stream()
+            .map(RuntimeConnection::refreshObservationProbe)
+            .filter(Objects::nonNull)
+            .toList());
+    }
+
+    synchronized void applyObservationRefresh(ObservationResults results) {
+        Objects.requireNonNull(results, "results must not be null");
+        List<RuntimeConnection.ObservationProbe> expected = catalog.all().stream()
+            .map(RuntimeConnection::refreshObservationProbe)
+            .filter(Objects::nonNull)
+            .toList();
+        if (results.values().size() != expected.size()) {
+            throw new IllegalStateException(
+                "Observation refresh count changed during capture"
+            );
+        }
+        for (int index = 0; index < expected.size(); index++) {
+            RuntimeConnection.ObservationResult result = results.values().get(index);
+            if (result.connection() != expected.get(index).connection()) {
+                throw new IllegalStateException(
+                    "Observation refresh order changed during capture"
+                );
+            }
+            expected.get(index).connection().validateObservationRefresh(result);
+        }
+        results.values().forEach(result ->
+            result.connection().applyObservationRefresh(result)
+        );
+    }
+
+    synchronized void failObservationMaterialization(Throwable failure) {
+        Objects.requireNonNull(failure, "failure must not be null");
+        List<RuntimeConnection<?>> pending = catalog.all().stream()
+            .filter(connection -> connection.state() == ConnectionState.STARTING)
+            .toList();
+        closeCommittedRoutesForFailure(pending, failure);
+        pending.forEach(connection -> failMaterialization(connection, failure));
+    }
+
+    synchronized void validateStartupComplete() {
+        catalog.all().forEach(connection -> requireState(
+            connection,
+            ConnectionState.RUNNING
+        ));
+    }
+
     synchronized RuntimeConnectionSnapshot snapshot(ConnectionId id) {
         return catalog.connection(id).snapshot();
     }
@@ -445,7 +532,8 @@ final class RuntimeConnectionRegistry {
     ) {
         Objects.requireNonNull(startupFailure, "startupFailure must not be null");
         for (RuntimeConnection<?> connection : targeted) {
-            if (connection.state() == ConnectionState.RUNNING) {
+            if (connection.state() == ConnectionState.RUNNING
+                || connection.state() == ConnectionState.STARTING) {
                 connection.beginStopping();
                 recordLifecycle(connection);
             }
@@ -500,6 +588,28 @@ final class RuntimeConnectionRegistry {
             if (connection.state() == ConnectionState.STOPPING) {
                 connection.invalidateDirectTarget();
             }
+        }
+    }
+
+    /** Immutable startup work evaluated without holding any framework monitor. */
+    record ObservationBatch(List<RuntimeConnection.ObservationProbe> probes) {
+        ObservationBatch {
+            probes = List.copyOf(Objects.requireNonNull(probes, "probes must not be null"));
+        }
+
+        ObservationResults evaluate() {
+            List<RuntimeConnection.ObservationResult> results = new ArrayList<>();
+            for (RuntimeConnection.ObservationProbe probe : probes) {
+                results.add(probe.evaluate());
+            }
+            return new ObservationResults(results);
+        }
+    }
+
+    /** Detached, immutable callback results awaiting an all-or-nothing cached-status commit. */
+    record ObservationResults(List<RuntimeConnection.ObservationResult> values) {
+        ObservationResults {
+            values = List.copyOf(Objects.requireNonNull(values, "values must not be null"));
         }
     }
 }

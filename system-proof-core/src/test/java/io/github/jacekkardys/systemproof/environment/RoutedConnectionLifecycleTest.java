@@ -497,7 +497,7 @@ class RoutedConnectionLifecycleTest {
                         ),
                         () -> {
                             int invocation = statusCalls.get(routeIndex).incrementAndGet();
-                            if (routeIndex == 2 && invocation == 2) {
+                            if (routeIndex == 2 && invocation == 1) {
                                 throw startupFailure;
                             }
                             return EffectiveObservationStatus.ACTIVE;
@@ -526,7 +526,7 @@ class RoutedConnectionLifecycleTest {
         assertThat(thrown.getCause()).isSameAs(startupFailure);
         assertThat(startupFailure.getSuppressed())
             .containsExactly(thirdCleanupFailure, firstCleanupFailure);
-        assertThat(statusCalls).allSatisfy(calls -> assertThat(calls).hasValue(2));
+        assertThat(statusCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
         assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
         assertThat(cleanupOrder).containsExactly(
             preparedIds.get(2),
@@ -568,7 +568,7 @@ class RoutedConnectionLifecycleTest {
     }
 
     @Test
-    void shouldPreserveCleanupFailureOrderingAndRedactFinalStatusFailure() {
+    void shouldPreserveCleanupFailureOrderingWithoutResamplingObservationStatus() {
         String directInternal = "direct-internal-cleanup-secret";
         String directExternal = "direct-external-cleanup-secret";
         String routedInternal = "routed-internal-cleanup-secret";
@@ -579,9 +579,6 @@ class RoutedConnectionLifecycleTest {
                 "route cleanup exposed " + directInternal + " " + directExternal
                     + " " + routedInternal + " " + routedExternal
             );
-        IllegalStateException statusFailure = new IllegalStateException(
-            "final observation status exposed " + statusSecret
-        );
         IllegalStateException providerFailure =
             new IllegalStateException("provider cleanup failed");
         AtomicInteger routeCleanupCalls = new AtomicInteger();
@@ -617,8 +614,10 @@ class RoutedConnectionLifecycleTest {
                         new ApiEndpoint(routedExternal)
                     ),
                     () -> {
-                        if (statusCalls.incrementAndGet() == 3) {
-                            throw statusFailure;
+                        if (statusCalls.incrementAndGet() > 1) {
+                            throw new IllegalStateException(
+                                "final observation status exposed " + statusSecret
+                            );
                         }
                         return EffectiveObservationStatus.ACTIVE;
                     },
@@ -641,14 +640,13 @@ class RoutedConnectionLifecycleTest {
             )
             .satisfies(failure ->
                 assertThat(failure.getSuppressed()).containsExactly(
-                    statusFailure,
                     providerFailure
                 )
             );
         environment.close();
 
         assertThat(routeCleanupCalls).hasValue(1);
-        assertThat(statusCalls).hasValue(3);
+        assertThat(statusCalls).hasValue(1);
         assertThat(environment.runtimeConnections())
             .singleElement()
             .satisfies(snapshot -> {

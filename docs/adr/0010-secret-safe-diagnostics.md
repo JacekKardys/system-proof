@@ -42,6 +42,13 @@ snapshots, journal snapshot, and eligible diagnostic-source list. It then releas
 invokes eligible suppliers at most once, and renders the detached snapshot. Sensitive and
 unsupported suppliers are never invoked by framework capture.
 
+For a running environment, dynamic `ObservationStatusProvider` refresh is a preceding two-phase
+operation. The runtime captures stable route probes under its monitors, releases the environment,
+registry, and connection monitors, evaluates providers, and atomically commits the detached
+results only if the lifecycle is still `RUNNING`. The diagnostics base snapshot then reads the
+framework-owned cached statuses. Startup uses the same outside-lock evaluation before dependent
+consumers start. Cleanup never evaluates an observation provider.
+
 ## Allowed and prohibited data
 
 Default output may contain only the safe-by-construction fields above, fixed framework text,
@@ -71,7 +78,10 @@ The former `FailureRedactor` is removed because replacing one arbitrary message 
 not create a trustworthy boundary. Runtime diagnostic capture failures, Testcontainers startup
 failures, and JUnit capture/write/publication failures likewise expose only fixed operation/stage
 text plus the normalized failure type. The original throwable remains available through the
-programmatic cause or suppressed chain.
+programmatic cause or suppressed chain. This is outside the rendered diagnostics boundary: if that
+chain escapes the test method, JUnit or Surefire may independently include its messages and stack
+traces in console or XML failure reports. System Proof does not intercept or sanitize those
+third-party reports.
 
 ## Text ingress and rendering
 
@@ -135,12 +145,20 @@ sets. Canonical connection IDs are at most 2,048 characters and JVM type names a
 
 ## Container output and JUnit artifacts
 
-`TestcontainersDriver` never registers a Testcontainers log consumer and exposes no opt-in
-container-log capture hook. System Proof therefore does not subscribe to, buffer, split into lines,
-materialize, journal, or attach container stdout/stderr. This deliberately avoids a line-oriented
-callback path that can accumulate an unterminated line before application code receives an
-`OutputFrame`. Container logs required for troubleshooting remain the responsibility of external
-tooling outside the System Proof diagnostics boundary.
+`ContainerPlan` does not accept an arbitrary `GenericContainer`. It creates a package-private final
+lifecycle that disables Testcontainers logging for that container, overrides both `getLogs()`
+forms with an empty counted denial, installs no-op internal waiting, and exposes neither
+`withLogConsumer(...)` nor `waitingFor(...)`. Framework-owned TCP/HTTP readiness runs only after the
+real inherited `GenericContainer.start()` returns. This excludes `LogMessageWaitStrategy`, whose
+direct Docker-log subscription is invisible to `getLogConsumers()`.
+
+These controls cover upstream `GenericContainer.tryStart()`: its exception logger is disabled and
+its fallback `getLogs()` call cannot reach `LogUtils.getOutput()` or the unbounded
+`ToStringConsumer`. No `FrameConsumerResultCallback.LineConsumer` is installed, so multi-megabyte
+unterminated output is not assembled in the System Proof process. The guarantee follows from the
+restricted lifecycle, not from documentation or an empty consumer list. Container troubleshooting
+remains the responsibility of external tooling outside the System Proof diagnostics boundary;
+there is no internal, opt-in, or sanitized container-text path.
 
 On a failed JUnit scenario the extension writes only
 `target/system-proof-artifacts/<scenario>/environment.log`. Report entries publish the stable name
@@ -160,7 +178,7 @@ remain suppressed against the primary failure.
 | `DiagnosticSource.unsupported` | `UNSUPPORTED_FOR_EXPORT`; supplier never invoked by framework export |
 | Component configuration and extension/evidence values | Excluded; no `toString()` rendering |
 | Unknown client event | Type-only fallback; payload and `toString()` ignored |
-| Container stdout/stderr | Omitted unconditionally; System Proof registers no Testcontainers log consumer |
+| Container stdout/stderr | Excluded by the restricted lifecycle: disabled upstream logger, denied full-log fallback, no consumer/log-wait API, and non-log readiness |
 | JUnit safe artifact/report errors | Safe environment content and fixed operation plus type-only failure |
 
 ## Consequences and residual limits
@@ -168,7 +186,9 @@ remain suppressed against the primary failure.
 The default contract is enforceable at framework ingress and covered by adversarial canaries. It
 does not claim universal data-loss prevention. A user-supplied sanitizer can be incomplete, and a
 redacted diagnostic supplier can perform unbounded work before returning unless its trusted driver
-bounds acquisition.
+bounds acquisition. The container guarantee applies only to `TestcontainersDriver` and its
+restricted `ContainerPlan`; unmanaged Testcontainers instances and external Docker tooling are
+outside this boundary.
 External troubleshooting tools, artifact access control, encryption, retention, and production
 logging governance remain deployment responsibilities.
 
