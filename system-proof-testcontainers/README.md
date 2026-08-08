@@ -24,18 +24,17 @@ Public composition API:
   restricted checkpoint/disruption contributions without exposing `ScenarioJournal`.
 
 The base driver obtains one environment-scoped network, applies aliases and wait strategies,
-applies the configured container-output policy, starts the container, materializes runtime
-bindings, creates optional operations, runs component bootstrap, and returns the cleanup handle.
+does not subscribe to container output, starts the container, materializes runtime bindings,
+creates optional operations, runs component bootstrap, and returns the cleanup handle.
 
 ## Container diagnostics
 
-Raw stdout/stderr is omitted from the journal, framework SLF4J, JUnit reports, and
-`Environment.diagnostics()`. `TestcontainersDriver.containerLogSanitizer(...)` returns
-`null` by default; an override is an explicit policy that receives at most 16 KiB of one frame and
-produces bounded `RedactedDiagnosticText` (4 KiB, 64 lines). Throwing, `null`, blank, or oversized
-sanitizer output fails closed without raw fallback. Log-level detection inspects only the bounded
-transient frame and does not retain it. The framework exposes no raw container-output attachment
-or fallback path. The complete contract is in
+System Proof does not call `GenericContainer.withLogConsumer(...)` and exposes no container-log
+capture hook. It therefore does not subscribe to, buffer, split into lines, materialize, journal,
+or attach container stdout/stderr. This avoids Testcontainers' line-oriented consumer path, which
+may accumulate a complete unterminated line before delivering an `OutputFrame` to an application
+callback. Drivers that require container logs must acquire and govern them through external
+tooling outside System Proof diagnostics. The complete contract is in
 [`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md).
 
 Testcontainers maps host ports dynamically. Ports and container objects remain inside this adapter;

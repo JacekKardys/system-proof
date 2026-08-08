@@ -38,13 +38,17 @@ final class EnvironmentInspector {
         );
     }
 
-    EnvironmentDiagnostics diagnostics() {
-        return diagnostics.capture(
+    RuntimeDiagnostics.Snapshot diagnosticsSnapshot() {
+        return diagnostics.snapshot(
             lifecycle.state(),
             components.components(),
             components::state,
             connections.snapshots()
         );
+    }
+
+    EnvironmentDiagnostics renderDiagnostics(RuntimeDiagnostics.Snapshot snapshot) {
+        return diagnostics.render(snapshot);
     }
 
     ScenarioJournalSnapshot journalSnapshot() {

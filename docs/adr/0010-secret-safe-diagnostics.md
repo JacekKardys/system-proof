@@ -36,8 +36,10 @@ Every diagnostics source has one of four trust classifications:
 4. `UNSUPPORTED_FOR_EXPORT` has no accepted safety policy. No framework export path invokes it.
 
 `Environment.diagnostics()` is the only framework diagnostics export path. Its read model has no
-public constructor or arbitrary-text factory. It contains one detached state snapshot, one journal
-snapshot rendered by the stateless renderer, and bounded `REDACTED_TEXT` sources. Sensitive and
+public constructor or arbitrary-text factory. Under the `EnvironmentRuntime` monitor, capture
+copies one immutable base snapshot containing the lifecycle state, component states, connection
+snapshots, journal snapshot, and eligible diagnostic-source list. It then releases that monitor,
+invokes eligible suppliers at most once, and renders the detached snapshot. Sensitive and
 unsupported suppliers are never invoked by framework capture.
 
 ## Allowed and prohibited data
@@ -95,8 +97,13 @@ safe by calling `toString()`.
 16-hex-character SHA-256 prefix identity, and not retained. Capture copies the source list before
 callbacks, invokes an eligible supplier at most once per capture, and retains only detached output.
 Sensitive and unsupported suppliers are not invoked by framework capture. Supplier or sanitizer
-failure yields fixed type-only text without raw fallback. User callbacks run after the short source
-snapshot lock has been released and outside lifecycle/registry monitors.
+failure yields fixed type-only text without raw fallback. User callbacks run after the immutable
+base snapshot has been captured and outside the `EnvironmentRuntime` and diagnostics monitors.
+
+`DiagnosticSource.redacted(...)` bounds and sanitizes the returned value only after
+`Supplier.get()` completes. It cannot bound memory, I/O, or work performed while the supplier
+acquires that value. A trusted driver that registers a redacted source is responsible for bounding
+its own acquisition before returning a `String` to the framework.
 
 ## Bounds
 
@@ -107,7 +114,6 @@ work and output:
 | --- | --- |
 | Diagnostic source name | 128 characters before digest identity |
 | Sanitizer input | 16 KiB characters |
-| Container frame passed toward a sanitizer | 16 KiB bytes |
 | One redacted result | 4 KiB characters, at most 64 lines including the marker |
 | Redacted sources per default capture | 32 |
 | Component state entries per default capture | 128 |
@@ -129,11 +135,12 @@ sets. Canonical connection IDs are at most 2,048 characters and JVM type names a
 
 ## Container output and JUnit artifacts
 
-Without an overridden `TestcontainersDriver.containerLogSanitizer(...)`, container stdout/stderr
-is omitted from the journal, framework SLF4J, JUnit reports, and `Environment.diagnostics()`.
-An explicit sanitizer sees only a bounded transient frame and produces bounded `REDACTED_TEXT`.
-System Proof does not retain raw container output and introduces no process property, raw buffer,
-sensitive attachment, or raw artifact path.
+`TestcontainersDriver` never registers a Testcontainers log consumer and exposes no opt-in
+container-log capture hook. System Proof therefore does not subscribe to, buffer, split into lines,
+materialize, journal, or attach container stdout/stderr. This deliberately avoids a line-oriented
+callback path that can accumulate an unterminated line before application code receives an
+`OutputFrame`. Container logs required for troubleshooting remain the responsibility of external
+tooling outside the System Proof diagnostics boundary.
 
 On a failed JUnit scenario the extension writes only
 `target/system-proof-artifacts/<scenario>/environment.log`. Report entries publish the stable name
@@ -153,13 +160,15 @@ remain suppressed against the primary failure.
 | `DiagnosticSource.unsupported` | `UNSUPPORTED_FOR_EXPORT`; supplier never invoked by framework export |
 | Component configuration and extension/evidence values | Excluded; no `toString()` rendering |
 | Unknown client event | Type-only fallback; payload and `toString()` ignored |
-| Container stdout/stderr | Omitted; only explicit bounded sanitizer output may enter safe diagnostics |
+| Container stdout/stderr | Omitted unconditionally; System Proof registers no Testcontainers log consumer |
 | JUnit safe artifact/report errors | Safe environment content and fixed operation plus type-only failure |
 
 ## Consequences and residual limits
 
 The default contract is enforceable at framework ingress and covered by adversarial canaries. It
-does not claim universal data-loss prevention. A user-supplied sanitizer can be incomplete.
+does not claim universal data-loss prevention. A user-supplied sanitizer can be incomplete, and a
+redacted diagnostic supplier can perform unbounded work before returning unless its trusted driver
+bounds acquisition.
 External troubleshooting tools, artifact access control, encryption, retention, and production
 logging governance remain deployment responsibilities.
 

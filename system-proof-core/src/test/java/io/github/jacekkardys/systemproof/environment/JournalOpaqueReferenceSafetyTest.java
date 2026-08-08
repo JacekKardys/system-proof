@@ -37,13 +37,13 @@ class JournalOpaqueReferenceSafetyTest {
                 emitter.framework(entry, LogLevel.INFO);
             }
 
-            EnvironmentDiagnostics diagnostics = new RuntimeDiagnostics(journal, renderer)
-                .capture(
+            RuntimeDiagnostics runtime = new RuntimeDiagnostics(journal, renderer);
+            EnvironmentDiagnostics diagnostics = runtime.render(runtime.snapshot(
                     EnvironmentState.RUNNING,
                     List.of(),
                     ignored -> { throw new AssertionError("No component state expected"); },
                     List.of()
-                );
+                ));
 
             assertThat(emitted)
                 .hasSize(events.size())

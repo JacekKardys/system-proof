@@ -92,7 +92,6 @@ class TestcontainersPublicSurfaceTest {
         assertThat(methodNames(loadType("component.TestcontainersDriver")))
             .containsExactly(
                 "afterStart",
-                "containerLogSanitizer",
                 "create",
                 "createOperations",
                 "start"

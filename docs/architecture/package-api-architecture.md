@@ -237,7 +237,7 @@ running-environment, metadata, and failure-adapter collaborators are package-pri
   `TcpEndpointAdapter.AddressReplacement`.
 - Inspectable read-only model: `ProtocolDecodeResult` and nested results,
   `ProtocolFailureKind`, `ProtocolLimits`, and `ProtocolUnit`.
-- Java-public internal exceptions: none. `ContainerLogConsumer`, plan inspection/validation, and
+- Java-public internal exceptions: none. Plan inspection/validation and
   `TestcontainersDriver.networkAlias(...)` are package-private implementation details.
 
 The Testcontainers surface depends on core contracts. Core and driver SPI never depend back on it.

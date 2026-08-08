@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -211,6 +213,76 @@ class RuntimeDiagnosticsSecretSafetyTest {
     }
 
     @Test
+    void shouldRenderOneLifecycleSnapshotWithoutBlockingCloseOnTheSupplier()
+        throws Exception {
+        CountDownLatch supplierEntered = new CountDownLatch(1);
+        CountDownLatch releaseSupplier = new CountDownLatch(1);
+        AtomicInteger redactedCalls = new AtomicInteger();
+        AtomicInteger sensitiveCalls = new AtomicInteger();
+        AtomicInteger unsupportedCalls = new AtomicInteger();
+        SnapshotComponent component = new SnapshotComponent(
+            supplierEntered,
+            releaseSupplier,
+            redactedCalls,
+            sensitiveCalls,
+            unsupportedCalls
+        );
+        Environment environment = new EnvironmentBuilder()
+            .components(component)
+            .build()
+            .start();
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            CompletableFuture<EnvironmentDiagnostics> firstCapture =
+                CompletableFuture.supplyAsync(environment::diagnostics, executor);
+            assertThat(supplierEntered.await(2, TimeUnit.SECONDS))
+                .as("redacted supplier entered after the base snapshot")
+                .isTrue();
+
+            CompletableFuture<Void> close = CompletableFuture.runAsync(
+                environment::close,
+                executor
+            );
+            try {
+                close.get(2, TimeUnit.SECONDS);
+                assertThat(environment.state()).isEqualTo(EnvironmentState.STOPPED);
+                assertThat(firstCapture.isDone()).isFalse();
+            } finally {
+                releaseSupplier.countDown();
+            }
+
+            EnvironmentDiagnostics running = firstCapture.get(2, TimeUnit.SECONDS);
+            assertThat(running.content())
+                .contains(
+                    "[STATE] environment=RUNNING",
+                    "[STATE] component=diagnostic-snapshot type=diagnostic-snapshot state=RUNNING",
+                    "snapshot-source-1"
+                )
+                .doesNotContain(
+                    "[STATE] environment=STOPPED",
+                    "Stopping environment",
+                    "Environment stopped"
+                );
+
+            EnvironmentDiagnostics stopped = environment.diagnostics();
+            assertThat(stopped.content())
+                .contains(
+                    "[STATE] environment=STOPPED",
+                    "[STATE] component=diagnostic-snapshot type=diagnostic-snapshot state=STOPPED",
+                    "Stopping environment",
+                    "Environment stopped",
+                    "snapshot-source-2"
+                );
+            assertThat(redactedCalls).hasValue(2);
+            assertThat(sensitiveCalls).hasValue(0);
+            assertThat(unsupportedCalls).hasValue(0);
+        } finally {
+            releaseSupplier.countDown();
+            environment.close();
+        }
+    }
+
+    @Test
     void shouldBoundComponentAndConnectionStateSectionsBeforeCallingTheirProviders() {
         RuntimeDiagnostics runtime = runtime();
         AtomicInteger componentStateCalls = new AtomicInteger();
@@ -241,7 +313,7 @@ class RuntimeDiagnosticsSecretSafetyTest {
             true
         );
 
-        EnvironmentDiagnostics captured = runtime.capture(
+        EnvironmentDiagnostics captured = runtime.render(runtime.snapshot(
             EnvironmentState.RUNNING,
             components,
             ignored -> {
@@ -249,7 +321,7 @@ class RuntimeDiagnosticsSecretSafetyTest {
                 return ComponentState.RUNNING;
             },
             java.util.Collections.nCopies(257, connection)
-        );
+        ));
 
         assertThat(componentStateCalls).hasValue(128);
         assertThat(captured.content())
@@ -287,18 +359,18 @@ class RuntimeDiagnosticsSecretSafetyTest {
             .mapToObj(ignored -> connection)
             .toList();
 
-        String first = runtime.capture(
+        String first = runtime.render(runtime.snapshot(
             EnvironmentState.RUNNING,
             List.of(),
             ignored -> { throw new AssertionError("No component state expected"); },
             connections
-        ).content();
-        String second = runtime.capture(
+        )).content();
+        String second = runtime.render(runtime.snapshot(
             EnvironmentState.RUNNING,
             List.of(),
             ignored -> { throw new AssertionError("No component state expected"); },
             connections
-        ).content();
+        )).content();
 
         assertThat(first)
             .hasSize(256 * 1024)
@@ -314,12 +386,12 @@ class RuntimeDiagnosticsSecretSafetyTest {
         RuntimeDiagnostics runtime,
         TestComponent component
     ) {
-        return runtime.capture(
+        return runtime.render(runtime.snapshot(
             EnvironmentState.DECLARED,
             List.of(component),
             ignored -> ComponentState.DECLARED,
             List.of()
-        );
+        ));
     }
 
     private static final class SecretConfig implements RuntimeConfig {
@@ -353,6 +425,62 @@ class RuntimeDiagnosticsSecretSafetyTest {
                 Void.class,
                 (component, context) -> ComponentRuntime.<Void>runtime().build()
             );
+        }
+    }
+
+    private record SnapshotConfig() implements RuntimeConfig {}
+
+    private static final class SnapshotComponent
+        extends AbstractComponent<SnapshotConfig, Void> {
+        private SnapshotComponent(
+            CountDownLatch supplierEntered,
+            CountDownLatch releaseSupplier,
+            AtomicInteger redactedCalls,
+            AtomicInteger sensitiveCalls,
+            AtomicInteger unsupportedCalls
+        ) {
+            super(
+                ComponentId.component(ComponentType.of("diagnostic-snapshot")),
+                new SnapshotConfig(),
+                Void.class,
+                (component, context) -> ComponentRuntime.<Void>runtime()
+                    .diagnostics(DiagnosticSource.redacted(
+                        "snapshot-source",
+                        () -> {
+                            int capture = redactedCalls.incrementAndGet();
+                            supplierEntered.countDown();
+                            await(releaseSupplier);
+                            return "snapshot-source-" + capture;
+                        },
+                        input -> input
+                    ))
+                    .diagnostics(DiagnosticSource.sensitive(
+                        "snapshot-sensitive",
+                        () -> {
+                            sensitiveCalls.incrementAndGet();
+                            return CANARIES.getFirst();
+                        }
+                    ))
+                    .diagnostics(DiagnosticSource.unsupported(
+                        "snapshot-unsupported",
+                        () -> {
+                            unsupportedCalls.incrementAndGet();
+                            return CANARIES.get(1);
+                        }
+                    ))
+                    .build()
+            );
+        }
+
+        private static void await(CountDownLatch release) {
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new AssertionError("diagnostic supplier was not released");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("diagnostic supplier was interrupted", interrupted);
+            }
         }
     }
 }

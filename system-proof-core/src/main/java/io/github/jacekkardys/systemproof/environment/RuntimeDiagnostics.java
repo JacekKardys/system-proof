@@ -6,7 +6,9 @@ import java.util.Objects;
 import java.util.function.Function;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.component.ComponentId;
 import io.github.jacekkardys.systemproof.component.ComponentState;
+import io.github.jacekkardys.systemproof.component.ComponentType;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.driver.DiagnosticSource;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
@@ -16,7 +18,7 @@ import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 
-/** Captures bounded classified diagnostics without running cleanup. */
+/** Snapshots framework state before invoking classified diagnostic suppliers during rendering. */
 final class RuntimeDiagnostics {
     private static final int MAX_DEFAULT_DIAGNOSTICS_CHARACTERS = 256 * 1024;
     private static final int MAX_DEFAULT_SOURCES = 32;
@@ -50,7 +52,7 @@ final class RuntimeDiagnostics {
             if (source.classification()
                     == DiagnosticSource.SafetyClassification.REDACTED_TEXT) {
                 if (sources.size() < MAX_DEFAULT_SOURCES) {
-                    sources.add(new OwnedDiagnosticSource(component, source));
+                    sources.add(new OwnedDiagnosticSource(component.id(), source));
                 } else {
                     sourcesOmitted = true;
                 }
@@ -58,16 +60,29 @@ final class RuntimeDiagnostics {
         }
     }
 
-    EnvironmentDiagnostics capture(
+    Snapshot snapshot(
         EnvironmentState environmentState,
         List<AbstractComponent<?, ?>> components,
         Function<Component, ComponentState> componentState,
         List<RuntimeConnectionSnapshot> connections
     ) {
-        SourceSnapshot sourceSnapshot = sourceSnapshot();
+        Objects.requireNonNull(environmentState, "environmentState must not be null");
         Objects.requireNonNull(components, "components must not be null");
         Objects.requireNonNull(componentState, "componentState must not be null");
         Objects.requireNonNull(connections, "connections must not be null");
+        int retainedComponents = Math.min(
+            components.size(),
+            MAX_COMPONENT_STATE_ENTRIES
+        );
+        List<ComponentSnapshot> componentSnapshots = new ArrayList<>(retainedComponents);
+        for (int index = 0; index < retainedComponents; index++) {
+            AbstractComponent<?, ?> component = components.get(index);
+            componentSnapshots.add(new ComponentSnapshot(
+                component.id(),
+                component.type(),
+                componentState.apply(component)
+            ));
+        }
         int retainedConnections = Math.min(
             connections.size(),
             MAX_CONNECTION_STATE_ENTRIES
@@ -76,21 +91,33 @@ final class RuntimeDiagnostics {
             connections.subList(0, retainedConnections)
         );
         ScenarioJournalSnapshot journalSnapshot = journal.snapshot();
+        SourceSnapshot sourceSnapshot = sourceSnapshot();
+        return new Snapshot(
+            environmentState,
+            componentSnapshots,
+            components.size() > retainedComponents,
+            connectionSnapshot,
+            connections.size() > retainedConnections,
+            journalSnapshot,
+            sourceSnapshot
+        );
+    }
+
+    EnvironmentDiagnostics render(Snapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
         BoundedContent content = new BoundedContent();
-        content.append("[STATE] environment=" + environmentState);
-        int retainedComponents = Math.min(components.size(), MAX_COMPONENT_STATE_ENTRIES);
-        for (int index = 0; index < retainedComponents; index++) {
-            AbstractComponent<?, ?> component = components.get(index);
+        content.append("[STATE] environment=" + snapshot.environmentState);
+        for (ComponentSnapshot component : snapshot.components) {
             content.appendLine(
                 "[STATE] component=" + component.id()
                     + " type=" + component.type()
-                    + " state=" + componentState.apply(component)
+                    + " state=" + component.state()
             );
         }
-        if (components.size() > retainedComponents) {
+        if (snapshot.componentsOmitted) {
             content.appendLine(COMPONENTS_OMITTED);
         }
-        for (RuntimeConnectionSnapshot connection : connectionSnapshot) {
+        for (RuntimeConnectionSnapshot connection : snapshot.connections) {
             ConnectionDescriptor descriptor = connection.descriptor();
             content.appendLine(
                 "[STATE] connection=" + connection.id()
@@ -110,17 +137,17 @@ final class RuntimeDiagnostics {
                     + " consumerTargetAvailable=" + connection.consumerTargetAvailable()
             );
         }
-        if (connections.size() > retainedConnections) {
+        if (snapshot.connectionsOmitted) {
             content.appendLine(CONNECTIONS_OMITTED);
         }
         if (!content.isFull()) {
-            String renderedJournal = renderer.render(journalSnapshot);
+            String renderedJournal = renderer.render(snapshot.journal);
             if (!renderedJournal.isBlank()) {
                 content.appendLine(renderedJournal);
             }
         }
         int capturedSources = 0;
-        for (OwnedDiagnosticSource owned : sourceSnapshot.sources()) {
+        for (OwnedDiagnosticSource owned : snapshot.sources.sources()) {
             if (owned.source().classification()
                 != DiagnosticSource.SafetyClassification.REDACTED_TEXT) {
                 continue;
@@ -132,12 +159,12 @@ final class RuntimeDiagnostics {
             capturedSources++;
             RedactedDiagnosticText captured = captureRedacted(owned.source());
             content.appendLine(
-                "[DIAGNOSTIC] [" + owned.component().id() + "] ["
+                "[DIAGNOSTIC] [" + owned.componentId() + "] ["
                     + owned.source().sourceId() + "]"
             );
             content.appendLine(captured.content());
         }
-        if (sourceSnapshot.omitted()) {
+        if (snapshot.sources.omitted()) {
             content.truncate();
         }
         return new EnvironmentDiagnostics(content.toString());
@@ -165,14 +192,57 @@ final class RuntimeDiagnostics {
         }
     }
 
-    private record OwnedDiagnosticSource(Component component, DiagnosticSource source) {
+    private record ComponentSnapshot(
+        ComponentId id,
+        ComponentType type,
+        ComponentState state
+    ) {
+        private ComponentSnapshot {
+            Objects.requireNonNull(id, "id must not be null");
+            Objects.requireNonNull(type, "type must not be null");
+            Objects.requireNonNull(state, "state must not be null");
+        }
+    }
+
+    private record OwnedDiagnosticSource(ComponentId componentId, DiagnosticSource source) {
         private OwnedDiagnosticSource {
-            Objects.requireNonNull(component, "component must not be null");
+            Objects.requireNonNull(componentId, "componentId must not be null");
             Objects.requireNonNull(source, "source must not be null");
         }
     }
 
     private record SourceSnapshot(List<OwnedDiagnosticSource> sources, boolean omitted) {}
+
+    static final class Snapshot {
+        private final EnvironmentState environmentState;
+        private final List<ComponentSnapshot> components;
+        private final boolean componentsOmitted;
+        private final List<RuntimeConnectionSnapshot> connections;
+        private final boolean connectionsOmitted;
+        private final ScenarioJournalSnapshot journal;
+        private final SourceSnapshot sources;
+
+        private Snapshot(
+            EnvironmentState environmentState,
+            List<ComponentSnapshot> components,
+            boolean componentsOmitted,
+            List<RuntimeConnectionSnapshot> connections,
+            boolean connectionsOmitted,
+            ScenarioJournalSnapshot journal,
+            SourceSnapshot sources
+        ) {
+            this.environmentState = Objects.requireNonNull(
+                environmentState,
+                "environmentState must not be null"
+            );
+            this.components = List.copyOf(components);
+            this.componentsOmitted = componentsOmitted;
+            this.connections = List.copyOf(connections);
+            this.connectionsOmitted = connectionsOmitted;
+            this.journal = Objects.requireNonNull(journal, "journal must not be null");
+            this.sources = Objects.requireNonNull(sources, "sources must not be null");
+        }
+    }
 
     private static final class BoundedContent {
         private final StringBuilder content = new StringBuilder();

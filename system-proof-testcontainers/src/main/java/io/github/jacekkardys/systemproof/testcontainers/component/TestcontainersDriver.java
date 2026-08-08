@@ -10,9 +10,11 @@ import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 
-/** Base driver that owns Testcontainers materialization while core owns lifecycle ordering. */
+/**
+ * Base driver that owns Testcontainers materialization without subscribing to container output;
+ * core owns lifecycle ordering.
+ */
 public abstract class TestcontainersDriver<
     C extends RuntimeConfig,
     O,
@@ -39,18 +41,10 @@ public abstract class TestcontainersDriver<
         );
         plan.validateFor(component);
         Network network = driverContext.sharedResource(NETWORK, Network::newNetwork);
-        RedactedDiagnosticText.Sanitizer containerLogSanitizer =
-            containerLogSanitizer(typed);
-        ContainerLogConsumer containerLogs = new ContainerLogConsumer(
-            driverContext,
-            component,
-            containerLogSanitizer
-        );
         GenericContainer<?> container = plan.container()
             .withNetwork(network)
             .withNetworkAliases(component.id().toString(), networkAlias(component))
-            .withExposedPorts(plan.exposedPorts())
-            .withLogConsumer(containerLogs);
+            .withExposedPorts(plan.exposedPorts());
 
         try {
             container.start();
@@ -77,15 +71,6 @@ public abstract class TestcontainersDriver<
     }
 
     protected abstract ContainerPlan create(T component, DriverContext context);
-
-    /**
-     * Removes component-owned secrets from one bounded container output frame before journaling.
-     * The default is omission; override to provide an explicit policy. A sanitizer returning
-     * {@code null}, blank, throwing, or exceeding bounds fails safe.
-     */
-    protected RedactedDiagnosticText.Sanitizer containerLogSanitizer(T component) {
-        return null;
-    }
 
     protected O createOperations(T component, StartedContainer container, DriverContext context) {
         return null;

@@ -32,7 +32,11 @@ public final class DiagnosticSource {
         this.sanitizer = sanitizer;
     }
 
-    /** Creates a source whose output must pass the supplied bounded sanitizer before export. */
+    /**
+     * Creates a source whose returned output must pass the supplied bounded sanitizer before
+     * export. The framework applies bounds after {@link Supplier#get()} returns; the driver is
+     * responsible for bounding acquisition performed by the supplier itself.
+     */
     public static DiagnosticSource redacted(
         String name,
         Supplier<String> content,

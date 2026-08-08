@@ -43,8 +43,17 @@ final class EnvironmentRuntime {
         );
     }
 
-    synchronized void start() {
-        execution.start();
+    void start() {
+        EnvironmentExecution.StartupFailure failure;
+        synchronized (this) {
+            failure = execution.start();
+        }
+        if (failure != null) {
+            throw new EnvironmentStartException(
+                failure.cause(),
+                inspector.renderDiagnostics(failure.diagnostics())
+            );
+        }
     }
 
     synchronized EnvironmentState state() {
@@ -62,7 +71,11 @@ final class EnvironmentRuntime {
     }
 
     EnvironmentDiagnostics diagnostics() {
-        return inspector.diagnostics();
+        RuntimeDiagnostics.Snapshot snapshot;
+        synchronized (this) {
+            snapshot = inspector.diagnosticsSnapshot();
+        }
+        return inspector.renderDiagnostics(snapshot);
     }
 
     synchronized ScenarioJournalSnapshot journalSnapshot() {

@@ -9,6 +9,8 @@ public record TestSms(
     String destinationAddress,
     String content
 ) {
+    private static final String DESTINATION_CANARY = "990019900199001";
+
     public TestSms {
         id = requireText(id, "message ID");
         sourceAddress = requireText(sourceAddress, "source address");
@@ -18,7 +20,7 @@ public record TestSms(
 
     public static TestSms unique() {
         String id = "SYSTEM-PROOF-PERSISTENCE-" + UUID.randomUUID();
-        return new TestSms(id, "999000000001", "99001", id);
+        return new TestSms(id, "999000000001", DESTINATION_CANARY, id);
     }
 
     /** Creates one logical proof message carrying a caller-owned high-entropy discriminator. */
@@ -32,7 +34,7 @@ public record TestSms(
         return new TestSms(
             "proof-sms-" + UUID.randomUUID(),
             "999000000001",
-            "99001",
+            DESTINATION_CANARY,
             "SYSTEM-PROOF-PERSISTENCE-" + proofDiscriminator
         );
     }

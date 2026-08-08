@@ -405,6 +405,12 @@ bounded to 256 KiB characters. The framework exposes no raw or sensitive attachm
 trust classifications, prohibited data, exact limits, and residual limitations are defined by
 [`ADR 0010`](docs/adr/0010-secret-safe-diagnostics.md).
 
+Capture copies one immutable lifecycle/component/connection/journal/source snapshot under the
+environment monitor and invokes eligible suppliers only after releasing it. A redacted source is
+bounded after `Supplier.get()` returns; its trusted driver must bound acquisition work and memory.
+The Testcontainers adapter registers no container-log consumer, so System Proof does not subscribe
+to or materialize container stdout/stderr.
+
 Every environment execution owns exactly one package-private append-only `ScenarioJournal`. It is
 the authoritative structured history and the only owner of sequence allocation, insertion order,
 diagnostic-time capture, and snapshot copying. There is no public mutable journal or generic

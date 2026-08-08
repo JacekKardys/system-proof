@@ -34,14 +34,15 @@ final class EnvironmentExecution {
         this.inspector = Objects.requireNonNull(inspector, "inspector must not be null");
     }
 
-    void start() {
+    StartupFailure start() {
         lifecycle.beginStart();
         try {
             connections.beginStartup();
             components.startAll();
             lifecycle.markReady();
+            return null;
         } catch (RuntimeException | Error failure) {
-            handleStartupFailure(failure);
+            return handleStartupFailure(failure);
         }
     }
 
@@ -59,14 +60,13 @@ final class EnvironmentExecution {
         }
     }
 
-    private void handleStartupFailure(Throwable failure) {
+    private StartupFailure handleStartupFailure(Throwable failure) {
         lifecycle.markStartFailed();
         events.environmentStartupFailure(failure);
         Throwable cleanupFailure = cleanup();
         EnvironmentRuntimeFailures.accumulate(failure, cleanupFailure);
         lifecycle.markStopped();
-        EnvironmentDiagnostics captured = inspector.diagnostics();
-        throw new EnvironmentStartException(failure, captured);
+        return new StartupFailure(failure, inspector.diagnosticsSnapshot());
     }
 
     private void closeDeclaredExecution() {
@@ -145,5 +145,15 @@ final class EnvironmentExecution {
     @FunctionalInterface
     private interface CleanupAction {
         Throwable run();
+    }
+
+    record StartupFailure(
+        Throwable cause,
+        RuntimeDiagnostics.Snapshot diagnostics
+    ) {
+        StartupFailure {
+            Objects.requireNonNull(cause, "cause must not be null");
+            Objects.requireNonNull(diagnostics, "diagnostics must not be null");
+        }
     }
 }

@@ -63,17 +63,22 @@ complete provided-port materialization.
 `EnvironmentDiagnostics` instance that callers cannot construct from arbitrary text. It contains
 typed state, a bounded safe journal rendering, and only `DiagnosticSource.redacted(...)` values.
 The complete report and journal rendering are each limited to 256 KiB characters; at most 32
-redacted sources are captured.
+redacted sources are captured. One immutable lifecycle/component/connection/journal/source
+snapshot is copied under the `EnvironmentRuntime` monitor; suppliers are invoked and the result is
+rendered only after that monitor is released.
 
 Driver text crosses the journal boundary only as `RedactedDiagnosticText`, created with an explicit
 sanitizer over at most 16 KiB characters and retaining at most 4 KiB/64 lines. Sanitizer failure,
 `null`, blank, or oversized output never falls back to raw input. `DiagnosticSource.sensitive(...)`
 and `DiagnosticSource.unsupported(...)` classify content that the framework never invokes or
-exports. There is no raw or sensitive attachment API.
+exports. `DiagnosticSource.redacted(...)` applies these bounds only after `Supplier.get()` returns;
+the trusted driver remains responsible for bounding the acquisition itself. There is no raw or
+sensitive attachment API.
 
-`FailureDetails` retains only the throwable class and renders a bounded type. It never reads an
-exception message, cause/suppressed message, stack trace, or `Throwable.toString()`. Component
-configuration and arbitrary evidence/extension objects are not rendered. See
+`FailureDetails` retains only one bounded, normalized `String` containing the throwable type name.
+It retains neither the throwable nor its `Class` object and never reads an exception message,
+cause/suppressed message, stack trace, or `Throwable.toString()`. Component configuration and
+arbitrary evidence/extension objects are not rendered. See
 [`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md) for the source inventory, prohibited data,
 limits, and residual sanitizer limitations.
 
