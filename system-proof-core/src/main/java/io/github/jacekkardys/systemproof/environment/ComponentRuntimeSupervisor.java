@@ -11,7 +11,6 @@ import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.journal.LogLevel;
 
 /** Owns component execution state, runtime attachment, operations, rollback, and cleanup. */
 final class ComponentRuntimeSupervisor {
@@ -22,6 +21,7 @@ final class ComponentRuntimeSupervisor {
     private final Map<Component, ComponentExecution<?, ?>> executions =
         new IdentityHashMap<>();
     private final DriverServices driverServices;
+    private int nextStartIndex;
 
     ComponentRuntimeSupervisor(
         ComponentExecutionPlan plan,
@@ -46,8 +46,13 @@ final class ComponentRuntimeSupervisor {
         );
     }
 
-    void startAll() {
-        plan.startOrder().forEach(this::start);
+    boolean startNext() {
+        if (nextStartIndex == plan.startOrder().size()) {
+            return false;
+        }
+        start(plan.startOrder().get(nextStartIndex));
+        nextStartIndex++;
+        return true;
     }
 
     Throwable stopStartedComponents() {
@@ -200,11 +205,6 @@ final class ComponentRuntimeSupervisor {
 
         private void start() {
             beginStart(this);
-            events.component(
-                component,
-                LogLevel.DEBUG,
-                "Configuration " + component.configuration()
-            );
             ComponentRuntime<O> startedRuntime = null;
             try {
                 startedRuntime = Objects.requireNonNull(

@@ -4,9 +4,6 @@ import static io.github.jacekkardys.systemproof.testcontainers.component.PortBin
 
 import java.net.URI;
 import lombok.NonNull;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.ReferenceImages;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.smsc.SmscConfig.Driver;
@@ -30,12 +27,10 @@ public final class SmscTestcontainersDriver
     protected ContainerPlan create(SmscComponent component, DriverContext context) {
         PortBinding smppPort = port(configuration.smppPort());
         PortBinding controlPort = port(configuration.controlPort());
-        GenericContainer<?> container = referenceContainer()
-            .waitingFor(new WaitAllStrategy()
-                .withStrategy(Wait.forListeningPort())
-                .withStrategy(Wait.forHttp("/").forPort(controlPort.port()).forStatusCode(200))
-                .withStartupTimeout(configuration.startupTimeout()));
-        return ContainerPlan.container(container)
+        return referenceContainer()
+            .waitForListeningPorts(smppPort)
+            .waitForHttp(controlPort, "/", 200)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.smpp(),
                 smppPort,
@@ -55,11 +50,11 @@ public final class SmscTestcontainersDriver
             .build();
     }
 
-    private GenericContainer<?> referenceContainer() {
+    private ContainerPlan.Builder referenceContainer() {
         if (ReferenceImages.SMSC.equals(configuration.image())) {
-            return new GenericContainer<>(ReferenceImages.smsc());
+            return ContainerPlan.container(ReferenceImages.smsc());
         }
-        return new GenericContainer<>(DockerImageName.parse(configuration.image()));
+        return ContainerPlan.container(DockerImageName.parse(configuration.image()));
     }
 
     @Override
@@ -77,8 +72,4 @@ public final class SmscTestcontainersDriver
         );
     }
 
-    @Override
-    protected String sanitizeContainerOutput(SmscComponent component, String output) {
-        return output.replaceAll("(?m) Sender: \\[[^\\r\\n]*$", "");
-    }
 }

@@ -7,7 +7,8 @@ Public composition API:
 
 - `TestcontainersDriver<C, O, T>`: typed base driver for component `T`, configuration `C`, and
   operations `O`.
-- `ContainerPlan`: prepared container plus provided-port bindings.
+- `ContainerPlan`: restricted image, command, environment, copy, host-access, non-log readiness,
+  and provided-port specification. It does not accept an arbitrary `GenericContainer`.
 - `PortBinding.port(port)`: known internal container port selection.
 - `StartedContainer`: restricted mapped-address view for operations and bootstrap hooks.
 - `InteractionGateway` and `TcpEndpointAdapter<C>`: connection-owned TCP routes from consumer
@@ -23,9 +24,28 @@ Public composition API:
 - component-scoped `DriverContext`: typed dependency resolution, journal-backed diagnostics, and
   restricted checkpoint/disruption contributions without exposing `ScenarioJournal`.
 
-The base driver obtains one environment-scoped network, applies aliases and wait strategies,
-forwards container logs, starts the container, materializes runtime bindings, creates optional
-operations, runs component bootstrap, and returns the cleanup handle.
+The base driver obtains one environment-scoped network, applies aliases, starts its own restricted
+container lifecycle, executes framework-owned TCP or HTTP readiness probes, materializes runtime
+bindings, creates optional operations, runs component bootstrap, and returns the cleanup handle.
+
+## Container diagnostics
+
+`ContainerPlan` deliberately cannot wrap a caller-owned `GenericContainer`. Its package-private,
+final lifecycle disables Testcontainers logging for that container, denies both `getLogs()`
+overloads before `LogUtils` can attach an unbounded `ToStringConsumer`, installs no-op internal
+startup waiting, exposes no `waitingFor(...)` or `withLogConsumer(...)` surface, and runs only
+System Proof-owned TCP/HTTP readiness after `GenericContainer.start()` returns. This also excludes
+`LogMessageWaitStrategy`, whose Docker-log subscription is not represented by
+`GenericContainer.getLogConsumers()`.
+
+The boundary does not rely on an empty `getLogConsumers()` list. It prevents the upstream startup
+failure path from emitting its exception through the container logger and turns its fallback
+full-log request into an empty, counted denial. Consequently the standard System Proof lifecycle
+does not subscribe to or materialize container stdout/stderr, including unterminated output. There
+is no container-log capture or sanitized-container-text path. Drivers that require container logs
+must acquire and govern them through external tooling outside System Proof diagnostics; they cannot
+reintroduce that path through `ContainerPlan`. The complete contract is in
+[`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md).
 
 Testcontainers maps host ports dynamically. Ports and container objects remain inside this adapter;
 logical components and connections contain no runtime address data. Core owns lifecycle ordering
@@ -86,13 +106,13 @@ The gateway owns sockets, listeners, route lifecycle, `SessionId`, ordinals, and
 It passes the exact logical `ConnectionId` when opening an adapter session so route-scoped protocol
 authorization cannot fall back to endpoint-local identifiers. Native reference types remain
 adapter-local and cross the existing
-schema-checked `EvidenceSnapshot` copy boundary. Real bounded PostgreSQL and HTTP adapters are
-provided by their own downstream modules; an SMPP adapter is not yet included. Semantic hold and
+schema-checked `EvidenceSnapshot` copy boundary. Real bounded PostgreSQL, HTTP, and SMPP adapters
+are provided by their own downstream modules. Semantic hold and
 one-shot release use the generic forwarding-permit boundary described above. TLS termination,
 fault mutation, cross-connection causal proof, and the final verdict remain outside this module. One
 gateway can serve different contract types concurrently without a gateway registry or global
 protocol selector. Consumer containers that resolve a routed endpoint must enable Testcontainers
-host access with `withAccessToHost(true)`.
+host access with `accessToHost(true)`.
 
 The executable Docker proof and supported host-routing contract are recorded in
 [`docs/adr/0002-test-jvm-interaction-gateway.md`](../docs/adr/0002-test-jvm-interaction-gateway.md).

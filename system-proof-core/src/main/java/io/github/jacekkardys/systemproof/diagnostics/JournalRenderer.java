@@ -31,14 +31,17 @@ import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
 import io.github.jacekkardys.systemproof.observation.EvidenceSchemaId;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
-import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
 
 /** Linear human-readable rendering over detached immutable journal read models. */
 public final class JournalRenderer {
+    private static final int MAX_RENDERED_CHARACTERS = 256 * 1024;
+    private static final int MAX_RENDERED_LINE_CHARACTERS = 8 * 1024;
+    private static final String LINE_TRUNCATION_MARKER = "[TRUNCATED]";
+    private static final String TRUNCATION_MARKER = "[DIAGNOSTICS TRUNCATED]";
     /** Renders the complete supplied snapshot in journal storage order. */
-    public EnvironmentDiagnostics render(ScenarioJournalSnapshot snapshot) {
+    public String render(ScenarioJournalSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot must not be null");
-        return EnvironmentDiagnostics.diagnostics(renderEntries(snapshot.entries()));
+        return renderEntries(snapshot.entries());
     }
 
     /** Renders entries associated with one stable component identity. */
@@ -60,8 +63,20 @@ public final class JournalRenderer {
         String prefix = timestamp(entry.diagnosticElapsedTime().orElse(null))
             + " " + rendered.labels() + " ";
         List<String> lines = new ArrayList<>();
-        rendered.message().lines().forEachOrdered(line -> lines.add(prefix + line));
+        rendered.message().lines().forEachOrdered(line ->
+            lines.add(boundLine(prefix + line))
+        );
         return List.copyOf(lines);
+    }
+
+    private static String boundLine(String line) {
+        if (line.length() <= MAX_RENDERED_LINE_CHARACTERS) {
+            return line;
+        }
+        return line.substring(
+            0,
+            MAX_RENDERED_LINE_CHARACTERS - LINE_TRUNCATION_MARKER.length()
+        ) + LINE_TRUNCATION_MARKER;
     }
 
     private String renderEntries(List<JournalEntry> entries) {
@@ -69,7 +84,13 @@ public final class JournalRenderer {
         boolean firstLine = true;
         for (JournalEntry entry : entries) {
             for (String line : renderLines(entry)) {
-                if (!firstLine) {
+                int separatorCharacters = firstLine ? 0 : System.lineSeparator().length();
+                int required = separatorCharacters + line.length();
+                if (rendered.length() + required > MAX_RENDERED_CHARACTERS) {
+                    appendTruncationMarker(rendered, firstLine);
+                    return rendered.toString();
+                }
+                if (separatorCharacters > 0) {
                     rendered.append(System.lineSeparator());
                 }
                 rendered.append(line);
@@ -77,6 +98,18 @@ public final class JournalRenderer {
             }
         }
         return rendered.toString();
+    }
+
+    private static void appendTruncationMarker(StringBuilder rendered, boolean empty) {
+        int separatorCharacters = empty ? 0 : System.lineSeparator().length();
+        int markerSpace = separatorCharacters + TRUNCATION_MARKER.length();
+        if (rendered.length() + markerSpace > MAX_RENDERED_CHARACTERS) {
+            rendered.setLength(MAX_RENDERED_CHARACTERS - markerSpace);
+        }
+        if (!empty) {
+            rendered.append(System.lineSeparator());
+        }
+        rendered.append(TRUNCATION_MARKER);
     }
 
     private static RenderedEvent describe(ScenarioEvent event) {
@@ -95,7 +128,7 @@ public final class JournalRenderer {
             );
             case DiagnosticEvent diagnostic -> new RenderedEvent(
                 diagnosticLabels(diagnostic.subject()),
-                diagnostic.message()
+                diagnostic.message().content()
             );
             case FailureEvent.EnvironmentStartup failure -> new RenderedEvent(
                 "[FRAMEWORK] [environment]",
@@ -127,11 +160,11 @@ public final class JournalRenderer {
                 interactionMessage(observation)
             );
             case ProofSubjectCreatedEvent created -> new RenderedEvent(
-                proofSubjectLabels(created.proofSubject()),
+                proofSubjectLabels(),
                 "Created proof subject"
             );
             case ProofSubjectArmedEvent armed -> new RenderedEvent(
-                proofSubjectLabels(armed.proofSubject()),
+                proofSubjectLabels(),
                 "Armed proof subject keySchema=" + armed.key().schema()
                     + " sharedKey=" + armed.sharedKey()
             );
@@ -158,11 +191,30 @@ public final class JournalRenderer {
                     + disruption.disruptionId().value() + "]",
                 "Recorded disruption stage=" + disruption.stage()
             );
-            default -> new RenderedEvent(
-                "[EVENT] [" + event.getClass().getSimpleName() + "]",
-                "Recorded scenario event type=" + event.getClass().getName()
-            );
+            default -> {
+                String eventType = normalizedType(event.getClass());
+                yield new RenderedEvent(
+                    "[EVENT] [" + eventType + "]",
+                    "Recorded scenario event type=" + eventType
+                );
+            }
         };
+    }
+
+    private static String normalizedType(Class<?> type) {
+        String name = type.getSimpleName();
+        if (name == null || name.isBlank()) {
+            return "ScenarioEvent";
+        }
+        StringBuilder normalized = new StringBuilder(Math.min(name.length(), 128));
+        for (int index = 0; index < name.length() && normalized.length() < 128; index++) {
+            char character = name.charAt(index);
+            if (Character.isLetterOrDigit(character) || character == '_'
+                || character == '$') {
+                normalized.append(character);
+            }
+        }
+        return normalized.isEmpty() ? "ScenarioEvent" : normalized.toString();
     }
 
     private static boolean concerns(ScenarioEvent event, ComponentId componentId) {
@@ -235,15 +287,15 @@ public final class JournalRenderer {
             + " encodedBytes=" + observation.evidence().encodedSize();
     }
 
-    private static String proofSubjectLabels(ProofSubjectRef proofSubject) {
-        return "[PROOF-SUBJECT] [ref=" + proofSubject + "]";
+    private static String proofSubjectLabels() {
+        return "[PROOF-SUBJECT] [ref=opaque]";
     }
 
     private static String correlationLabels(CorrelationCandidateEvent candidate) {
         return "[CORRELATION]"
-            + candidate.proofSubject()
-                .map(subject -> " [subject=" + subject + "]")
-                .orElse(" [subject=unassigned]")
+            + (candidate.proofSubject().isPresent()
+                ? " [subject=assigned]"
+                : " [subject=unassigned]")
             + " [connection=" + candidate.interactionRef().connectionId() + "]"
             + " [interaction=" + candidate.interactionRef() + "]";
     }
@@ -260,12 +312,10 @@ public final class JournalRenderer {
 
     private static String semanticHoldLabels(SemanticHoldEvent hold) {
         return "[SEMANTIC-HOLD]"
-            + " [ref=" + hold.holdRef() + "]"
+            + " [ref=opaque]"
             + " [connection=" + hold.connectionId() + "]"
             + " [flow=" + hold.direction() + "]"
-            + hold.proofSubject()
-                .map(subject -> " [subject=" + subject + "]")
-                .orElse("");
+            + (hold.proofSubject().isPresent() ? " [subject=assigned]" : "");
     }
 
     private static String semanticHoldMessage(SemanticHoldEvent hold) {
@@ -285,8 +335,8 @@ public final class JournalRenderer {
         SemanticPredecessorGuardEvent guard
     ) {
         return "[SEMANTIC-PREDECESSOR-GUARD]"
-            + " [ref=" + guard.guardRef() + "]"
-            + " [subject=" + guard.proofSubject() + "]";
+            + " [ref=opaque]"
+            + " [subject=assigned]";
     }
 
     private static String semanticPredecessorGuardMessage(
@@ -359,8 +409,7 @@ public final class JournalRenderer {
     }
 
     private static String failureMessage(FailureDetails failure) {
-        return failure.failureType()
-            + failure.message().map(message -> " - " + message).orElse("");
+        return failure.failureType();
     }
 
     private static String timestamp(Duration elapsed) {

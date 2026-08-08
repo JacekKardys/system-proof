@@ -158,8 +158,7 @@ class RuntimeConnectionRegistryTest {
             .filteredOn(ConnectionLifecycleEvent.class::isInstance)
             .hasSize(10);
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .doesNotContain("internal-secret-endpoint", "external-secret-endpoint");
     }
 
@@ -362,8 +361,7 @@ class RuntimeConnectionRegistryTest {
                 assertThat(snapshot.consumerTargetAvailable()).isFalse();
             });
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .contains(
                 "mode=ROUTED",
                 "directTargetAvailable=true",
@@ -445,8 +443,7 @@ class RuntimeConnectionRegistryTest {
             .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
             .hasSize(1);
         assertThat(new JournalRenderer()
-            .render(journal.snapshot())
-            .content())
+            .render(journal.snapshot()))
             .doesNotContain(
                 "direct-secret",
                 "direct-secret-external",
@@ -600,7 +597,7 @@ class RuntimeConnectionRegistryTest {
     }
 
     @Test
-    void shouldKeepReadingDynamicObservationStatusAfterTransactionalCommit() {
+    void shouldCacheTheStartupObservationStatusAfterTransactionalCommit() {
         Client client = new Client("dynamic-observation");
         Server server = new Server();
         Connection<String> declaration = connection(client.api, server.api);
@@ -626,29 +623,32 @@ class RuntimeConnectionRegistryTest {
             .build();
 
         registry.bindTargets(registry.prepareTargets(server, provider));
+        sampleObservation(registry);
 
         assertThat(registry.snapshot(declaration.id()).effectiveObservationStatus())
             .isEqualTo(EffectiveObservationStatus.ACTIVE);
         status.set(EffectiveObservationStatus.INACTIVE);
         assertThat(registry.snapshot(declaration.id()).effectiveObservationStatus())
-            .isEqualTo(EffectiveObservationStatus.INACTIVE);
+            .isEqualTo(EffectiveObservationStatus.ACTIVE);
         assertThat(registry.beginProviderCleanup(server)).isNull();
         registry.completeProviderCleanup(server);
+        assertThat(registry.snapshot(declaration.id()).effectiveObservationStatus())
+            .isEqualTo(EffectiveObservationStatus.INACTIVE);
     }
 
     @Test
-    void shouldCaptureFinalDynamicObservationStatusWithoutAPreCloseSnapshot() {
+    void shouldRetainTheCachedObservationStatusWithoutResamplingDuringClose() {
         assertFinalObservationStatus(
             "required-failed",
             ObservationRequirement.REQUIRED,
             EffectiveObservationStatus.FAILED,
-            EffectiveObservationStatus.FAILED
+            EffectiveObservationStatus.INACTIVE
         );
         assertFinalObservationStatus(
             "optional-degraded",
             ObservationRequirement.OPTIONAL,
             EffectiveObservationStatus.DEGRADED,
-            EffectiveObservationStatus.DEGRADED
+            EffectiveObservationStatus.INACTIVE
         );
         assertFinalObservationStatus(
             "required-healthy",
@@ -660,12 +660,12 @@ class RuntimeConnectionRegistryTest {
             "optional-unsupported",
             ObservationRequirement.OPTIONAL,
             EffectiveObservationStatus.UNSUPPORTED,
-            EffectiveObservationStatus.UNSUPPORTED
+            EffectiveObservationStatus.INACTIVE
         );
     }
 
     @Test
-    void shouldCloseRouteOnceWhenFinalObservationStatusReadFails() {
+    void shouldCloseRouteOnceWithoutResamplingObservationStatus() {
         String statusSecret = "final-observation-status-secret";
         IllegalStateException statusFailure = new IllegalStateException(
             "final observation status exposed " + statusSecret
@@ -685,7 +685,7 @@ class RuntimeConnectionRegistryTest {
                 context -> ConnectionRoute.routed(
                     binding("observed-route", "observed-route-external"),
                     () -> {
-                        if (statusCalls.incrementAndGet() == 3) {
+                        if (statusCalls.incrementAndGet() > 1) {
                             throw statusFailure;
                         }
                         return EffectiveObservationStatus.ACTIVE;
@@ -699,26 +699,27 @@ class RuntimeConnectionRegistryTest {
             .provides(server.api, binding("direct", "direct-external"))
             .build();
         registry.bindTargets(registry.prepareTargets(server, provider));
+        sampleObservation(registry);
 
-        assertThat(registry.beginProviderCleanup(server)).isSameAs(statusFailure);
+        assertThat(registry.beginProviderCleanup(server)).isNull();
         assertThat(registry.beginProviderCleanup(server)).isNull();
         assertThat(registry.stopRemaining()).isNull();
         registry.completeProviderCleanup(server);
 
         assertThat(cleanupCalls).hasValue(1);
-        assertThat(statusCalls).hasValue(3);
+        assertThat(statusCalls).hasValue(1);
         assertThat(registry.snapshot(declaration.id())).satisfies(snapshot -> {
-            assertThat(snapshot.state()).isEqualTo(ConnectionState.FAILED);
+            assertThat(snapshot.state()).isEqualTo(ConnectionState.STOPPED);
             assertThat(snapshot.effectiveObservationStatus())
-                .isEqualTo(EffectiveObservationStatus.FAILED);
+                .isEqualTo(EffectiveObservationStatus.INACTIVE);
             assertThat(snapshot.directTargetAvailable()).isFalse();
             assertThat(snapshot.consumerTargetAvailable()).isFalse();
         });
         assertThat(journal.snapshot().entries())
             .map(entry -> entry.event())
             .filteredOn(FailureEvent.ConnectionCleanup.class::isInstance)
-            .hasSize(1);
-        assertThat(new JournalRenderer().render(journal.snapshot()).content())
+            .isEmpty();
+        assertThat(new JournalRenderer().render(journal.snapshot()))
             .doesNotContain(statusSecret);
     }
 
@@ -878,6 +879,7 @@ class RuntimeConnectionRegistryTest {
             .provides(server.api, binding("direct", "direct-external"))
             .build();
         registry.bindTargets(registry.prepareTargets(server, provider));
+        sampleObservation(registry);
         status.set(finalStatus);
 
         assertThat(registry.beginProviderCleanup(server)).isNull();
@@ -891,8 +893,14 @@ class RuntimeConnectionRegistryTest {
             assertThat(snapshot.directTargetAvailable()).isFalse();
             assertThat(snapshot.consumerTargetAvailable()).isFalse();
         });
-        assertThat(statusCalls).hasValue(3);
+        assertThat(statusCalls).hasValue(1);
         assertThat(cleanupCalls).hasValue(1);
+    }
+
+    private static void sampleObservation(RuntimeConnectionRegistry registry) {
+        registry.applyStartupObservationResults(
+            registry.startupObservationBatch().evaluate()
+        );
     }
 
     private static <C> RuntimeConnection<C> runtimeConnection(

@@ -224,33 +224,32 @@ class RoutedConnectionLifecycleTest {
         );
         assertThat(cleanupFailure).hasMessageContaining(routedInternal, routedExternal);
 
-        String preparationContext =
-            "Route preparation failed for connection '" + secondId + "'";
-        String cleanupContext =
-            "Route cleanup failed for connection '" + firstId + "'";
         assertThat(events(environment, FailureEvent.ConnectionMaterialization.class))
             .hasSize(2)
             .allSatisfy(event ->
-                assertThat(event.failure().message()).contains(preparationContext)
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
             );
         assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.connectionId()).isEqualTo(firstId);
-                assertThat(event.failure().message()).contains(cleanupContext);
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, FailureEvent.ComponentStartup.class))
             .singleElement()
             .satisfies(event ->
-                assertThat(event.failure().message()).contains(preparationContext)
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
             );
         assertThat(events(environment, FailureEvent.EnvironmentStartup.class))
             .singleElement()
             .satisfies(event ->
-                assertThat(event.failure().message()).contains(preparationContext)
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
             );
         assertThat(thrown.diagnostics().content())
-            .contains(preparationContext, cleanupContext)
+            .contains(
+                "[CONNECTION] [" + secondId + "] Connection materialization failed: IllegalStateException",
+                "[CONNECTION] [" + firstId + "] Connection cleanup failed: IllegalStateException"
+            )
             .doesNotContain(
                 directInternal,
                 directExternal,
@@ -392,31 +391,27 @@ class RoutedConnectionLifecycleTest {
                 .anyMatch(event -> event.state() == ConnectionState.RUNNING)
         ).isFalse();
 
-        String preparationContext =
-            "Route preparation failed for connection '" + rejectedId + "'";
-        String cleanupContext =
-            "Route cleanup failed for connection '" + rejectedId + "'";
         assertThat(events(environment, FailureEvent.ConnectionMaterialization.class))
             .hasSize(3)
             .allSatisfy(event ->
-                assertThat(event.failure().message()).contains(preparationContext)
+                assertThat(event.failure().failureType()).isEqualTo("ClassCastException")
             );
         assertThat(events(environment, FailureEvent.ConnectionCleanup.class))
             .singleElement()
             .satisfies(event -> {
                 assertThat(event.connectionId()).isEqualTo(rejectedId);
-                assertThat(event.failure().message()).contains(cleanupContext);
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
-        List<String> journalFailureMessages =
+        List<String> journalFailureTypes =
             environment.journalSnapshot().entries().stream()
                 .map(entry -> entry.event())
                 .filter(FailureEvent.class::isInstance)
                 .map(FailureEvent.class::cast)
-                .map(event -> event.failure().message().orElse(""))
+                .map(event -> event.failure().failureType())
                 .toList();
-        assertThat(journalFailureMessages)
-            .allSatisfy(message ->
-                assertThat(message).doesNotContain(secrets.toArray(String[]::new))
+        assertThat(journalFailureTypes)
+            .allSatisfy(type ->
+                assertThat(type).doesNotContain(secrets.toArray(String[]::new))
             );
         String journalRendering = environment.journalSnapshot().entries().stream()
             .map(entry -> entry.event().toString())
@@ -424,7 +419,10 @@ class RoutedConnectionLifecycleTest {
             .toString();
         assertThat(journalRendering).doesNotContain(secrets.toArray(String[]::new));
         assertThat(environment.diagnostics().content())
-            .contains(preparationContext, cleanupContext)
+            .contains(
+                "[CONNECTION] [" + rejectedId + "] Connection materialization failed: ClassCastException",
+                "[CONNECTION] [" + rejectedId + "] Connection cleanup failed: IllegalStateException"
+            )
             .doesNotContain(secrets.toArray(String[]::new));
     }
 
@@ -499,7 +497,7 @@ class RoutedConnectionLifecycleTest {
                         ),
                         () -> {
                             int invocation = statusCalls.get(routeIndex).incrementAndGet();
-                            if (routeIndex == 2 && invocation == 2) {
+                            if (routeIndex == 2 && invocation == 1) {
                                 throw startupFailure;
                             }
                             return EffectiveObservationStatus.ACTIVE;
@@ -528,7 +526,7 @@ class RoutedConnectionLifecycleTest {
         assertThat(thrown.getCause()).isSameAs(startupFailure);
         assertThat(startupFailure.getSuppressed())
             .containsExactly(thirdCleanupFailure, firstCleanupFailure);
-        assertThat(statusCalls).allSatisfy(calls -> assertThat(calls).hasValue(2));
+        assertThat(statusCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
         assertThat(cleanupCalls).allSatisfy(calls -> assertThat(calls).hasValue(1));
         assertThat(cleanupOrder).containsExactly(
             preparedIds.get(2),
@@ -546,7 +544,7 @@ class RoutedConnectionLifecycleTest {
         ).isFalse();
         assertThat(events(environment, FailureEvent.ConnectionCleanup.class)).hasSize(2);
         assertThat(environment.diagnostics().content())
-            .contains("Route preparation failed for connection '" + preparedIds.get(2) + "'")
+            .contains("Connection materialization failed: IllegalStateException")
             .doesNotContain(
                 directInternal,
                 directExternal,
@@ -570,7 +568,7 @@ class RoutedConnectionLifecycleTest {
     }
 
     @Test
-    void shouldPreserveCleanupFailureOrderingAndRedactFinalStatusFailure() {
+    void shouldPreserveCleanupFailureOrderingWithoutResamplingObservationStatus() {
         String directInternal = "direct-internal-cleanup-secret";
         String directExternal = "direct-external-cleanup-secret";
         String routedInternal = "routed-internal-cleanup-secret";
@@ -581,9 +579,6 @@ class RoutedConnectionLifecycleTest {
                 "route cleanup exposed " + directInternal + " " + directExternal
                     + " " + routedInternal + " " + routedExternal
             );
-        IllegalStateException statusFailure = new IllegalStateException(
-            "final observation status exposed " + statusSecret
-        );
         IllegalStateException providerFailure =
             new IllegalStateException("provider cleanup failed");
         AtomicInteger routeCleanupCalls = new AtomicInteger();
@@ -619,8 +614,10 @@ class RoutedConnectionLifecycleTest {
                         new ApiEndpoint(routedExternal)
                     ),
                     () -> {
-                        if (statusCalls.incrementAndGet() == 3) {
-                            throw statusFailure;
+                        if (statusCalls.incrementAndGet() > 1) {
+                            throw new IllegalStateException(
+                                "final observation status exposed " + statusSecret
+                            );
                         }
                         return EffectiveObservationStatus.ACTIVE;
                     },
@@ -643,14 +640,13 @@ class RoutedConnectionLifecycleTest {
             )
             .satisfies(failure ->
                 assertThat(failure.getSuppressed()).containsExactly(
-                    statusFailure,
                     providerFailure
                 )
             );
         environment.close();
 
         assertThat(routeCleanupCalls).hasValue(1);
-        assertThat(statusCalls).hasValue(3);
+        assertThat(statusCalls).hasValue(1);
         assertThat(environment.runtimeConnections())
             .singleElement()
             .satisfies(snapshot -> {
@@ -663,18 +659,12 @@ class RoutedConnectionLifecycleTest {
             .satisfies(event -> {
                 assertThat(event.connectionId())
                     .isEqualTo(environment.connections().getFirst().id());
-                assertThat(event.failure().message()).contains(
-                    "Route cleanup failed for connection '"
-                        + environment.connections().getFirst().id() + "'"
-                );
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException");
             });
         assertThat(events(environment, FailureEvent.ComponentCleanup.class))
             .singleElement()
             .satisfies(event ->
-                assertThat(event.failure().message()).contains(
-                    "Route cleanup failed for connection '"
-                        + environment.connections().getFirst().id() + "'"
-                )
+                assertThat(event.failure().failureType()).isEqualTo("IllegalStateException")
             );
         assertThat(environment.journalSnapshot().entries())
             .map(entry -> entry.event().toString())

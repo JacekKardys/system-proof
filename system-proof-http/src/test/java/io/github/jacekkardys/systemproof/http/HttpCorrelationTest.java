@@ -147,7 +147,7 @@ class HttpCorrelationTest {
 
         assertThat(snapshot.toString()).doesNotContain(secret);
         assertThat(journal.entries().toString()).doesNotContain(secret);
-        assertThat(new JournalRenderer().render(journal).content()).doesNotContain(secret);
+        assertThat(new JournalRenderer().render(journal)).doesNotContain(secret);
     }
 
     private static ProtocolStream<HttpEvidence> requests(HttpProtocolAdapter adapter) {

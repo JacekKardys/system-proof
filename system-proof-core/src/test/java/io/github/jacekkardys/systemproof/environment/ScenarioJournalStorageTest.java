@@ -21,6 +21,7 @@ import io.github.jacekkardys.systemproof.journal.JournalSequence;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 
 class ScenarioJournalStorageTest {
     @Test
@@ -56,7 +57,7 @@ class ScenarioJournalStorageTest {
             .extracting(entry -> entry.journalSequence().value())
             .containsExactlyElementsOf(LongStream.rangeClosed(1, expectedCount).boxed().toList());
         assertThat(entries)
-            .extracting(entry -> ((DiagnosticEvent) entry.event()).message())
+            .extracting(entry -> ((DiagnosticEvent) entry.event()).message().content())
             .doesNotHaveDuplicates();
         assertThat(new HashSet<>(entries)).hasSize(expectedCount);
         assertThat(Comparable.class.isAssignableFrom(JournalSequence.class)).isFalse();
@@ -72,7 +73,7 @@ class ScenarioJournalStorageTest {
 
         assertThat(earlier.entries()).containsExactly(first);
         assertThat(journal.snapshot().entries())
-            .extracting(entry -> ((DiagnosticEvent) entry.event()).message())
+            .extracting(entry -> ((DiagnosticEvent) entry.event()).message().content())
             .containsExactly("first", "second");
         assertThatThrownBy(() -> earlier.entries().add(first))
             .isInstanceOf(UnsupportedOperationException.class);
@@ -124,7 +125,7 @@ class ScenarioJournalStorageTest {
         return new DiagnosticEvent(
             DiagnosticEvent.EnvironmentSubject.INSTANCE,
             LogLevel.INFO,
-            message
+            RedactedDiagnosticText.redact(message, input -> input)
         );
     }
 }

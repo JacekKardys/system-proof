@@ -1,7 +1,6 @@
 package io.github.jacekkardys.systemproof.testcontainers.component;
 
 import java.util.Objects;
-import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import io.github.jacekkardys.systemproof.driver.ComponentBoundDriver;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
@@ -10,9 +9,10 @@ import io.github.jacekkardys.systemproof.driver.DriverResourceKey;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
-import io.github.jacekkardys.systemproof.journal.LogLevel;
 
-/** Base driver that owns Testcontainers materialization while core owns lifecycle ordering. */
+/**
+ * Base driver that owns a restricted Testcontainers lifecycle; core owns lifecycle ordering.
+ */
 public abstract class TestcontainersDriver<
     C extends RuntimeConfig,
     O,
@@ -39,21 +39,15 @@ public abstract class TestcontainersDriver<
         );
         plan.validateFor(component);
         Network network = driverContext.sharedResource(NETWORK, Network::newNetwork);
-        GenericContainer<?> container = plan.container()
+        ManagedGenericContainer container = plan.container()
             .withNetwork(network)
             .withNetworkAliases(component.id().toString(), networkAlias(component))
-            .withExposedPorts(plan.exposedPorts())
-            .withLogConsumer(new ContainerLogConsumer(
-                driverContext,
-                component,
-                output -> sanitizeContainerOutput(typed, output)
-            ));
+            .withExposedPorts(plan.exposedPorts());
 
-        driverContext.log(component, LogLevel.INFO, "Starting container");
         try {
             container.start();
-            driverContext.log(component, LogLevel.INFO, "Container started");
             StartedContainer started = new StartedContainer(container, plan);
+            plan.awaitReadiness(started);
             O operations = createOperations(typed, started, driverContext);
             afterStart(typed, operations, started, driverContext);
 
@@ -64,11 +58,6 @@ public abstract class TestcontainersDriver<
             }
             return runtime.build();
         } catch (RuntimeException | Error failure) {
-            driverContext.log(
-                component,
-                LogLevel.ERROR,
-                "Container start failed: " + failure.getClass().getSimpleName() + messageSuffix(failure)
-            );
             if (container.isCreated()) {
                 try {
                     container.stop();
@@ -81,14 +70,6 @@ public abstract class TestcontainersDriver<
     }
 
     protected abstract ContainerPlan create(T component, DriverContext context);
-
-    /**
-     * Removes component-owned secrets from one container output frame before journaling.
-     * The default preserves the complete frame.
-     */
-    protected String sanitizeContainerOutput(T component, String output) {
-        return output;
-    }
 
     protected O createOperations(T component, StartedContainer container, DriverContext context) {
         return null;
@@ -115,9 +96,4 @@ public abstract class TestcontainersDriver<
         return componentType.cast(component);
     }
 
-    private static String messageSuffix(Throwable failure) {
-        return failure.getMessage() == null || failure.getMessage().isBlank()
-            ? ""
-            : " - " + failure.getMessage();
-    }
 }

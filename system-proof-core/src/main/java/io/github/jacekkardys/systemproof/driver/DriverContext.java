@@ -4,6 +4,7 @@ import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.topology.RequiredPort;
 
 /**
@@ -19,11 +20,11 @@ public interface DriverContext {
     <R extends AutoCloseable> R sharedResource(DriverResourceKey<R> key, Supplier<? extends R> factory);
 
     /**
-     * Appends journal-backed diagnostic text for this driver's own component.
+     * Appends explicitly sanitized, bounded diagnostic text for this driver's own component.
      *
      * @throws IllegalArgumentException if {@code component} is not the scoped driver component
      */
-    void log(Component component, LogLevel level, String message);
+    void log(Component component, LogLevel level, RedactedDiagnosticText message);
 
     /** Returns the restricted component contribution capability bound to this driver component. */
     JournalContributions journalContributions();

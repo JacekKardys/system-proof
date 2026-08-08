@@ -65,6 +65,14 @@ successor permit decisions, forwarded/write-failed/abandoned reports, cancellati
 required route or observation failure, and environment teardown. Holds and guards use the same
 coordinator monitor. Timestamps and scheduler arrival times do not resolve races.
 
+Required-observation failure also leaves a terminal, connection-scoped marker at this point. The
+coordinator records it before processing controls that already exist. `arm(...)` and `guard(...)`
+check the marker under the same monitor immediately before adding a new control. If failure enters
+first, a later registration is rejected even when its preceding outside-lock provider refresh had
+captured stale `ACTIVE`. If registration enters first, the failure callback sees and terminates that
+control according to the existing state machine. A later `ACTIVE` provider result cannot erase or
+bypass the marker, and failure of one `ConnectionId` does not poison another connection.
+
 The explicit guard states are `ARMED`, `PREDECESSOR_OBSERVED`, `PREDECESSOR_SATISFIED`,
 `SUCCESSOR_AUTHORIZED`, `SATISFIED`, `VIOLATED`, `CANCELLED`, `TIMED_OUT`, and `FAILED`.
 

@@ -8,7 +8,6 @@ import io.github.jacekkardys.systemproof.testcontainers.component.ContainerPlan;
 import io.github.jacekkardys.systemproof.testcontainers.component.PortBinding;
 import io.github.jacekkardys.systemproof.testcontainers.component.StartedContainer;
 import io.github.jacekkardys.systemproof.testcontainers.component.TestcontainersDriver;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 final class PostgresTestcontainersDriver
@@ -31,13 +30,12 @@ final class PostgresTestcontainersDriver
         PortBinding jdbcPort = port(configuration.jdbcPort());
         DockerImageName dockerImage = DockerImageName.parse(configuration.image())
             .asCompatibleSubstituteFor(configuration.compatibleImage());
-        var container = new PostgreSQLContainer<>(dockerImage)
-            .withDatabaseName(componentConfiguration.database())
-            .withUsername(componentConfiguration.username())
-            .withPassword(componentConfiguration.password().reveal())
-            .withStartupTimeout(configuration.startupTimeout());
-
-        return ContainerPlan.container(container)
+        return ContainerPlan.container(dockerImage)
+            .environment("POSTGRES_DB", componentConfiguration.database())
+            .environment("POSTGRES_USER", componentConfiguration.username())
+            .environment("POSTGRES_PASSWORD", componentConfiguration.password().reveal())
+            .waitForListeningPorts(jdbcPort)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.jdbc(),
                 jdbcPort,

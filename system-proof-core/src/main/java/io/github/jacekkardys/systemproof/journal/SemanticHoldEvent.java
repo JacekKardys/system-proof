@@ -56,4 +56,16 @@ public record SemanticHoldEvent(
             );
         }
     }
+
+    @Override
+    public String toString() {
+        return "SemanticHoldEvent[holdRef=opaque, state=" + state
+            + ", connectionId=" + connectionId
+            + ", direction=" + direction
+            + ", evidenceSchema=" + evidenceSchema.namespace() + ":"
+            + evidenceSchema.name() + ":v" + evidenceSchema.version()
+            + ", proofSubject=" + (proofSubject.isPresent() ? "assigned" : "unassigned")
+            + ", interactionPresent=" + interactionRef.isPresent()
+            + ", failure=" + failure.map(Enum::name).orElse("none") + "]";
+    }
 }

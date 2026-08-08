@@ -87,14 +87,32 @@ class TestcontainersPublicSurfaceTest {
         assertThat(externallyVisibleFields()).containsExactlyInAnyOrderElementsOf(PUBLIC_FIELDS);
         assertThat(methodNames(loadType("component.ContainerPlan")))
             .containsExactly("container");
+        assertThat(Arrays.stream(loadType("component.ContainerPlan").getDeclaredMethods())
+            .flatMap(method -> Arrays.stream(method.getParameterTypes()))
+            .map(Class::getName))
+            .noneMatch("org.testcontainers.containers.GenericContainer"::equals);
+        assertThat(Arrays.stream(loadType("component.ContainerPlan$Builder").getDeclaredConstructors())
+            .flatMap(constructor -> Arrays.stream(constructor.getParameterTypes()))
+            .map(Class::getName))
+            .noneMatch("org.testcontainers.containers.GenericContainer"::equals);
         assertThat(methodNames(loadType("component.ContainerPlan$Builder")))
-            .containsExactly("build", "provides");
+            .containsExactly(
+                "accessToHost",
+                "build",
+                "command",
+                "copyToContainer",
+                "environment",
+                "provides",
+                "readinessTimeout",
+                "waitForHttp",
+                "waitForListeningPorts"
+            )
+            .doesNotContain("waitingFor", "withLogConsumer");
         assertThat(methodNames(loadType("component.TestcontainersDriver")))
             .containsExactly(
                 "afterStart",
                 "create",
                 "createOperations",
-                "sanitizeContainerOutput",
                 "start"
             )
             .doesNotContain("networkAlias");

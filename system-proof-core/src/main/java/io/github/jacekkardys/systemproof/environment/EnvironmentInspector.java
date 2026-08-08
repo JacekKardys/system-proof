@@ -2,7 +2,6 @@ package io.github.jacekkardys.systemproof.environment;
 
 import java.util.List;
 import java.util.Objects;
-import io.github.jacekkardys.systemproof.diagnostics.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot;
 import io.github.jacekkardys.systemproof.topology.ConnectionId;
@@ -39,13 +38,17 @@ final class EnvironmentInspector {
         );
     }
 
-    EnvironmentDiagnostics diagnostics() {
-        return diagnostics.capture(
+    RuntimeDiagnostics.Snapshot diagnosticsSnapshot() {
+        return diagnostics.snapshot(
             lifecycle.state(),
             components.components(),
             components::state,
             connections.snapshots()
         );
+    }
+
+    EnvironmentDiagnostics renderDiagnostics(RuntimeDiagnostics.Snapshot snapshot) {
+        return diagnostics.render(snapshot);
     }
 
     ScenarioJournalSnapshot journalSnapshot() {

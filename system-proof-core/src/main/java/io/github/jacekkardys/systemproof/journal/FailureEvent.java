@@ -77,15 +77,17 @@ public sealed interface FailureEvent extends ScenarioEvent permits
         FailureDetails failure
     ) implements FailureEvent {
         public DriverResourceCleanup {
-            resourceName = requireText(resourceName, "resourceName");
+            resourceName = requireResourceName(resourceName);
             failure = Objects.requireNonNull(failure, "failure must not be null");
         }
     }
 
-    private static String requireText(String value, String description) {
-        Objects.requireNonNull(value, description + " must not be null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(description + " must not be blank");
+    private static String requireResourceName(String value) {
+        Objects.requireNonNull(value, "resourceName must not be null");
+        if (value.length() > 128 || !value.matches("[a-zA-Z0-9][a-zA-Z0-9._-]*")) {
+            throw new IllegalArgumentException(
+                "resourceName must be 1-128 ASCII identifier characters"
+            );
         }
         return value;
     }

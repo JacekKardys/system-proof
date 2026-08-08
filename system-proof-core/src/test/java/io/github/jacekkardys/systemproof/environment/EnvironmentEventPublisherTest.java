@@ -5,126 +5,112 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import io.github.jacekkardys.systemproof.component.Component;
+import io.github.jacekkardys.systemproof.component.ComponentId;
+import io.github.jacekkardys.systemproof.component.ComponentType;
+import io.github.jacekkardys.systemproof.configuration.RuntimeConfig;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
-import io.github.jacekkardys.systemproof.topology.ConnectionId;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
+import io.github.jacekkardys.systemproof.topology.PortRef;
 
 class EnvironmentEventPublisherTest {
+    private static final String SECRET = "publisher-canary-secret";
+    private static final Component COMPONENT = new TestComponent();
+
     @Test
-    void shouldAppendBeforeThresholdedSlf4jEmission() {
+    void shouldAppendSafeRenderingBeforeThresholdedSlf4jEmission() {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         List<String> emitted = new ArrayList<>();
         JournalSlf4jEmitter emitter = new JournalSlf4jEmitter(
-            EnvironmentLogging.logs().frameworkLevel(LogLevel.WARN).build(),
+            EnvironmentLogging.logs().defaultComponentLevel(LogLevel.WARN).build(),
             new JournalRenderer(),
             (level, line) -> {
                 assertThat(journal.snapshot().entries()).hasSize(2);
                 emitted.add(level + ":" + line);
             }
         );
-        EnvironmentEventPublisher publisher = publisher(journal, new FailureRedactor(), emitter);
+        EnvironmentEventPublisher publisher = new EnvironmentEventPublisher(journal, emitter);
 
-        publisher.framework(LogLevel.DEBUG, "retained below threshold");
-        publisher.framework(LogLevel.ERROR, "emitted after append");
+        publisher.component(
+            COMPONENT,
+            LogLevel.DEBUG,
+            redacted("retained " + SECRET)
+        );
+        publisher.component(
+            COMPONENT,
+            LogLevel.ERROR,
+            redacted("emitted " + SECRET)
+        );
 
         assertThat(journal.snapshot().entries()).hasSize(2);
         assertThat(journal.snapshot().entries())
-            .extracting(entry -> ((DiagnosticEvent) entry.event()).message())
-            .containsExactly("retained below threshold", "emitted after append");
+            .extracting(entry -> ((DiagnosticEvent) entry.event()).message().content())
+            .containsExactly("retained [redacted]", "emitted [redacted]");
         assertThat(emitted).singleElement().asString()
-            .contains("ERROR:T+00:00:00.000 [FRAMEWORK] [environment] emitted after append");
+            .contains("ERROR:T+00:00:00.000 [COMPONENT] [test] emitted [redacted]")
+            .doesNotContain(SECRET);
     }
 
     @Test
-    void shouldTreatOffAsEmissionOnlyAndNeverAsAHistoryFilter() {
+    void shouldRetainOnlyTypeFromFailureBeforeJournalAndSlf4jPublication() {
         ScenarioJournal journal = new ScenarioJournal(() -> 0L);
         List<String> emitted = new ArrayList<>();
-        JournalSlf4jEmitter emitter = new JournalSlf4jEmitter(
-            EnvironmentLogging.defaults(),
-            new JournalRenderer(),
-            (level, line) -> emitted.add(line)
-        );
-        EnvironmentEventPublisher publisher = publisher(journal, new FailureRedactor(), emitter);
-
-        publisher.framework(LogLevel.OFF, "stored only");
-
-        assertThat(journal.snapshot().entries()).hasSize(1);
-        assertThat(emitted).isEmpty();
-    }
-
-    @Test
-    void shouldRedactTheSameProtectedFailureBeforeAppending() {
-        ScenarioJournal journal = new ScenarioJournal(() -> 0L);
-        FailureRedactor redactor = new FailureRedactor();
-        EnvironmentEventPublisher publisher = publisher(
+        EnvironmentEventPublisher publisher = new EnvironmentEventPublisher(
             journal,
-            redactor,
             new JournalSlf4jEmitter(
-                EnvironmentLogging.logs().frameworkLevel(LogLevel.OFF).build(),
-                new JournalRenderer()
+                EnvironmentLogging.defaults(),
+                new JournalRenderer(),
+                (level, line) -> emitted.add(line)
             )
         );
-        RuntimeException failure = new RuntimeException(
-            "provider=https://secret.example:9443 token=top-secret"
-        );
-        ConnectionId connectionId = ConnectionId.of("client[].api->server[].api");
+        RuntimeException failure = new RuntimeException(SECRET);
+        failure.initCause(new IllegalStateException("cause-" + SECRET));
+        failure.addSuppressed(new IllegalArgumentException("suppressed-" + SECRET));
 
-        redactor.protectRoutePreparation(connectionId, failure);
         publisher.environmentStartupFailure(failure);
 
         FailureEvent.EnvironmentStartup stored = (FailureEvent.EnvironmentStartup)
             journal.snapshot().entries().getFirst().event();
-        assertThat(stored.failure().message())
-            .contains("Route preparation failed for connection 'client[].api->server[].api'");
-        assertThat(stored.failure().message().orElseThrow())
-            .doesNotContain("secret.example", "9443", "top-secret");
+        assertThat(stored.failure().failureType()).isEqualTo("RuntimeException");
+        assertThat(stored.toString()).doesNotContain(SECRET);
+        assertThat(emitted).singleElement().asString()
+            .contains("Environment startup failed: RuntimeException")
+            .doesNotContain(SECRET);
         assertThat(stored.failure().getClass().getDeclaredFields())
             .noneMatch(field -> Throwable.class.isAssignableFrom(field.getType()));
     }
 
-    @Test
-    void shouldUseIdentityRatherThanThrowableEqualityForProtection() {
-        FailureRedactor redactor = new FailureRedactor();
-        EqualFailure protectedFailure = new EqualFailure("sensitive endpoint");
-        EqualFailure equalButDistinct = new EqualFailure("sensitive endpoint");
-
-        redactor.protectRouteCleanup(
-            ConnectionId.of("client[].api->server[].api"),
-            protectedFailure
+    private static RedactedDiagnosticText redacted(String input) {
+        return RedactedDiagnosticText.redact(
+            input,
+            bounded -> bounded.replace(SECRET, "[redacted]")
         );
-
-        assertThat(redactor.details(protectedFailure).message())
-            .hasValueSatisfying(message -> assertThat(message)
-                .contains("Route cleanup failed"));
-        assertThat(redactor.details(equalButDistinct).message())
-            .hasValueSatisfying(message -> assertThat(message)
-                .contains("sensitive endpoint"));
     }
 
-    private static EnvironmentEventPublisher publisher(
-        ScenarioJournal journal,
-        FailureRedactor redactor,
-        JournalSlf4jEmitter emitter
-    ) {
-        return new EnvironmentEventPublisher(journal, redactor, emitter);
-    }
+    private record EmptyConfig() implements RuntimeConfig {}
 
-    private static final class EqualFailure extends RuntimeException {
-        private EqualFailure(String message) {
-            super(message);
+    private static final class TestComponent implements Component {
+        @Override
+        public ComponentId id() {
+            return ComponentId.component(ComponentType.of("test"));
         }
 
         @Override
-        public boolean equals(Object other) {
-            return other instanceof EqualFailure failure
-                && getMessage().equals(failure.getMessage());
+        public ComponentType type() {
+            return ComponentType.of("test");
         }
 
         @Override
-        public int hashCode() {
-            return getMessage().hashCode();
+        public RuntimeConfig configuration() {
+            return new EmptyConfig();
+        }
+
+        @Override
+        public List<PortRef> ports() {
+            return List.of();
         }
     }
 }

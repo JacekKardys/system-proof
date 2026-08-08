@@ -26,7 +26,7 @@ public record ConnectionDescriptor(
             sourceComponentId,
             "sourceComponentId must not be null"
         );
-        sourceRequiredPortName = requireText(
+        sourceRequiredPortName = requirePortName(
             sourceRequiredPortName,
             "sourceRequiredPortName"
         );
@@ -34,15 +34,15 @@ public record ConnectionDescriptor(
             targetComponentId,
             "targetComponentId must not be null"
         );
-        targetProvidedPortName = requireText(
+        targetProvidedPortName = requirePortName(
             targetProvidedPortName,
             "targetProvidedPortName"
         );
-        contractId = requireText(contractId, "contractId");
-        contractTypeName = requireText(contractTypeName, "contractTypeName");
-        interactionId = requireText(interactionId, "interactionId");
-        protocolId = requireText(protocolId, "protocolId");
-        protocolScheme = requireText(protocolScheme, "protocolScheme");
+        contractId = requireIdentifier(contractId, "contractId", 128);
+        contractTypeName = requireTypeName(contractTypeName);
+        interactionId = requireIdentifier(interactionId, "interactionId", 128);
+        protocolId = requireIdentifier(protocolId, "protocolId", 128);
+        protocolScheme = requireScheme(protocolScheme);
         ConnectionId expectedId = ConnectionId.between(
             sourceComponentId,
             sourceRequiredPortName,
@@ -110,10 +110,46 @@ public record ConnectionDescriptor(
         return ConnectionId.canonicalEndpoint(targetComponentId, targetProvidedPortName);
     }
 
-    private static String requireText(String value, String description) {
+    private static String requireIdentifier(String value, String description, int maximum) {
         Objects.requireNonNull(value, description + " must not be null");
-        if (value.isBlank()) {
-            throw new IllegalArgumentException(description + " must not be blank");
+        if (value.length() > maximum
+            || !value.matches("[a-zA-Z0-9][a-zA-Z0-9_.-]*")) {
+            throw new IllegalArgumentException(
+                description + " must be 1-" + maximum
+                    + " ASCII identifier characters"
+            );
+        }
+        return value;
+    }
+
+    private static String requirePortName(String value, String description) {
+        Objects.requireNonNull(value, description + " must not be null");
+        if (value.length() > 64 || value.isBlank()
+            || value.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException(
+                description + " must be 1-64 non-control characters"
+            );
+        }
+        return value;
+    }
+
+    private static String requireTypeName(String value) {
+        Objects.requireNonNull(value, "contractTypeName must not be null");
+        if (value.length() > 512 || !value.matches("[a-zA-Z0-9_.$;\\[\\]]+")) {
+            throw new IllegalArgumentException(
+                "contractTypeName must be 1-512 JVM type-name characters"
+            );
+        }
+        return value;
+    }
+
+    private static String requireScheme(String value) {
+        Objects.requireNonNull(value, "protocolScheme must not be null");
+        if (value.length() > 64
+            || !value.matches("[a-zA-Z][a-zA-Z0-9+.-]*(?::[a-zA-Z0-9][a-zA-Z0-9+.-]*)*")) {
+            throw new IllegalArgumentException(
+                "protocolScheme must be 1-64 ASCII scheme characters"
+            );
         }
         return value;
     }

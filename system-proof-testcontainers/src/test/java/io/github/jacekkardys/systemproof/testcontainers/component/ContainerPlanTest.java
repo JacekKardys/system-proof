@@ -9,7 +9,6 @@ import static io.github.jacekkardys.systemproof.testcontainers.component.PortBin
 
 import java.net.URI;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.GenericContainer;
 import io.github.jacekkardys.systemproof.driver.ComponentDriver;
 import io.github.jacekkardys.systemproof.driver.DriverContext;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
@@ -31,7 +30,8 @@ class ContainerPlanTest {
     @Test
     void shouldDescribeContainerPortAndPathForALogicalProvidedPort() {
         Server server = new Server();
-        ContainerPlan plan = ContainerPlan.container(new GenericContainer<>("alpine:3.20"))
+        ContainerPlan plan = ContainerPlan.container("alpine:3.20")
+            .waitForHttp(port(8080), "/api", 200)
             .provides(server.api, port(8080), "/api", address ->
                 new HttpEndpoint(URI.create(address.value())))
             .build();
@@ -42,7 +42,7 @@ class ContainerPlanTest {
     @Test
     void shouldRequireEveryProvidedPortInThePlan() {
         Server server = new Server();
-        ContainerPlan plan = ContainerPlan.container(new GenericContainer<>("alpine:3.20")).build();
+        ContainerPlan plan = ContainerPlan.container("alpine:3.20").build();
 
         assertThatThrownBy(() -> plan.validateFor(server))
             .hasMessageContaining("server", "server.api");
@@ -58,12 +58,12 @@ class ContainerPlanTest {
     @Test
     void shouldMaterializeInternalAndExternalAddressesWithoutChangingTheLogicalPort() {
         Server server = new Server();
-        AddressContainer container = new AddressContainer();
-        ContainerPlan plan = ContainerPlan.container(container)
+        ContainerPlan plan = ContainerPlan.container("alpine:3.20")
+            .waitForHttp(port(8080), "/api", 200)
             .provides(server.api, port(8080), "/api", address ->
                 new HttpEndpoint(URI.create(address.value())))
             .build();
-        StartedContainer started = new StartedContainer(container, plan);
+        StartedContainer started = started(plan);
 
         var binding = started.binding(server.api);
 
@@ -75,10 +75,12 @@ class ContainerPlanTest {
     @Test
     void shouldCreateDriverOperationsFromTheExternalRuntimeBinding() {
         Server server = new Server();
-        AddressContainer container = new AddressContainer();
         StartedContainer started = new StartedContainer(
-            container,
-            ContainerPlan.container(container)
+            () -> "localhost",
+            ignored -> 49152,
+            () -> true,
+            ContainerPlan.container("alpine:3.20")
+                .waitForHttp(port(8080), "/api", 200)
                 .provides(server.api, port(8080), "/api", address ->
                     new HttpEndpoint(URI.create(address.value())))
                 .build()
@@ -87,6 +89,58 @@ class ContainerPlanTest {
         URI operationsEndpoint = new ExternalOperationsDriver().operations(server, started);
 
         assertThat(operationsEndpoint).hasToString("http://localhost:49152/api");
+    }
+
+    @Test
+    void shouldRequireFrameworkOwnedReadinessForProvidedPorts() {
+        Server server = new Server();
+
+        assertThatThrownBy(() -> ContainerPlan.container("alpine:3.20")
+            .provides(server.api, port(8080), "/api", address ->
+                new HttpEndpoint(URI.create(address.value())))
+            .build())
+            .hasMessage("Container plan with provided ports must declare a readiness probe");
+    }
+
+    @Test
+    void shouldRejectReadinessForAnUndeclaredPort() {
+        Server server = new Server();
+
+        assertThatThrownBy(() -> ContainerPlan.container("alpine:3.20")
+            .waitForListeningPorts(port(8081))
+            .provides(server.api, port(8080), "/api", address ->
+                new HttpEndpoint(URI.create(address.value())))
+            .build())
+            .hasMessage("Readiness port is not declared as a provided endpoint: 8081");
+    }
+
+    @Test
+    void shouldRejectAStoppedContainerBeforeRunningReadinessProbes() {
+        Server server = new Server();
+        ContainerPlan plan = ContainerPlan.container("alpine:3.20")
+            .waitForHttp(port(8080), "/api", 200)
+            .provides(server.api, port(8080), "/api", address ->
+                new HttpEndpoint(URI.create(address.value())))
+            .build();
+        StartedContainer stopped = new StartedContainer(
+            () -> "localhost",
+            ignored -> 49152,
+            () -> false,
+            plan
+        );
+
+        assertThatThrownBy(() -> plan.awaitReadiness(stopped))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("Container readiness check failed");
+    }
+
+    private static StartedContainer started(ContainerPlan plan) {
+        return new StartedContainer(
+            () -> "localhost",
+            ignored -> 49152,
+            () -> true,
+            plan
+        );
     }
 
     private enum Invocation implements InteractionSpec {
@@ -139,15 +193,4 @@ class ContainerPlanTest {
         }
     }
 
-    private static final class AddressContainer extends GenericContainer<AddressContainer> {
-        @Override
-        public String getHost() {
-            return "localhost";
-        }
-
-        @Override
-        public Integer getMappedPort(int originalPort) {
-            return 49152;
-        }
-    }
 }

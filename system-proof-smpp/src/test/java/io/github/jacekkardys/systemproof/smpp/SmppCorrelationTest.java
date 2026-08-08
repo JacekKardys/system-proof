@@ -221,7 +221,7 @@ class SmppCorrelationTest {
                 new InteractionObservationEvent(reference, deliverSnapshot)
             )
         ));
-        String rendered = new JournalRenderer().render(journal).content();
+        String rendered = new JournalRenderer().render(journal);
 
         for (String secret : List.of(
             systemIdSecret,

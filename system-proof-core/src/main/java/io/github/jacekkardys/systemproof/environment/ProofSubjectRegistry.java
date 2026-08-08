@@ -92,7 +92,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
             if (bySchema == null) {
                 throw new IllegalArgumentException(
                     "Correlation key schema '" + key.schema()
-                        + "' is not armed for proof subject '" + subject + "'"
+                        + "' is not armed for the selected proof subject"
                 );
             }
             resolution = hasSharedOwnership(key)
@@ -202,7 +202,7 @@ final class ProofSubjectRegistry implements ProofSubjects {
         if (!state.resolutions.containsKey(key)) {
             throw new IllegalArgumentException(
                 "Correlation key schema '" + key.schema()
-                    + "' is not armed for proof subject '" + subject + "'"
+                    + "' is not armed for the selected proof subject"
             );
         }
     }

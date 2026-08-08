@@ -121,10 +121,10 @@ discriminator, SMS content, addresses, SQL or bind values, raw protocol bytes, d
 credentials.
 
 The pinned SMSCsim includes sender and recipient values in its ordinary container output. The
-examples-owned SMSC driver removes that suffix before output enters `DriverContext` and the
-environment journal. Sanitization therefore happens at the durable boundary, not only in the
-diagnostic renderer. A policy exception fails REQUIRED observation closed without publishing its
-message or source values.
+restricted `ContainerPlan` lifecycle does not subscribe to, retrieve, or contribute that output to
+`DriverContext`, the environment journal, or `environment.log`; there is no sanitized container-text
+path. External Docker troubleshooting remains outside the System Proof diagnostics boundary. A
+policy exception fails REQUIRED observation closed without publishing its message or source values.
 
 ## Consequences and limits
 

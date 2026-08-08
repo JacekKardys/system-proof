@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import io.github.jacekkardys.systemproof.externalevidence.MutableInteractionEvidence;
@@ -14,7 +15,6 @@ import io.github.jacekkardys.systemproof.journal.CheckpointEvent;
 import io.github.jacekkardys.systemproof.journal.CheckpointId;
 import io.github.jacekkardys.systemproof.journal.ComponentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.ConnectionLifecycleEvent;
-import io.github.jacekkardys.systemproof.journal.CorrelationCandidateEvent;
 import io.github.jacekkardys.systemproof.journal.DiagnosticEvent;
 import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
@@ -25,8 +25,7 @@ import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.JournalSequence;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
-import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
-import io.github.jacekkardys.systemproof.journal.ProofSubjectCreatedEvent;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.journal.ScenarioEvent;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.ComponentId;
@@ -41,10 +40,9 @@ import io.github.jacekkardys.systemproof.observation.EvidenceSnapshot;
 import io.github.jacekkardys.systemproof.observation.FlowDirection;
 import io.github.jacekkardys.systemproof.observation.InteractionRef;
 import io.github.jacekkardys.systemproof.observation.SessionId;
-import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
-import io.github.jacekkardys.systemproof.proof.CorrelationKey;
-import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
-import io.github.jacekkardys.systemproof.proof.ProofSubjectRef;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture.Behavior;
+import io.github.jacekkardys.systemproof.testsupport.OpaqueReferenceDiagnosticsFixture.Probe;
 
 class JournalRendererTest {
     private final JournalRenderer renderer = new JournalRenderer();
@@ -56,7 +54,7 @@ class JournalRendererTest {
             entry(2, Optional.empty(), diagnostic("without time"))
         ));
 
-        assertThat(renderer.render(snapshot).content()).isEqualTo(
+        assertThat(renderer.render(snapshot)).isEqualTo(
             "T+00:00:00.250 [FRAMEWORK] [environment] first"
                 + System.lineSeparator()
                 + "T+00:00:00.250 [FRAMEWORK] [environment] second"
@@ -67,7 +65,8 @@ class JournalRendererTest {
 
     @Test
     void shouldRenderAnUnknownOpenScenarioEventWithoutInspectingItsPayload() {
-        JournalEntry entry = entry(1, new ClientScenarioEvent("not-rendered"));
+        AtomicInteger toStringCalls = new AtomicInteger();
+        JournalEntry entry = entry(1, new ClientScenarioEvent("not-rendered", toStringCalls));
 
         assertThat(renderer.renderLines(entry))
             .singleElement()
@@ -75,6 +74,36 @@ class JournalRendererTest {
             .contains("[EVENT] [ClientScenarioEvent]")
             .contains("Recorded scenario event type=")
             .doesNotContain("not-rendered");
+        assertThat(entry.toString()).doesNotContain("not-rendered");
+        assertThat(toStringCalls).hasValue(0);
+    }
+
+    @Test
+    void shouldNeverInvokeOpaqueReferencesAcrossRenderersAndDiagnosticToStringPaths() {
+        String[] canaries = OpaqueReferenceDiagnosticsFixture.allCanaries()
+            .toArray(String[]::new);
+        for (Behavior behavior : Behavior.values()) {
+            Probe probe = new Probe(behavior);
+            List<ScenarioEvent> events = OpaqueReferenceDiagnosticsFixture.frameworkEvents(
+                probe
+            );
+            List<JournalEntry> entries = IntStream.range(0, events.size()).mapToObj(index -> entry(
+                index + 1L,
+                events.get(index)
+            )).toList();
+            List<String> outputs = new ArrayList<>();
+            for (JournalEntry entry : entries) {
+                outputs.addAll(renderer.renderLines(entry));
+                outputs.add(entry.toString());
+                outputs.add(entry.event().toString());
+            }
+            outputs.add(renderer.render(snapshot(entries)));
+
+            assertThat(outputs).allSatisfy(output -> assertThat(output)
+                .doesNotContain(canaries)
+                .doesNotContain("injected journal line"));
+            assertThat(probe.toStringCalls()).isZero();
+        }
     }
 
     @Test
@@ -86,12 +115,12 @@ class JournalRendererTest {
             entry(2, new DiagnosticEvent(
                 new DiagnosticEvent.ComponentSubject(first),
                 LogLevel.INFO,
-                "first output"
+                redacted("first output")
             )),
             entry(3, new DiagnosticEvent(
                 new DiagnosticEvent.ComponentSubject(second),
                 LogLevel.INFO,
-                "second output"
+                redacted("second output")
             )),
             entry(4, new CheckpointEvent(
                 second,
@@ -114,17 +143,8 @@ class JournalRendererTest {
         FailureDetails failure = FailureDetails.from(new IllegalStateException("broken"));
         EvidenceSnapshot evidence = evidence();
         InteractionRef interaction = interactionRef(connectionId);
-        ProofSubjectRef subject = new ProofSubjectRef() {
-            @Override
-            public String toString() {
-                return "proof-subject-1";
-            }
-        };
-        CorrelationKey key = CorrelationKey.ofDigest(
-            new CorrelationKeySchema("test", "request", 1),
-            new byte[16]
-        );
-        List<ScenarioEvent> events = List.of(
+        Probe probe = new Probe(Behavior.SECRET);
+        List<ScenarioEvent> events = new ArrayList<>(List.of(
             new EnvironmentLifecycleEvent(EnvironmentState.FAILED),
             new ComponentLifecycleEvent(component, ComponentState.FAILED),
             new ConnectionLifecycleEvent(
@@ -141,16 +161,10 @@ class JournalRendererTest {
             new FailureEvent.ConnectionMaterialization(connectionId, failure),
             new FailureEvent.ConnectionCleanup(connectionId, failure),
             new FailureEvent.DriverResourceCleanup("shared-resource", failure),
-            new InteractionObservationEvent(interaction, evidence),
-            new ProofSubjectCreatedEvent(subject),
-            new ProofSubjectArmedEvent(subject, key, false),
-            new CorrelationCandidateEvent(
-                Optional.of(subject),
-                key,
-                interaction,
-                evidence,
-                CorrelationCardinality.UNIQUE
-            ),
+            new InteractionObservationEvent(interaction, evidence)
+        ));
+        events.addAll(OpaqueReferenceDiagnosticsFixture.frameworkEvents(probe));
+        events.addAll(List.of(
             new CheckpointEvent(
                 component,
                 new CheckpointId("request-visible"),
@@ -162,36 +176,46 @@ class JournalRendererTest {
                 new DisruptionId("latency-window"),
                 DisruptionLifecycleEvent.Stage.ACTIVE
             )
-        );
+        ));
         ScenarioJournalSnapshot snapshot = snapshot(IntStream.range(0, events.size())
             .mapToObj(index -> entry(index + 1L, events.get(index)))
             .toList());
 
-        assertThat(renderer.render(snapshot).content())
+        assertThat(renderer.render(snapshot))
             .contains(
                 "Environment failed",
                 "Component failed",
                 "Consumer target available",
                 "diagnostic",
-                "Environment startup failed: IllegalStateException - broken",
-                "Component startup failed: IllegalStateException - broken",
-                "Component cleanup failed: IllegalStateException - broken",
-                "Connection materialization failed: IllegalStateException - broken",
-                "Connection cleanup failed: IllegalStateException - broken",
+                "Environment startup failed: IllegalStateException",
+                "Component startup failed: IllegalStateException",
+                "Component cleanup failed: IllegalStateException",
+                "Connection materialization failed: IllegalStateException",
+                "Connection cleanup failed: IllegalStateException",
                 "Driver resource 'shared-resource' cleanup failed",
                 "Observed typed evidence schema=test.external:interaction version=1",
                 "Created proof subject",
-                "Armed proof subject keySchema=test:request:v1 sharedKey=false",
-                "Published correlation candidate keySchema=test:request:v1",
+                "Armed proof subject keySchema=test:opaque-reference:v1 sharedKey=false",
+                "Published correlation candidate keySchema=test:opaque-reference:v1",
+                "Semantic hold state=REACHED_HELD",
+                "Semantic predecessor guard kind=STATE",
+                "Semantic predecessor guard kind=DECISION",
+                "Semantic predecessor guard kind=RELATION",
+                "Semantic predecessor guard kind=VIOLATION",
+                "Semantic predecessor guard kind=SUPPRESSED_FAILURE",
                 "Recorded barrier stage=OBSERVED",
-                "Recorded disruption stage=ACTIVE"
+                "Recorded disruption stage=ACTIVE",
+                "[PROOF-SUBJECT] [ref=opaque]",
+                "[SEMANTIC-HOLD] [ref=opaque]",
+                "[SEMANTIC-PREDECESSOR-GUARD] [ref=opaque] [subject=assigned]"
             )
             .doesNotContain("sensitive-binary", "secret-attribute", "[B@");
+        assertThat(probe.toStringCalls()).isZero();
     }
 
     @Test
     void shouldRenderLargeMultilineHistoryInExactStorageOrder() {
-        int entryCount = 4_000;
+        int entryCount = 1_000;
         List<JournalEntry> entries = IntStream.range(0, entryCount)
             .mapToObj(index -> entry(
                 index + 1L,
@@ -199,7 +223,7 @@ class JournalRendererTest {
             ))
             .toList();
 
-        String rendered = renderer.render(snapshot(entries)).content();
+        String rendered = renderer.render(snapshot(entries));
         List<String> lines = rendered.lines().toList();
 
         assertThat(lines).hasSize(entryCount * 2);
@@ -209,8 +233,21 @@ class JournalRendererTest {
         }
         assertThat(lines.getFirst()).endsWith("entry-0-first");
         assertThat(lines.get(1)).endsWith("entry-0-second");
-        assertThat(lines.get(lines.size() - 2)).endsWith("entry-3999-first");
-        assertThat(lines.getLast()).endsWith("entry-3999-second");
+        assertThat(lines.get(lines.size() - 2)).endsWith("entry-999-first");
+        assertThat(lines.getLast()).endsWith("entry-999-second");
+    }
+
+    @Test
+    void shouldBoundTheCompleteRenderedJournal() {
+        List<JournalEntry> entries = IntStream.range(0, 100)
+            .mapToObj(index -> entry(index + 1L, diagnostic("x".repeat(4 * 1024))))
+            .toList();
+
+        String rendered = renderer.render(snapshot(entries));
+
+        assertThat(rendered)
+            .hasSizeLessThanOrEqualTo(256 * 1024)
+            .endsWith("[DIAGNOSTICS TRUNCATED]");
     }
 
     private static ScenarioJournalSnapshot snapshot(List<JournalEntry> entries) {
@@ -233,8 +270,12 @@ class JournalRendererTest {
         return new DiagnosticEvent(
             DiagnosticEvent.EnvironmentSubject.INSTANCE,
             LogLevel.INFO,
-            message
+            redacted(message)
         );
+    }
+
+    private static RedactedDiagnosticText redacted(String message) {
+        return RedactedDiagnosticText.redact(message, input -> input);
     }
 
     private static ConnectionDescriptor connection() {
@@ -269,5 +310,19 @@ class JournalRendererTest {
         );
     }
 
-    private record ClientScenarioEvent(String payload) implements ScenarioEvent {}
+    private static final class ClientScenarioEvent implements ScenarioEvent {
+        private final String payload;
+        private final AtomicInteger toStringCalls;
+
+        private ClientScenarioEvent(String payload, AtomicInteger toStringCalls) {
+            this.payload = payload;
+            this.toStringCalls = toStringCalls;
+        }
+
+        @Override
+        public String toString() {
+            toStringCalls.incrementAndGet();
+            return payload;
+        }
+    }
 }

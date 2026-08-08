@@ -13,6 +13,7 @@ import io.github.jacekkardys.systemproof.journal.DisruptionId;
 import io.github.jacekkardys.systemproof.journal.DisruptionLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.EnvironmentLifecycleEvent;
 import io.github.jacekkardys.systemproof.journal.FailureEvent;
+import io.github.jacekkardys.systemproof.journal.FailureDetails;
 import io.github.jacekkardys.systemproof.journal.InteractionObservationEvent;
 import io.github.jacekkardys.systemproof.journal.JournalEntry;
 import io.github.jacekkardys.systemproof.journal.ProofSubjectArmedEvent;
@@ -24,6 +25,7 @@ import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.component.ComponentState;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
 import io.github.jacekkardys.systemproof.journal.LogLevel;
+import io.github.jacekkardys.systemproof.journal.RedactedDiagnosticText;
 import io.github.jacekkardys.systemproof.environment.state.ConnectionState;
 import io.github.jacekkardys.systemproof.environment.state.RoutingMode;
 import io.github.jacekkardys.systemproof.topology.ConnectionDescriptor;
@@ -49,7 +51,6 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 /** Builds and publishes framework-owned facts through the single environment journal. */
 final class EnvironmentEventPublisher {
     private final ScenarioJournal journal;
-    private final FailureRedactor failureRedactor;
     private final JournalSlf4jEmitter emitter;
 
     EnvironmentEventPublisher(
@@ -58,21 +59,15 @@ final class EnvironmentEventPublisher {
     ) {
         this(
             journal,
-            new FailureRedactor(),
             new JournalSlf4jEmitter(logging, new JournalRenderer())
         );
     }
 
     EnvironmentEventPublisher(
         ScenarioJournal journal,
-        FailureRedactor failureRedactor,
         JournalSlf4jEmitter emitter
     ) {
         this.journal = Objects.requireNonNull(journal, "journal must not be null");
-        this.failureRedactor = Objects.requireNonNull(
-            failureRedactor,
-            "failureRedactor must not be null"
-        );
         this.emitter = Objects.requireNonNull(emitter, "emitter must not be null");
     }
 
@@ -116,7 +111,7 @@ final class EnvironmentEventPublisher {
 
     void environmentStartupFailure(Throwable failure) {
         emitter.framework(
-            append(new FailureEvent.EnvironmentStartup(failureRedactor.details(failure))),
+            append(new FailureEvent.EnvironmentStartup(FailureDetails.from(failure))),
             LogLevel.ERROR
         );
     }
@@ -126,7 +121,7 @@ final class EnvironmentEventPublisher {
         emitter.component(
             append(new FailureEvent.ComponentStartup(
                 component.id(),
-                failureRedactor.details(failure)
+                FailureDetails.from(failure)
             )),
             component,
             LogLevel.ERROR
@@ -138,7 +133,7 @@ final class EnvironmentEventPublisher {
         emitter.component(
             append(new FailureEvent.ComponentCleanup(
                 component.id(),
-                failureRedactor.details(failure)
+                FailureDetails.from(failure)
             )),
             component,
             LogLevel.ERROR
@@ -150,7 +145,7 @@ final class EnvironmentEventPublisher {
         emitter.connection(
             append(new FailureEvent.ConnectionMaterialization(
                 connection.id(),
-                failureRedactor.details(failure)
+                FailureDetails.from(failure)
             )),
             connection,
             LogLevel.ERROR
@@ -162,7 +157,7 @@ final class EnvironmentEventPublisher {
         emitter.connection(
             append(new FailureEvent.ConnectionCleanup(
                 connection.id(),
-                failureRedactor.details(failure)
+                FailureDetails.from(failure)
             )),
             connection,
             LogLevel.ERROR
@@ -173,37 +168,17 @@ final class EnvironmentEventPublisher {
         emitter.framework(
             append(new FailureEvent.DriverResourceCleanup(
                 resourceName,
-                failureRedactor.details(failure)
+                FailureDetails.from(failure)
             )),
             LogLevel.ERROR
         );
     }
 
-    void framework(LogLevel level, String message) {
-        emitter.framework(
-            append(new DiagnosticEvent(
-                DiagnosticEvent.EnvironmentSubject.INSTANCE,
-                level,
-                message
-            )),
-            level
-        );
-    }
-
-    void connection(ConnectionRef connection, LogLevel level, String message) {
-        Objects.requireNonNull(connection, "connection must not be null");
-        emitter.connection(
-            append(new DiagnosticEvent(
-                new DiagnosticEvent.ConnectionSubject(connection.id()),
-                level,
-                message
-            )),
-            connection,
-            level
-        );
-    }
-
-    void component(Component component, LogLevel level, String message) {
+    void component(
+        Component component,
+        LogLevel level,
+        RedactedDiagnosticText message
+    ) {
         Objects.requireNonNull(component, "component must not be null");
         emitter.component(
             append(new DiagnosticEvent(
@@ -214,16 +189,6 @@ final class EnvironmentEventPublisher {
             component,
             level
         );
-    }
-
-    void protectRoutePreparationFailure(ConnectionRef connection, Throwable failure) {
-        Objects.requireNonNull(connection, "connection must not be null");
-        failureRedactor.protectRoutePreparation(connection.id(), failure);
-    }
-
-    void protectRouteCleanupFailure(ConnectionRef connection, Throwable failure) {
-        Objects.requireNonNull(connection, "connection must not be null");
-        failureRedactor.protectRouteCleanup(connection.id(), failure);
     }
 
     void interaction(

@@ -37,6 +37,7 @@ import io.github.jacekkardys.systemproof.environment.ConnectionRouting;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
 import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
 import io.github.jacekkardys.systemproof.environment.EnvironmentLoggingBuilder;
+import io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics;
 import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 import io.github.jacekkardys.systemproof.environment.RuntimeEndpointBindings;
 import io.github.jacekkardys.systemproof.diagnostics.JournalRenderer;
@@ -115,6 +116,8 @@ class CoreArchitectureTest {
         driver.DriverContext
         driver.DriverResourceKey
         driver.JournalContributions
+        journal.RedactedDiagnosticText
+        journal.RedactedDiagnosticText$Sanitizer
         environment.ConnectionObservations
         environment.ConnectionRoute
         environment.ConnectionRouteContext
@@ -140,13 +143,14 @@ class CoreArchitectureTest {
         control.SemanticPredecessorGuardRef
         control.SemanticPredecessorGuardState
         control.SemanticPredecessorViolation
-        diagnostics.EnvironmentDiagnostics
         endpoint.AmqpEndpoint
         endpoint.EndpointAddress
         endpoint.EndpointBinding
         endpoint.JdbcEndpoint
         endpoint.RedisEndpoint
         endpoint.SmppEndpoint
+        driver.DiagnosticSource$SafetyClassification
+        environment.EnvironmentDiagnostics
         environment.state.ConnectionState
         environment.state.EnvironmentState
         environment.state.RoutingMode
@@ -263,6 +267,9 @@ class CoreArchitectureTest {
         observation.RequiredObservationProfile$Feature#ENCRYPTED_TRANSPORT:observation.RequiredObservationProfile$Feature
         observation.RequiredObservationProfile$Feature#GENERAL_PIPELINING:observation.RequiredObservationProfile$Feature
         configuration.ConfigurationSource#UNSET:java.lang.String
+        driver.DiagnosticSource$SafetyClassification#OPT_IN_SENSITIVE:driver.DiagnosticSource$SafetyClassification
+        driver.DiagnosticSource$SafetyClassification#REDACTED_TEXT:driver.DiagnosticSource$SafetyClassification
+        driver.DiagnosticSource$SafetyClassification#UNSUPPORTED_FOR_EXPORT:driver.DiagnosticSource$SafetyClassification
         environment.state.ConnectionState#DECLARED:environment.state.ConnectionState
         environment.state.ConnectionState#FAILED:environment.state.ConnectionState
         environment.state.ConnectionState#RUNNING:environment.state.ConnectionState
@@ -333,7 +340,6 @@ class CoreArchitectureTest {
         diagnostics -> environment.state
         diagnostics -> journal
         diagnostics -> observation
-        diagnostics -> proof
         diagnostics -> topology
         driver -> component
         driver -> configuration
@@ -571,11 +577,19 @@ class CoreArchitectureTest {
         assertThat(externallyVisibleConstructors(EnvironmentLoggingBuilder.class)).hasSize(1);
         assertThat(methodKeys(JournalRenderer.class))
             .containsExactly(
-                "render(journal.ScenarioJournalSnapshot):diagnostics.EnvironmentDiagnostics",
+                "render(journal.ScenarioJournalSnapshot):java.lang.String",
                 "renderComponent(journal.ScenarioJournalSnapshot,component.ComponentId):java.lang.String",
                 "renderLines(journal.JournalEntry):java.util.List"
             );
         assertThat(externallyVisibleConstructors(JournalRenderer.class)).hasSize(1);
+        assertThat(methodKeys(EnvironmentDiagnostics.class))
+            .containsExactly(
+                "content():java.lang.String",
+                "equals(java.lang.Object):boolean",
+                "hashCode():int",
+                "toString():java.lang.String"
+            );
+        assertThat(externallyVisibleConstructors(EnvironmentDiagnostics.class)).isEmpty();
         assertThat(ScenarioEvent.class.isSealed()).isFalse();
         assertThat(externallyVisibleConstructors(ComponentLifecycleException.class)).isEmpty();
     }

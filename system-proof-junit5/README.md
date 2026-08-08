@@ -41,6 +41,17 @@ For each `@SystemProof` method, the System Proof JUnit extensions:
 5. captures retained diagnostics before cleanup when the test fails;
 6. closes it after success or failure and writes the captured failure artifact.
 
+The default artifact is
+`target/system-proof-artifacts/<scenario>/environment.log` (or the root selected by
+`system.proof.artifacts`). It contains only the bounded secret-safe-by-policy result from
+`Environment.diagnostics()`. The report entry publishes the stable value `environment.log`, not an
+arbitrary path. Capture or write failures remain suppressed against the primary failure and their
+report entry contains only a fixed operation plus failure type.
+
+The extension has no raw or sensitive attachment path. Suppliers classified as sensitive or
+unsupported are not invoked while generating JUnit reports or `environment.log`. See
+[`ADR 0010`](../docs/adr/0010-secret-safe-diagnostics.md).
+
 `@SystemProof` is a complete JUnit test-template declaration. It owns exactly one invocation and
 does not need `@Test`:
 

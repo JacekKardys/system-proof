@@ -68,7 +68,8 @@ class JasminCliClientTest {
             "smpp-password-" + secret,
             SmppBindMode.TRANSCEIVER,
             "admin",
-            "admin-password-" + secret
+            "admin-password-" + secret,
+            Duration.ofSeconds(60)
         );
 
         assertThat(bootstrap.diagnosticSummary())

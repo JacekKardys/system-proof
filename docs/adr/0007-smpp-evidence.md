@@ -206,7 +206,8 @@ target proof five times. Separate traffic proves same-fingerprint ambiguity does
 response. A throwing policy proves required observation fails closed without publishing delivery
 evidence, forwarding the rejected SMS into RAW/Outbox persistence, or exposing its secret message.
 
-The current `clean verify` suite contains 481 tests. Deterministic boundary coverage includes the
+At acceptance time, the repository `clean verify` suite contained 481 tests. That historical count
+is not a mutable contract. Deterministic boundary coverage includes the
 normative maximum, both uint32 high-bit boundaries, zero request/response failures on a REQUIRED
 route, exact exchange/evidence codec round trips, and mismatched high-bit responses. Remaining
 fail-closed exclusions include TLVs,

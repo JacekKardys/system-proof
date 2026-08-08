@@ -41,10 +41,10 @@ duplicate models. Java-public internal types may change at any time.
 | `component` | Component declarations, identities, and lifecycle values. |
 | `configuration` | Component and driver configuration contracts, providers, validation, and redacted secrets. |
 | `control` | Environment-scoped, protocol-neutral one-shot semantic traffic controls and their immutable state. |
-| `diagnostics` | Immutable rendered diagnostics and stateless journal rendering. |
+| `diagnostics` | Stateless bounded secret-safe journal rendering. |
 | `driver` | Supported component-driver extension SPI. |
 | `endpoint` | Immutable endpoint addresses, bindings, and protocol-specific endpoint values. |
-| `environment` | Environment facade, logging configuration, validated assembly, routing SPI, and package-private execution. |
+| `environment` | Environment facade and non-constructible safe diagnostics read model, logging configuration, validated assembly, routing SPI, and package-private execution. |
 | `environment.state` | Detached immutable environment and runtime-connection state. |
 | `journal` | Open event read contract, framework-owned fact vocabulary, immutable entries and snapshots; never storage. |
 | `observation` | Observation policy/status, interaction identity, evidence, and forwarding decisions. |
@@ -52,14 +52,14 @@ duplicate models. Java-public internal types may change at any time.
 | `topology` | Contracts, ports, protocol/interaction declarations, and logical connections. |
 | `junit.annotation` | Supported JUnit declaration annotations. |
 | `junit.internal` | Unsupported JUnit lifecycle implementation. |
-| `testcontainers.component` | Container-backed driver plans, runtime materialization, and internal container log capture. |
+| `testcontainers.component` | Restricted container specifications, enforced non-log startup/readiness, and runtime materialization. |
 | `testcontainers.gateway` | Protocol adapters and the observe-before-forward gateway. |
 | `postgresql` | Bounded PostgreSQL protocol observation, transaction evidence, write correlation, and durability checks. |
 | `http` | Bounded HTTP/1.1 callback framing, exchange evidence, acknowledgement classification, and request correlation. |
 
 Package-private types in `environment` own every mutable construction and execution concern:
 component state and handles, connection bindings and routes, proof-subject allocation, journal
-storage, redaction state, SLF4J emission, and cleanup accumulation. Public read models own none of
+storage, classified diagnostics, SLF4J emission, and cleanup accumulation. Public read models own none of
 those concerns.
 
 `EnvironmentTopology.of(...)` is the single owner of full structural topology validation. It first
@@ -157,7 +157,8 @@ whole.
 - Component/configuration declaration SPI: `AbstractComponent`, `RuntimeConfig`, `DriverConfig`,
   `ComponentConfig`, `ConfigurationProvider`.
 - Driver SPI: `ComponentDriver`, `ComponentBoundDriver`, `ComponentRuntime` and its `Builder`,
-  `DriverContext`, `DriverResourceKey`, `DiagnosticSource`, `JournalContributions`.
+  `DriverContext`, `DriverResourceKey`, `DiagnosticSource`, `JournalContributions`, and
+  `RedactedDiagnosticText` with its `Sanitizer`.
 - Routing/session SPI: `ConnectionObservations`, `ConnectionRoute`, `ConnectionRouteContext`,
   `ConnectionRouteProvider`, `CorrelationContribution`, `InteractionSession`,
   `ObservationStatusProvider`, `SemanticControlRouteCapability`.
@@ -166,6 +167,23 @@ whole.
 Route selection, preparation, consumer-target access, observation-status extraction, and route
 cleanup are not SPI. They remain package-private execution mechanics.
 
+Observation-status callbacks are evaluated only from detached probe batches after the
+`EnvironmentRuntime`, `RuntimeConnectionRegistry`, `RuntimeConnection`, capability-registry, and
+semantic-control-coordinator monitors are released. One environment-owned single-flight serializes
+dynamic batches. Its owner validates and atomically commits one complete cache; a concurrent
+ordinary read returns the preceding complete cache, while `SemanticControls.arm(...)` and
+`guard(...)` fail closed when they cannot own a fresh refresh. Startup commits before dependent
+consumers run, terminal failed/degraded cache states cannot reactivate, stopped-lifecycle batches
+are discarded, and replaced ownership is rejected, all without invoking the public SPI.
+
+The runtime single-flight is not the linearization point for asynchronous required-observation
+failure. `SemanticControlCoordinator` owns a terminal set of failed `ConnectionId` values.
+`observationFailed(...)` adds to that set before processing existing controls; `arm(...)` and
+`guard(...)` check it immediately before registration under the same coordinator monitor. This
+orders failure against registration in either direction without evaluating a provider, selector,
+codec, or other public callback as part of the marker operation. A stale provider result cannot
+remove the marker, and unrelated connections remain independent.
+
 ## Inspectable core read-only model whitelist
 
 - Component values: `ComponentId`, `ComponentType`, `ComponentState`.
@@ -173,7 +191,8 @@ cleanup are not SPI. They remain package-private execution mechanics.
   `RedisEndpoint`, `SmppEndpoint`.
 - Environment state: `EnvironmentState`, `ConnectionState`, `RoutingMode`,
   `RuntimeConnectionSnapshot`.
-- Diagnostics: `EnvironmentDiagnostics`.
+- Diagnostics: non-constructible `EnvironmentDiagnostics` and
+  `DiagnosticSource.SafetyClassification`.
 - Control: `SemanticHoldFailure`, `SemanticHoldRef`, `SemanticHoldState`,
   `SemanticPredecessorBoundary`, `SemanticPredecessorGuardFailure`,
   `SemanticPredecessorGuardRef`, `SemanticPredecessorGuardState`, and
@@ -208,7 +227,7 @@ Only these core types remain Java-public without compatibility support:
 | `ComponentRuntime.publishBindingsTo(...)` | Transfers already driver-owned bindings into the non-constructible environment boundary. | No environment/runtime lookup path is exposed. |
 
 `EnvironmentRuntime`, its factory, assembly, lifecycle, inspector, component supervisor, connection
-registry, proof registry, journal store, redactor, emitter, and failure accumulator are
+registry, proof registry, journal store, classified diagnostics capture, emitter, and failure accumulator are
 package-private. `EnvironmentTopology.runtimeComponents()` is package-private; public topology
 inspection returns only `List<Component>` and logical connections. `EnvironmentLogging` exposes
 only `logs()` and `defaults()` plus value methods; threshold lookup and `validateAgainst(...)` are
@@ -235,7 +254,7 @@ running-environment, metadata, and failure-adapter collaborators are package-pri
   `TcpEndpointAdapter.AddressReplacement`.
 - Inspectable read-only model: `ProtocolDecodeResult` and nested results,
   `ProtocolFailureKind`, `ProtocolLimits`, and `ProtocolUnit`.
-- Java-public internal exceptions: none. `ContainerLogConsumer`, plan inspection/validation, and
+- Java-public internal exceptions: none. Plan inspection/validation and
   `TestcontainersDriver.networkAlias(...)` are package-private implementation details.
 
 The Testcontainers surface depends on core contracts. Core and driver SPI never depend back on it.
@@ -289,19 +308,19 @@ named by the module whitelists above or by the Java-public internal table.
 | Configuration API and SPI | Scenario/environment sources / component and driver binders | Immutable snapshots; no resources | Provider/value semantics as documented | `Secret.toString()` is always redacted; no generated secret equality/toString | Configuration contract |
 | Configuration Java-public internals | Environment assembly / configuration implementation | Stateless | No public constructors | Error text names fields, not secret values | Binding or validation implementation |
 | Environment logging configuration | Scenario authors / environment publisher and SLF4J emitter | Immutable configuration; builder is mutable before `build()` | Value/configuration semantics | Threshold maps have no public accessors | Environment logging and membership policy |
-| Diagnostics rendering | Inspector / users and SLF4J emitter | Immutable rendered result; renderer is stateless | Read-result semantics | Rendering uses frozen redacted journal details; unknown event fallback renders only its type | Diagnostic presentation policy |
-| Driver SPI | Adapter authors / environment component supervisor | `ComponentRuntime` may own one closeable resource; environment closes it | Runtime and resource keys use identity where ownership requires it | Diagnostics are explicit suppliers; no endpoint rendering | Component runtime extension contract |
+| Diagnostics rendering | Inspector / users and SLF4J emitter | Immutable bounded environment result; renderer is stateless | Environment diagnostics has no public constructor or text factory | Typed safe facts, type-only failures, bounded redacted text; unknown event fallback renders only its type | Diagnostic presentation policy |
+| Driver SPI | Adapter authors / environment component supervisor | `ComponentRuntime` may own one closeable resource; environment closes it | Runtime and resource keys use identity where ownership requires it | Log text requires bounded redaction; suppliers are redacted, opt-in sensitive, or unsupported | Component runtime extension contract |
 | Endpoint values | Drivers / environment connection materialization | Immutable; no owned resources | Value equality | Passwords use `Secret`; endpoint values never appear in public runtime snapshots | Endpoint contract |
-| Environment API | Scenario authors / JUnit and examples | `Environment` owns exactly one execution; lifecycle methods are final | Facades use identity; topology snapshots use structural/value views | No provider endpoint lookup; exceptions use sanitized facts | Environment lifecycle or assembly contract |
+| Environment API | Scenario authors / JUnit and examples | `Environment` owns exactly one execution, one observation-refresh single-flight, and connection-scoped terminal observation-failure markers; lifecycle methods are final | Facades use identity; topology snapshots use structural/value views; concurrent ordinary reads may use the last complete cache; failure and control registration share the coordinator linearization point | Default diagnostics excludes raw/sensitive sources; exceptions render type-only facts; retained semantic controls require fresh fail-closed validation | Environment lifecycle or assembly contract |
 | Routing/session SPI | Gateway/Testcontainers / environment connection execution | Route resources are connection-owned and closed internally | Route/session objects use execution identity; contribution metadata is detached | No public consumer-target getter or raw evidence rendering | Routing or observation extension contract |
 | Environment state read models | Inspector / users, journal, diagnostics | Detached immutable; no resources or mutation | Value equality and defensive lists | Endpoint availability booleans only | Inspectable lifecycle state |
-| Journal vocabulary and read models | Environment publisher/store / inspector, renderer, users | Immutable; storage is separate and package-private | Value equality; snapshots defensively copy | Failures are redacted before append; evidence bytes are defensive copies | Auditable fact vocabulary |
+| Journal vocabulary and read models | Environment publisher/store / inspector, renderer, users | Immutable; storage is separate and package-private | Value equality; snapshots defensively copy | Failures are type-only; diagnostic text is bounded/redacted; evidence bytes are defensive copies | Auditable fact vocabulary |
 | Observation contracts | Gateway/codecs / journal, proof, environment | Immutable except execution-owned session implementation | Structural identities and defensive evidence values | Evidence `toString` never emits bytes | Observation policy, evidence, or forwarding semantics |
 | Proof contracts | Environment registry / scenario users and journal | Public facade exposes correlation, not allocation; registry is internal | Opaque subject identity; keys/results use value semantics | Digests/native references are not rendered as secrets | Proof-subject or correlation semantics |
 | Topology contracts | Scenario/environment assembly / drivers and execution | Immutable after validated assembly | Connections/components preserve declared identity; descriptors/IDs use value equality | No runtime endpoint values | Logical topology semantics |
 | JUnit annotations | Test authors / JUnit extensions | None | Annotation values | Metadata only | JUnit declaration contract |
-| JUnit internal extensions | `@ExtendWith`/JUnit reflection / JUnit callbacks | Per-test shared context and lifecycle only | Internal identity | Diagnostics use environment read models | JUnit lifecycle implementation |
-| Testcontainers API/SPI | Adapter authors and examples / environment routing and drivers | Container/route resources have explicit owners | Plans and protocol results use documented value/identity semantics | Gateway diagnostics exclude hosts, mapped ports, credentials, and raw frames | Container or protocol adapter contract |
+| JUnit internal extensions | `@ExtendWith`/JUnit reflection / JUnit callbacks | Per-test shared context and lifecycle only | Internal identity | Only the bounded safe artifact is written; no raw attachment path | JUnit lifecycle implementation |
+| Testcontainers API/SPI | Adapter authors and examples / environment routing and drivers | System Proof creates and owns the restricted container lifecycle; route resources have explicit owners | Plans and protocol results use documented value/identity semantics; arbitrary `GenericContainer` instances are rejected by construction | Container logging, full-log retrieval, log consumers, and log-based waits are unavailable; driver-authored journal text still requires bounded redaction | Container or protocol adapter contract |
 
 ## Event and sealed hierarchy evolution
 

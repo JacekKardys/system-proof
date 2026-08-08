@@ -20,8 +20,6 @@ import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 import io.github.jacekkardys.systemproof.environment.EnvironmentLogging;
@@ -253,7 +251,7 @@ class InteractionGatewayIT {
         if (providerDriver.container().isRunning()) {
             List.of(PROVIDER_HTTP_PORT, PROVIDER_SMPP_PORT)
                 .stream()
-                .map(providerDriver.container()::getMappedPort)
+                .map(providerDriver.container()::mappedPort)
                 .forEach(port ->
                     assertThat(diagnostics).doesNotContain(Integer.toString(port))
                 );
@@ -359,7 +357,7 @@ class InteractionGatewayIT {
     private static final class ProviderDriver
         extends TestcontainersDriver<EmptyConfig, Void, ProviderComponent> {
 
-        private GenericContainer<?> container;
+        private StartedContainer container;
 
         private ProviderDriver() {
             super(ProviderComponent.class);
@@ -370,19 +368,18 @@ class InteractionGatewayIT {
             ProviderComponent component,
             DriverContext context
         ) {
-            container = new GenericContainer<>(DockerImageName.parse(PYTHON_IMAGE))
-                .withCopyToContainer(
+            return ContainerPlan.container(DockerImageName.parse(PYTHON_IMAGE))
+                .copyToContainer(
                     MountableFile.forClasspathResource("gateway/provider.py"),
                     "/system-proof/provider.py"
                 )
-                .withEnv("HTTP_PORT", Integer.toString(PROVIDER_HTTP_PORT))
-                .withEnv("SESSION_PORT", Integer.toString(PROVIDER_SMPP_PORT))
-                .withCommand("python", "/system-proof/provider.py")
-                .waitingFor(Wait.forListeningPorts(
-                    PROVIDER_HTTP_PORT,
-                    PROVIDER_SMPP_PORT
-                ));
-            return ContainerPlan.container(container)
+                .environment("HTTP_PORT", Integer.toString(PROVIDER_HTTP_PORT))
+                .environment("SESSION_PORT", Integer.toString(PROVIDER_SMPP_PORT))
+                .command("python", "/system-proof/provider.py")
+                .waitForListeningPorts(
+                    port(PROVIDER_HTTP_PORT),
+                    port(PROVIDER_SMPP_PORT)
+                )
                 .provides(
                     component.http,
                     port(PROVIDER_HTTP_PORT),
@@ -401,7 +398,17 @@ class InteractionGatewayIT {
                 .build();
         }
 
-        private GenericContainer<?> container() {
+        @Override
+        protected void afterStart(
+            ProviderComponent component,
+            Void operations,
+            StartedContainer container,
+            DriverContext context
+        ) {
+            this.container = container;
+        }
+
+        private StartedContainer container() {
             return container;
         }
     }
@@ -413,7 +420,7 @@ class InteractionGatewayIT {
             ConsumerComponent
         > {
 
-        private GenericContainer<?> container;
+        private StartedContainer container;
 
         private ConsumerDriver() {
             super(ConsumerComponent.class);
@@ -426,21 +433,20 @@ class InteractionGatewayIT {
         ) {
             EndpointAddress http = context.resolve(component.http);
             SmppEndpoint smpp = context.resolve(component.smpp);
-            container = new GenericContainer<>(DockerImageName.parse(PYTHON_IMAGE))
-                .withAccessToHost(true)
-                .withCopyToContainer(
+            return ContainerPlan.container(DockerImageName.parse(PYTHON_IMAGE))
+                .accessToHost(true)
+                .copyToContainer(
                     MountableFile.forClasspathResource("gateway/consumer.py"),
                     "/system-proof/consumer.py"
                 )
-                .withEnv("CONTROL_PORT", Integer.toString(CONSUMER_CONTROL_PORT))
-                .withEnv("ROUTED_HTTP_HOST", http.host())
-                .withEnv("ROUTED_HTTP_PORT", Integer.toString(http.port()))
-                .withEnv("ROUTED_HTTP_PATH", http.path())
-                .withEnv("ROUTED_SMPP_HOST", smpp.host())
-                .withEnv("ROUTED_SMPP_PORT", Integer.toString(smpp.port()))
-                .withCommand("python", "/system-proof/consumer.py")
-                .waitingFor(Wait.forListeningPort());
-            return ContainerPlan.container(container)
+                .environment("CONTROL_PORT", Integer.toString(CONSUMER_CONTROL_PORT))
+                .environment("ROUTED_HTTP_HOST", http.host())
+                .environment("ROUTED_HTTP_PORT", Integer.toString(http.port()))
+                .environment("ROUTED_HTTP_PATH", http.path())
+                .environment("ROUTED_SMPP_HOST", smpp.host())
+                .environment("ROUTED_SMPP_PORT", Integer.toString(smpp.port()))
+                .command("python", "/system-proof/consumer.py")
+                .waitForListeningPorts(port(CONSUMER_CONTROL_PORT))
                 .provides(
                     component.control,
                     port(CONSUMER_CONTROL_PORT),
@@ -460,7 +466,17 @@ class InteractionGatewayIT {
             );
         }
 
-        private GenericContainer<?> container() {
+        @Override
+        protected void afterStart(
+            ConsumerComponent component,
+            GatewayProofClient operations,
+            StartedContainer container,
+            DriverContext context
+        ) {
+            this.container = container;
+        }
+
+        private StartedContainer container() {
             return container;
         }
     }

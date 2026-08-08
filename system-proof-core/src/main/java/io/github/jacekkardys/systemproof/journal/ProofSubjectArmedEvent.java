@@ -22,4 +22,10 @@ public record ProofSubjectArmedEvent(
         );
         key = Objects.requireNonNull(key, "key must not be null");
     }
+
+    @Override
+    public String toString() {
+        return "ProofSubjectArmedEvent[proofSubject=opaque, keySchema="
+            + key.schema() + ", sharedKey=" + sharedKey + "]";
+    }
 }

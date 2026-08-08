@@ -31,6 +31,8 @@ import io.github.jacekkardys.systemproof.environment.EnvironmentTopology;
 
 class SystemProofExtensionsTest {
     private static final String ARTIFACTS_DIRECTORY_PROPERTY = "system.proof.artifacts";
+    private static final String CONTAINER_STDOUT_CANARY = "container-stdout-canary";
+    private static final String CONTAINER_STDERR_CANARY = "container-stderr-canary";
 
     @Test
     void shouldCreateStartInjectAndCloseTheExactEnvironmentForEveryTest() {
@@ -103,10 +105,11 @@ class SystemProofExtensionsTest {
             )).contains(
                 "[STATE] component=cleanup type=cleanup state=FAILED",
                 "[COMPONENT] [cleanup] Component cleanup failed",
-                "cleanup exploded",
+                "IllegalStateException",
                 "[FRAMEWORK] [environment] Environment failed",
                 "[FRAMEWORK] [environment] Environment stopped"
-            );
+            )
+            .doesNotContain("cleanup exploded");
         } finally {
             if (previous == null) {
                 System.clearProperty(property);
@@ -126,6 +129,31 @@ class SystemProofExtensionsTest {
 
         execution.testEvents().assertStatistics(statistics -> statistics.started(1).failed(1));
         assertThat(Recording.diagnosticsFailureCloses).hasValue(1);
+    }
+
+    @Test
+    void shouldNeverCaptureSensitiveSourcesInFailureArtifacts(@TempDir Path artifacts)
+        throws IOException {
+        String previousArtifacts = System.getProperty(ARTIFACTS_DIRECTORY_PROPERTY);
+        System.setProperty(ARTIFACTS_DIRECTORY_PROPERTY, artifacts.toString());
+        Recording.sensitiveCaptures.set(0);
+
+        try {
+            val execution = EngineTestKit.engine("junit-jupiter")
+                .selectors(selectClass(SensitiveDiagnosticsScenario.class))
+                .execute();
+
+            execution.testEvents().assertStatistics(statistics -> statistics.started(1).failed(1));
+            Path scenario = artifacts.resolve("SensitiveDiagnosticsScenario-fails");
+            assertThat(Files.readString(scenario.resolve("environment.log")))
+                .contains("sanitized container diagnostics")
+                .doesNotContain(CONTAINER_STDOUT_CANARY, CONTAINER_STDERR_CANARY);
+            assertThat(scenario.resolve("SENSITIVE-NOT-SECRET-SAFE")).doesNotExist();
+            assertThat(Recording.sensitiveCaptures).hasValue(0);
+            assertReportEntriesContainNoCanaries(execution);
+        } finally {
+            restoreProperty(ARTIFACTS_DIRECTORY_PROPERTY, previousArtifacts);
+        }
     }
 
     @Test
@@ -248,6 +276,14 @@ class SystemProofExtensionsTest {
         }
     }
 
+    static class SensitiveDiagnosticsScenario {
+        @SystemProof(SensitiveDiagnosticsEnvironment.class)
+        void fails(SensitiveDiagnosticsEnvironment environment) {
+            assertThat(environment.isRunning()).isTrue();
+            throw new IllegalStateException("scenario failure");
+        }
+    }
+
     static class LifecycleInjectionScenario {
         @BeforeEach
         void setUp(RecordingEnvironment environment) {
@@ -338,6 +374,22 @@ class SystemProofExtensionsTest {
         }
     }
 
+    private static final class SensitiveDiagnosticsEnvironment extends Environment {
+        private SensitiveDiagnosticsEnvironment(
+            EnvironmentTopology topology,
+            EnvironmentLogging logging
+        ) {
+            super(topology, logging);
+        }
+
+        @EnvironmentDefinition
+        private static SensitiveDiagnosticsEnvironment define() {
+            return new EnvironmentBuilder()
+                .components(new SensitiveDiagnosticsComponent())
+                .build(SensitiveDiagnosticsEnvironment::new);
+        }
+    }
+
     private static class BaseEnvironment extends Environment {
         private BaseEnvironment(EnvironmentTopology topology, EnvironmentLogging logging) {
             super(topology, logging);
@@ -370,14 +422,15 @@ class SystemProofExtensionsTest {
                 (component, context) -> {
                     Recording.starts.incrementAndGet();
                     return ComponentRuntime.<Void>runtime(Recording.closes::incrementAndGet)
-                        .diagnostics(new DiagnosticSource(
+                        .diagnostics(DiagnosticSource.redacted(
                             "runtime-state",
                             () -> {
                                 Recording.diagnosticsCaptures.incrementAndGet();
                                 return Recording.closes.get() == 0
                                     ? "runtime-before-close"
                                     : "runtime-after-close";
-                            }
+                            },
+                            input -> input
                         ))
                         .build();
                 }
@@ -414,10 +467,41 @@ class SystemProofExtensionsTest {
                 Void.class,
                 (component, context) -> ComponentRuntime
                     .<Void>runtime(Recording.diagnosticsFailureCloses::incrementAndGet)
-                    .diagnostics(new DiagnosticSource(
+                    .diagnostics(DiagnosticSource.redacted(
                         "broken-diagnostics",
                         () -> {
                             throw new AssertionError("diagnostics exploded");
+                        },
+                        input -> input
+                    ))
+                    .build()
+            );
+        }
+    }
+
+    private static final class SensitiveDiagnosticsComponent
+        extends AbstractComponent<EmptyConfig, Void> {
+        private static final ComponentType TYPE = ComponentType.of("sensitive-diagnostics");
+
+        private SensitiveDiagnosticsComponent() {
+            super(
+                ComponentId.component(TYPE),
+                new EmptyConfig(),
+                Void.class,
+                (component, context) -> ComponentRuntime.<Void>runtime()
+                    .diagnostics(DiagnosticSource.redacted(
+                        "container-safe-output",
+                        () -> CONTAINER_STDOUT_CANARY + System.lineSeparator()
+                            + CONTAINER_STDERR_CANARY,
+                        ignored -> "sanitized container diagnostics"
+                    ))
+                    .diagnostics(DiagnosticSource.sensitive(
+                        "container-raw-output",
+                        () -> {
+                            Recording.sensitiveCaptures.incrementAndGet();
+                            return "stdout=" + CONTAINER_STDOUT_CANARY
+                                + System.lineSeparator()
+                                + "stderr=" + CONTAINER_STDERR_CANARY;
                         }
                     ))
                     .build()
@@ -431,6 +515,7 @@ class SystemProofExtensionsTest {
         private static final AtomicInteger closes = new AtomicInteger();
         private static final AtomicInteger diagnosticsCaptures = new AtomicInteger();
         private static final AtomicInteger diagnosticsFailureCloses = new AtomicInteger();
+        private static final AtomicInteger sensitiveCaptures = new AtomicInteger();
         private static final AtomicInteger mismatchedLifecycleInvocations = new AtomicInteger();
         private static final AtomicReference<RecordingEnvironment> current = new AtomicReference<>();
         private static final AtomicReference<RecordingEnvironment> beforeEachEnvironment =
@@ -455,11 +540,29 @@ class SystemProofExtensionsTest {
             closes.set(0);
             diagnosticsCaptures.set(0);
             diagnosticsFailureCloses.set(0);
+            sensitiveCaptures.set(0);
             mismatchedLifecycleInvocations.set(0);
             current.set(null);
             beforeEachEnvironment.set(null);
             testEnvironment.set(null);
             afterEachEnvironment.set(null);
+        }
+    }
+
+    private static void assertReportEntriesContainNoCanaries(
+        org.junit.platform.testkit.engine.EngineExecutionResults execution
+    ) {
+        assertThat(execution.allEvents().reportingEntryPublished().list())
+            .allSatisfy(event -> assertThat(event.getRequiredPayload(ReportEntry.class)
+                .getKeyValuePairs().toString())
+                .doesNotContain(CONTAINER_STDOUT_CANARY, CONTAINER_STDERR_CANARY));
+    }
+
+    private static void restoreProperty(String name, String previous) {
+        if (previous == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, previous);
         }
     }
 }

@@ -451,6 +451,12 @@ class ConnectionRoutingTest {
             connection.acquireRoute(directTarget);
         RuntimeConnection.PreparedTargets<C> prepared = connection.validateRoute(ownership);
         connection.bindTargets(connection.prepareInstallation(prepared));
+        RuntimeConnection.ObservationProbe probe = connection.startupObservationProbe();
+        if (probe != null) {
+            RuntimeConnection.ObservationResult result = probe.evaluate();
+            connection.validateStartupObservationResult(result);
+            connection.applyStartupObservationResult(result);
+        }
         return connection;
     }
 

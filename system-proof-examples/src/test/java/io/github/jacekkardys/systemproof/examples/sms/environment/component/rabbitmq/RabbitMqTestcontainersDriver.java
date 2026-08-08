@@ -3,8 +3,6 @@ package io.github.jacekkardys.systemproof.examples.sms.environment.component.rab
 import static io.github.jacekkardys.systemproof.testcontainers.component.PortBinding.port;
 
 import lombok.NonNull;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.examples.sms.environment.component.rabbitmq.RabbitMqConfig.Driver;
 import io.github.jacekkardys.systemproof.endpoint.AmqpEndpoint;
@@ -26,12 +24,18 @@ public final class RabbitMqTestcontainersDriver
     protected ContainerPlan create(RabbitMqComponent component, DriverContext context) {
         RabbitMqConfig componentConfiguration = component.configuration();
         PortBinding amqpPort = port(configuration.amqpPort());
-        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse(configuration.image()))
-            .withEnv(configuration.usernameVariable(), componentConfiguration.username())
-            .withEnv(configuration.passwordVariable(), componentConfiguration.password().reveal())
-            .withEnv(configuration.virtualHostVariable(), componentConfiguration.virtualHost())
-            .waitingFor(Wait.forListeningPort().withStartupTimeout(configuration.startupTimeout()));
-        return ContainerPlan.container(container)
+        return ContainerPlan.container(DockerImageName.parse(configuration.image()))
+            .environment(configuration.usernameVariable(), componentConfiguration.username())
+            .environment(
+                configuration.passwordVariable(),
+                componentConfiguration.password().reveal()
+            )
+            .environment(
+                configuration.virtualHostVariable(),
+                componentConfiguration.virtualHost()
+            )
+            .waitForListeningPorts(amqpPort)
+            .readinessTimeout(configuration.startupTimeout())
             .provides(
                 component.amqp(),
                 amqpPort,

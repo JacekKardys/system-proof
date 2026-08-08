@@ -3,7 +3,10 @@ package io.github.jacekkardys.systemproof.testcontainers.component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import org.testcontainers.containers.GenericContainer;
+import java.time.Duration;
+import java.util.concurrent.Future;
+import org.testcontainers.images.builder.Transferable;
+import org.testcontainers.utility.DockerImageName;
 import io.github.jacekkardys.systemproof.driver.ComponentRuntime;
 import io.github.jacekkardys.systemproof.component.Component;
 import io.github.jacekkardys.systemproof.endpoint.EndpointAddress;
@@ -11,21 +14,31 @@ import io.github.jacekkardys.systemproof.endpoint.EndpointBinding;
 import io.github.jacekkardys.systemproof.topology.PortDirection;
 import io.github.jacekkardys.systemproof.topology.ProvidedPort;
 
-/** A prepared container and typed publishers for its logical provided ports. */
+/** A restricted System Proof-owned container specification and its typed provided ports. */
 public final class ContainerPlan {
-    private final GenericContainer<?> container;
+    private final ManagedGenericContainer container;
     private final List<DeclaredEndpoint> endpoints;
+    private final ContainerReadiness readiness;
 
     private ContainerPlan(Builder builder) {
         container = builder.container;
         endpoints = List.copyOf(builder.endpoints);
+        readiness = new ContainerReadiness(builder.readiness, builder.readinessTimeout);
     }
 
-    public static Builder container(GenericContainer<?> container) {
-        return new Builder(container);
+    public static Builder container(DockerImageName image) {
+        return new Builder(image);
     }
 
-    GenericContainer<?> container() {
+    public static Builder container(String image) {
+        return container(DockerImageName.parse(image));
+    }
+
+    public static Builder container(Future<String> image) {
+        return new Builder(image);
+    }
+
+    ManagedGenericContainer container() {
         return container;
     }
 
@@ -38,6 +51,10 @@ public final class ContainerPlan {
             .map(DeclaredEndpoint::containerPort)
             .distinct()
             .toArray(Integer[]::new);
+    }
+
+    void awaitReadiness(StartedContainer started) {
+        readiness.await(started);
     }
 
     void validateFor(Component component) {
@@ -90,11 +107,78 @@ public final class ContainerPlan {
     }
 
     public static final class Builder {
-        private final GenericContainer<?> container;
+        private final ManagedGenericContainer container;
         private final List<DeclaredEndpoint> endpoints = new ArrayList<>();
+        private final List<ContainerReadiness.Probe> readiness = new ArrayList<>();
+        private Duration readinessTimeout = ContainerReadiness.defaultTimeout();
 
-        private Builder(GenericContainer<?> container) {
-            this.container = Objects.requireNonNull(container, "container must not be null");
+        private Builder(DockerImageName image) {
+            container = new ManagedGenericContainer(
+                Objects.requireNonNull(image, "container image must not be null")
+            );
+        }
+
+        private Builder(Future<String> image) {
+            container = new ManagedGenericContainer(
+                Objects.requireNonNull(image, "container image must not be null")
+            );
+        }
+
+        public Builder environment(String name, String value) {
+            container.withEnv(
+                Objects.requireNonNull(name, "environment name must not be null"),
+                Objects.requireNonNull(value, "environment value must not be null")
+            );
+            return this;
+        }
+
+        public Builder command(String... command) {
+            container.withCommand(Objects.requireNonNull(command, "command must not be null"));
+            return this;
+        }
+
+        public Builder copyToContainer(Transferable file, String containerPath) {
+            container.withCopyToContainer(
+                Objects.requireNonNull(file, "container file must not be null"),
+                Objects.requireNonNull(containerPath, "container path must not be null")
+            );
+            return this;
+        }
+
+        public Builder accessToHost(boolean enabled) {
+            container.withAccessToHost(enabled);
+            return this;
+        }
+
+        public Builder waitForListeningPorts(PortBinding... ports) {
+            Objects.requireNonNull(ports, "readiness ports must not be null");
+            for (PortBinding port : ports) {
+                readiness.add(new ContainerReadiness.TcpProbe(
+                    Objects.requireNonNull(port, "readiness port must not be null").port()
+                ));
+            }
+            return this;
+        }
+
+        public Builder waitForHttp(
+            PortBinding port,
+            String path,
+            int expectedStatus
+        ) {
+            readiness.add(new ContainerReadiness.HttpProbe(
+                Objects.requireNonNull(port, "readiness port must not be null").port(),
+                path,
+                expectedStatus
+            ));
+            return this;
+        }
+
+        public Builder readinessTimeout(Duration timeout) {
+            readinessTimeout = Objects.requireNonNull(
+                timeout,
+                "readiness timeout must not be null"
+            );
+            return this;
         }
 
         public Builder provides(ProvidedPort<EndpointAddress> port, PortBinding binding) {
@@ -139,6 +223,21 @@ public final class ContainerPlan {
         }
 
         public ContainerPlan build() {
+            if (!endpoints.isEmpty() && readiness.isEmpty()) {
+                throw new IllegalStateException(
+                    "Container plan with provided ports must declare a readiness probe"
+                );
+            }
+            readiness.stream()
+                .map(ContainerReadiness.Probe::port)
+                .filter(port -> endpoints.stream()
+                    .noneMatch(endpoint -> endpoint.containerPort() == port))
+                .findFirst()
+                .ifPresent(port -> {
+                    throw new IllegalStateException(
+                        "Readiness port is not declared as a provided endpoint: " + port
+                    );
+                });
             return new ContainerPlan(this);
         }
     }
