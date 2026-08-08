@@ -246,11 +246,14 @@ detached immutable snapshots with semantic metadata, lifecycle state, routing mo
 availability.
 
 An `ObservationStatusProvider` is sampled after its route is committed but before a dependent
-consumer starts. Dynamic refresh uses a separate capture/evaluate/commit cycle: the runtime first
-captures stable route handles, releases the `EnvironmentRuntime`, registry, and connection
-monitors, invokes each provider, then atomically validates and publishes the cached statuses.
-Diagnostics and runtime-connection read models use that framework-owned cache. Cleanup never calls
-the provider under a lifecycle lock.
+consumer starts. Dynamic status uses one environment-owned single-flight refresh. Its owner captures
+stable route handles, releases the `EnvironmentRuntime`, connection and capability registries,
+runtime connections, and semantic-control coordinator monitors, invokes each provider, then
+atomically validates and publishes the cached statuses. A concurrent diagnostics or
+runtime-connection read does not start another provider; it returns the last complete cached
+snapshot. Cleanup never calls the provider, and a late result for a stopped or replaced route is
+discarded. `FAILED` and `DEGRADED` cache states are terminal and cannot be reactivated by a later
+`ACTIVE` sample.
 
 `DIRECT` makes the consumer target the direct provider binding and creates no routing resource.
 `ROUTED` invokes a typed `ConnectionRouteProvider<C>` independently for every matching connection.
@@ -369,9 +372,13 @@ adapter, and the forwarding-permit handshake. The protocol-aware `InteractionGat
 overloads declare that capability. The selector's evidence schema and optional native-flow schema
 must also equal the active required profile for that exact connection. Direct, disabled, optional,
 transparent/unsupported, profile-less, and legacy custom providers are rejected before a hold is
-created. Pre-start arming validates the declaration;
-startup then requires the route to materialize the capability with `ACTIVE` observation, and later
-route failure prevents new holds from being armed.
+created. Pre-start arming validates the declaration; startup then samples exactly once and requires
+the route to materialize the capability with `ACTIVE` observation before a dependent component
+starts. A retained `SemanticControls` facade performs a new single-flight refresh immediately before
+every running-environment `arm(...)` or `guard(...)`. If another refresh is already in progress, the
+control operation fails closed instead of trusting an older `ACTIVE` cache. Refresh and control
+registration are committed in that order under the runtime boundary, so a later route failure
+prevents new holds and guards from being armed.
 
 The lifecycle is `ARMED -> REACHED_HELD -> RELEASING -> FORWARDED`, with `CANCELLED`, `TIMED_OUT`,
 and `FAILED` terminal alternatives. The hold duration begins at `REACHED_HELD`. Cancel, timeout, or

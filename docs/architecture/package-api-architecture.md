@@ -168,10 +168,13 @@ Route selection, preparation, consumer-target access, observation-status extract
 cleanup are not SPI. They remain package-private execution mechanics.
 
 Observation-status callbacks are evaluated only from detached probe batches after the
-`EnvironmentRuntime`, `RuntimeConnectionRegistry`, and `RuntimeConnection` monitors are released.
-Startup results are validated and committed before dependent consumers run; later inspection
-refreshes are atomically committed to a framework-owned cache. Snapshot rendering and cleanup read
-that cache and never call the public SPI while holding a lifecycle monitor.
+`EnvironmentRuntime`, `RuntimeConnectionRegistry`, `RuntimeConnection`, capability-registry, and
+semantic-control-coordinator monitors are released. One environment-owned single-flight serializes
+dynamic batches. Its owner validates and atomically commits one complete cache; a concurrent
+ordinary read returns the preceding complete cache, while `SemanticControls.arm(...)` and
+`guard(...)` fail closed when they cannot own a fresh refresh. Startup commits before dependent
+consumers run, terminal failed/degraded cache states cannot reactivate, stopped-lifecycle batches
+are discarded, and replaced ownership is rejected, all without invoking the public SPI.
 
 ## Inspectable core read-only model whitelist
 
@@ -300,7 +303,7 @@ named by the module whitelists above or by the Java-public internal table.
 | Diagnostics rendering | Inspector / users and SLF4J emitter | Immutable bounded environment result; renderer is stateless | Environment diagnostics has no public constructor or text factory | Typed safe facts, type-only failures, bounded redacted text; unknown event fallback renders only its type | Diagnostic presentation policy |
 | Driver SPI | Adapter authors / environment component supervisor | `ComponentRuntime` may own one closeable resource; environment closes it | Runtime and resource keys use identity where ownership requires it | Log text requires bounded redaction; suppliers are redacted, opt-in sensitive, or unsupported | Component runtime extension contract |
 | Endpoint values | Drivers / environment connection materialization | Immutable; no owned resources | Value equality | Passwords use `Secret`; endpoint values never appear in public runtime snapshots | Endpoint contract |
-| Environment API | Scenario authors / JUnit and examples | `Environment` owns exactly one execution; lifecycle methods are final | Facades use identity; topology snapshots use structural/value views | Default diagnostics excludes raw/sensitive sources; exceptions render type-only facts | Environment lifecycle or assembly contract |
+| Environment API | Scenario authors / JUnit and examples | `Environment` owns exactly one execution and one observation-refresh single-flight; lifecycle methods are final | Facades use identity; topology snapshots use structural/value views; concurrent ordinary reads may use the last complete cache | Default diagnostics excludes raw/sensitive sources; exceptions render type-only facts; retained semantic controls require fresh fail-closed validation | Environment lifecycle or assembly contract |
 | Routing/session SPI | Gateway/Testcontainers / environment connection execution | Route resources are connection-owned and closed internally | Route/session objects use execution identity; contribution metadata is detached | No public consumer-target getter or raw evidence rendering | Routing or observation extension contract |
 | Environment state read models | Inspector / users, journal, diagnostics | Detached immutable; no resources or mutation | Value equality and defensive lists | Endpoint availability booleans only | Inspectable lifecycle state |
 | Journal vocabulary and read models | Environment publisher/store / inspector, renderer, users | Immutable; storage is separate and package-private | Value equality; snapshots defensively copy | Failures are type-only; diagnostic text is bounded/redacted; evidence bytes are defensive copies | Auditable fact vocabulary |

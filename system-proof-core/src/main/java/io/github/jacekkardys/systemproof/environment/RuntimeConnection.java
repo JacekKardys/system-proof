@@ -452,7 +452,10 @@ final class RuntimeConnection<C> {
 
     synchronized void applyObservationRefresh(ObservationResult result) {
         validateObservationRefresh(result);
-        observationStatus = result.status();
+        if (observationStatus != EffectiveObservationStatus.FAILED
+            && observationStatus != EffectiveObservationStatus.DEGRADED) {
+            observationStatus = result.status();
+        }
     }
 
     private void validateObservationStatus(EffectiveObservationStatus effectiveStatus) {

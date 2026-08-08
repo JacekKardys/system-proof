@@ -112,7 +112,7 @@ one-shot release use the generic forwarding-permit boundary described above. TLS
 fault mutation, cross-connection causal proof, and the final verdict remain outside this module. One
 gateway can serve different contract types concurrently without a gateway registry or global
 protocol selector. Consumer containers that resolve a routed endpoint must enable Testcontainers
-host access with `withAccessToHost(true)`.
+host access with `accessToHost(true)`.
 
 The executable Docker proof and supported host-routing contract are recorded in
 [`docs/adr/0002-test-jvm-interaction-gateway.md`](../docs/adr/0002-test-jvm-interaction-gateway.md).

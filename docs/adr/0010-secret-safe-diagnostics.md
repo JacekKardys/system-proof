@@ -42,12 +42,22 @@ snapshots, journal snapshot, and eligible diagnostic-source list. It then releas
 invokes eligible suppliers at most once, and renders the detached snapshot. Sensitive and
 unsupported suppliers are never invoked by framework capture.
 
-For a running environment, dynamic `ObservationStatusProvider` refresh is a preceding two-phase
-operation. The runtime captures stable route probes under its monitors, releases the environment,
-registry, and connection monitors, evaluates providers, and atomically commits the detached
-results only if the lifecycle is still `RUNNING`. The diagnostics base snapshot then reads the
-framework-owned cached statuses. Startup uses the same outside-lock evaluation before dependent
-consumers start. Cleanup never evaluates an observation provider.
+For a running environment, dynamic `ObservationStatusProvider` refresh is a single-flight,
+two-phase operation. The runtime captures stable route probes under its monitors, releases the
+environment, registry, connection, capability-registry, and semantic-control-coordinator monitors,
+evaluates providers, and atomically commits the detached results only if the lifecycle is still
+`RUNNING` and route ownership is unchanged. A concurrent ordinary diagnostics or connection read
+returns the last complete cache without starting or waiting for a second provider. A late result
+after close is discarded, and cached `FAILED` or `DEGRADED` status is never reactivated by a later
+`ACTIVE` sample.
+
+`SemanticControls` is a retained runtime-aware facade. Pre-start `arm(...)` and `guard(...)` retain
+their declaration-only validation. Once running, each operation must own a fresh single-flight
+refresh before atomically delegating to the coordinator. If another refresh is in progress, the
+operation fails closed rather than using cached `ACTIVE`. Startup samples once outside the locks and
+commits `RUNNING` before a dependent consumer starts. Cleanup never evaluates an observation
+provider. The diagnostics base snapshot and concurrent ordinary reads use only the last complete
+framework-owned cache; they do not promise that every read starts a fresh sample.
 
 ## Allowed and prohibited data
 
