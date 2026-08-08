@@ -121,6 +121,29 @@ public record SemanticPredecessorGuardEvent(
                     );
                 }
             }
+            case TERMINAL -> {
+                if (state == SemanticPredecessorGuardState.SATISFIED) {
+                    if (predecessor.isEmpty() || successor.isEmpty()
+                        || decision.isPresent() || violation.isPresent()
+                        || failure.isPresent()) {
+                        throw new IllegalArgumentException(
+                            "A satisfied terminal guard fact requires the exact predecessor and successor"
+                        );
+                    }
+                } else if (state == SemanticPredecessorGuardState.VIOLATED) {
+                    if (successor.isEmpty()
+                        || decision.filter(ForwardingDecision.CLOSE_SESSION::equals).isEmpty()
+                        || violation.isEmpty() || failure.isPresent()) {
+                        throw new IllegalArgumentException(
+                            "A violated terminal guard fact requires the rejected exact successor"
+                        );
+                    }
+                } else {
+                    throw new IllegalArgumentException(
+                        "A terminal guard fact is supported only for SATISFIED or VIOLATED state"
+                    );
+                }
+            }
         }
     }
 
@@ -129,6 +152,7 @@ public record SemanticPredecessorGuardEvent(
         DECISION,
         RELATION,
         VIOLATION,
-        SUPPRESSED_FAILURE
+        SUPPRESSED_FAILURE,
+        TERMINAL
     }
 }

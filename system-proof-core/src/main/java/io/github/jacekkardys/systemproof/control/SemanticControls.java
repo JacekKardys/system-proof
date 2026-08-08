@@ -4,6 +4,15 @@ import java.time.Duration;
 
 /** Environment-scoped facade for one-shot semantic traffic controls. */
 public interface SemanticControls {
+    /** Declares one hold for later all-or-nothing proof-plan activation. */
+    <T> SemanticHold declareHold(
+        SemanticInteractionSelector<T> selector,
+        Duration maximumHoldDuration
+    );
+
+    /** Declares one predecessor guard for later all-or-nothing proof-plan activation. */
+    SemanticPredecessorGuard declareGuard(SemanticPredecessorGuardSpec specification);
+
     /**
      * Arms one selector before its stimulus.
      *
