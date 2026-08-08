@@ -7,8 +7,9 @@
  * {@link io.github.jacekkardys.systemproof.environment.EnvironmentDiagnostics} is created only by
  * an environment and is the bounded secret-safe-by-policy default report. Raw and sensitive
  * capture is unsupported.
- * Package-private types own all mutable construction, lifecycle, component, connection, proof,
- * journal, classified diagnostics, logging-emission, and cleanup state.
+ * Package-private types own all mutable construction, lifecycle, component, connection, proof
+ * execution/current-state evaluation, journal, classified diagnostics, logging-emission, and
+ * cleanup state. The proof current-state index is not a second event history.
  *
  * <p>Environment execution depends on stable component, configuration, diagnostics, endpoint,
  * journal, observation, proof, and topology contracts. Those contracts never depend back on the

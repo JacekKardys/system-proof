@@ -17,6 +17,11 @@ import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuard;
 import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuardSpec;
+import io.github.jacekkardys.systemproof.proof.ProofExecution;
+import io.github.jacekkardys.systemproof.proof.ProofPlan;
+import io.github.jacekkardys.systemproof.proof.ProofPrerequisite;
+import io.github.jacekkardys.systemproof.proof.ProofPrerequisiteStatus;
+import io.github.jacekkardys.systemproof.proof.Proofs;
 
 /** Thread-safe internal facade over one environment execution. */
 final class EnvironmentRuntime {
@@ -24,7 +29,9 @@ final class EnvironmentRuntime {
     private final ComponentRuntimeSupervisor components;
     private final EnvironmentInspector inspector;
     private final SemanticControlCoordinator controlCoordinator;
+    private final ProofExecutionCoordinator proofCoordinator;
     private final SemanticControls controls;
+    private final Proofs proofs;
     private boolean observationRefreshInProgress;
 
     private EnvironmentRuntime(EnvironmentRuntimeFactory.Assembly assembly) {
@@ -32,7 +39,9 @@ final class EnvironmentRuntime {
         this.components = assembly.components();
         this.inspector = assembly.inspector();
         controlCoordinator = assembly.controls();
+        proofCoordinator = assembly.proofs();
         controls = new RuntimeAwareSemanticControls();
+        proofs = new RuntimeAwareProofs();
     }
 
     static EnvironmentRuntime of(
@@ -125,6 +134,10 @@ final class EnvironmentRuntime {
         return inspector.proofSubjects();
     }
 
+    Proofs proofs() {
+        return proofs;
+    }
+
     SemanticControls controls() {
         return controls;
     }
@@ -213,6 +226,21 @@ final class EnvironmentRuntime {
 
     private final class RuntimeAwareSemanticControls implements SemanticControls {
         @Override
+        public <T> SemanticHold declareHold(
+            SemanticInteractionSelector<T> selector,
+            Duration maximumHoldDuration
+        ) {
+            return controlCoordinator.declareHold(selector, maximumHoldDuration);
+        }
+
+        @Override
+        public SemanticPredecessorGuard declareGuard(
+            SemanticPredecessorGuardSpec specification
+        ) {
+            return controlCoordinator.declareGuard(specification);
+        }
+
+        @Override
         public <T> SemanticHold arm(
             SemanticInteractionSelector<T> selector,
             Duration maximumHoldDuration
@@ -227,6 +255,65 @@ final class EnvironmentRuntime {
             SemanticPredecessorGuardSpec specification
         ) {
             return registerSemanticControl(() -> controlCoordinator.guard(specification));
+        }
+    }
+
+    private final class RuntimeAwareProofs implements Proofs {
+        @Override
+        public ProofPrerequisite satisfiedPrerequisite() {
+            return proofCoordinator.prerequisite(ProofPrerequisiteStatus.SATISFIED, null);
+        }
+
+        @Override
+        public ProofPrerequisite unsupportedPrerequisite() {
+            return proofCoordinator.prerequisite(ProofPrerequisiteStatus.UNSUPPORTED, null);
+        }
+
+        @Override
+        public ProofPrerequisite failedPrerequisite(Throwable failure) {
+            return proofCoordinator.prerequisite(
+                ProofPrerequisiteStatus.FAILED,
+                java.util.Objects.requireNonNull(failure, "failure must not be null")
+            );
+        }
+
+        @Override
+        public ProofExecution activate(ProofPlan plan) {
+            return proofCoordinator.activate(plan, EnvironmentRuntime.this::refreshForProof);
+        }
+    }
+
+    private void refreshForProof() {
+        RuntimeConnectionRegistry.ObservationBatch batch;
+        synchronized (this) {
+            if (execution.state() != EnvironmentState.RUNNING) {
+                throw new IllegalStateException(
+                    "Proof activation requires a RUNNING environment"
+                );
+            }
+            if (observationRefreshInProgress) {
+                throw new IllegalStateException(
+                    "Fresh observation status is unavailable while a refresh is in progress"
+                );
+            }
+            batch = execution.observationRefreshBatch();
+            observationRefreshInProgress = true;
+        }
+        try {
+            RuntimeConnectionRegistry.ObservationResults results = batch.evaluate();
+            synchronized (this) {
+                if (execution.state() != EnvironmentState.RUNNING) {
+                    throw new IllegalStateException(
+                        "Fresh observation status is unavailable because the environment "
+                            + "is not running"
+                    );
+                }
+                execution.applyObservationRefresh(results);
+            }
+        } finally {
+            synchronized (this) {
+                observationRefreshInProgress = false;
+            }
         }
     }
 }

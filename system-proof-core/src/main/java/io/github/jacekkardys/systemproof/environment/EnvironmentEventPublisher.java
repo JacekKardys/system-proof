@@ -52,6 +52,7 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 final class EnvironmentEventPublisher {
     private final ScenarioJournal journal;
     private final JournalSlf4jEmitter emitter;
+    private final ProofFactObserver proofFacts;
 
     EnvironmentEventPublisher(
         ScenarioJournal journal,
@@ -59,7 +60,8 @@ final class EnvironmentEventPublisher {
     ) {
         this(
             journal,
-            new JournalSlf4jEmitter(logging, new JournalRenderer())
+            new JournalSlf4jEmitter(logging, new JournalRenderer()),
+            ProofFactObserver.NONE
         );
     }
 
@@ -67,8 +69,17 @@ final class EnvironmentEventPublisher {
         ScenarioJournal journal,
         JournalSlf4jEmitter emitter
     ) {
+        this(journal, emitter, ProofFactObserver.NONE);
+    }
+
+    EnvironmentEventPublisher(
+        ScenarioJournal journal,
+        JournalSlf4jEmitter emitter,
+        ProofFactObserver proofFacts
+    ) {
         this.journal = Objects.requireNonNull(journal, "journal must not be null");
         this.emitter = Objects.requireNonNull(emitter, "emitter must not be null");
+        this.proofFacts = Objects.requireNonNull(proofFacts, "proofFacts must not be null");
     }
 
     void environmentLifecycle(EnvironmentState state) {
@@ -344,6 +355,14 @@ final class EnvironmentEventPublisher {
     }
 
     private JournalEntry append(ScenarioEvent event) {
-        return journal.append(event);
+        JournalEntry entry;
+        try {
+            entry = journal.append(event);
+        } catch (RuntimeException | Error failure) {
+            proofFacts.journalFailure(failure);
+            throw failure;
+        }
+        proofFacts.fact(event);
+        return entry;
     }
 }
