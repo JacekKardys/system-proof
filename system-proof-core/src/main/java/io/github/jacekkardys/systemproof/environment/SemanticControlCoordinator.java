@@ -17,6 +17,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.control.SemanticControls;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
@@ -214,11 +216,27 @@ final class SemanticControlCoordinator
         List<SemanticPredecessorGuardRef> guardRefs,
         Runnable activationBoundary
     ) {
+        Objects.requireNonNull(activationBoundary, "activationBoundary must not be null");
+        activatePreparedControls(
+            holdRefs,
+            guardRefs,
+            () -> {
+                activationBoundary.run();
+                return ignored -> true;
+            }
+        );
+    }
+
+    void activatePreparedControls(
+        List<SemanticHoldRef> holdRefs,
+        List<SemanticPredecessorGuardRef> guardRefs,
+        Supplier<Predicate<InteractionRef>> evidenceWindowBoundary
+    ) {
         holdRefs = List.copyOf(Objects.requireNonNull(holdRefs, "holdRefs must not be null"));
         guardRefs = List.copyOf(Objects.requireNonNull(guardRefs, "guardRefs must not be null"));
-        activationBoundary = Objects.requireNonNull(
-            activationBoundary,
-            "activationBoundary must not be null"
+        evidenceWindowBoundary = Objects.requireNonNull(
+            evidenceWindowBoundary,
+            "evidenceWindowBoundary must not be null"
         );
         List<Runnable> afterTransition = new ArrayList<>();
         Throwable activationFailure = null;
@@ -256,7 +274,12 @@ final class SemanticControlCoordinator
                         "Prepared controls did not remain ARMED at the activation boundary"
                     );
                 }
-                activationBoundary.run();
+                Predicate<InteractionRef> evidenceWindow = Objects.requireNonNull(
+                    evidenceWindowBoundary.get(),
+                    "evidenceWindowBoundary must return a membership predicate"
+                );
+                activatedHolds.forEach(entry -> entry.evidenceWindow = evidenceWindow);
+                activatedGuards.forEach(entry -> entry.evidenceWindow = evidenceWindow);
             } catch (RuntimeException | Error failure) {
                 for (HoldEntry entry : activatedHolds) {
                     if (entry.state == SemanticHoldState.ARMED) {
@@ -294,33 +317,55 @@ final class SemanticControlCoordinator
         List<SemanticHoldRef> holdRefs,
         List<SemanticPredecessorGuardRef> guardRefs
     ) {
+        PreparedControlCancellation cancellation = cancelPreparedControlsInternally(
+            holdRefs,
+            guardRefs
+        );
+        proofObservations.finalizePending();
+        cancellation.deliver();
+        cancellation.rethrowFirstFailure();
+    }
+
+    PreparedControlCancellation cancelPreparedControlsInternally(
+        List<SemanticHoldRef> holdRefs,
+        List<SemanticPredecessorGuardRef> guardRefs
+    ) {
         List<Runnable> afterTransition = new ArrayList<>();
+        List<Throwable> failures = new ArrayList<>();
         synchronized (this) {
             for (HoldEntry entry : distinctHolds(holdRefs)) {
                 if (entry.state == SemanticHoldState.DECLARED
                     || entry.state == SemanticHoldState.ARMED
                     || entry.state == SemanticHoldState.REACHED_HELD) {
-                    terminalHoldLocked(
-                        entry,
-                        SemanticHoldState.CANCELLED,
-                        Optional.empty(),
-                        afterTransition
-                    );
+                    try {
+                        terminalHoldLocked(
+                            entry,
+                            SemanticHoldState.CANCELLED,
+                            Optional.empty(),
+                            afterTransition
+                        );
+                    } catch (RuntimeException | Error failure) {
+                        failures.add(failure);
+                    }
                 }
             }
             for (GuardEntry entry : distinctGuards(guardRefs)) {
                 if (entry.state == SemanticPredecessorGuardState.DECLARED
                     || guardIsActiveForFailureOrTeardown(entry.state)) {
-                    terminalGuardLocked(
-                        entry,
-                        SemanticPredecessorGuardState.CANCELLED,
-                        Optional.empty(),
-                        afterTransition
-                    );
+                    try {
+                        terminalGuardLocked(
+                            entry,
+                            SemanticPredecessorGuardState.CANCELLED,
+                            Optional.empty(),
+                            afterTransition
+                        );
+                    } catch (RuntimeException | Error failure) {
+                        failures.add(failure);
+                    }
                 }
             }
         }
-        runAfterTransition(afterTransition);
+        return new PreparedControlCancellation(afterTransition, failures);
     }
 
     synchronized HoldDeclaration holdDeclaration(SemanticHoldRef ref) {
@@ -478,6 +523,9 @@ final class SemanticControlCoordinator
             if (entry.state != SemanticPredecessorGuardState.ARMED) {
                 continue;
             }
+            if (!entry.evidenceWindow.test(interaction.interactionRef())) {
+                continue;
+            }
             SelectorSelection selection;
             try {
                 selection = select(entry.predecessorSelector, interaction);
@@ -520,6 +568,9 @@ final class SemanticControlCoordinator
         boolean close = false;
         for (GuardEntry entry : guards.values()) {
             if (!guardEnforcesLaterTarget(entry)) {
+                continue;
+            }
+            if (!entry.evidenceWindow.test(interaction.interactionRef())) {
                 continue;
             }
             SelectorSelection selection;
@@ -580,6 +631,9 @@ final class SemanticControlCoordinator
         List<HoldSelection> matches = new ArrayList<>();
         for (HoldEntry entry : activeHolds.values()) {
             if (entry.state != SemanticHoldState.ARMED) {
+                continue;
+            }
+            if (!entry.evidenceWindow.test(interaction.interactionRef())) {
                 continue;
             }
             SelectorSelection selection;
@@ -1393,6 +1447,37 @@ final class SemanticControlCoordinator
         }
     }
 
+    record PreparedControlCancellation(
+        List<Runnable> notifications,
+        List<Throwable> failures
+    ) {
+        PreparedControlCancellation {
+            notifications = List.copyOf(Objects.requireNonNull(
+                notifications,
+                "notifications must not be null"
+            ));
+            failures = List.copyOf(Objects.requireNonNull(
+                failures,
+                "failures must not be null"
+            ));
+        }
+
+        void deliver() {
+            notifications.forEach(Runnable::run);
+        }
+
+        private void rethrowFirstFailure() {
+            if (failures.isEmpty()) {
+                return;
+            }
+            Throwable failure = failures.getFirst();
+            if (failure instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) failure;
+        }
+    }
+
     interface TimeoutScheduler extends AutoCloseable {
         TimeoutTask schedule(Duration delay, Runnable action);
 
@@ -1440,6 +1525,7 @@ final class SemanticControlCoordinator
         private final CompletableFuture<InteractionRef> reached = new CompletableFuture<>();
         private final CompletableFuture<SemanticHoldState> completion = new CompletableFuture<>();
         private final CompletableFuture<Void> releaseCompletion = new CompletableFuture<>();
+        private Predicate<InteractionRef> evidenceWindow = ignored -> true;
         private SemanticInteractionSelector<?> selector;
         private SemanticHoldState state = SemanticHoldState.DECLARED;
         private InteractionRef interactionRef;
@@ -1475,6 +1561,7 @@ final class SemanticControlCoordinator
         private final Duration maximumDuration;
         private final CompletableFuture<SemanticPredecessorGuardState> completion =
             new CompletableFuture<>();
+        private Predicate<InteractionRef> evidenceWindow = ignored -> true;
         private SemanticPredecessorGuardState state =
             SemanticPredecessorGuardState.DECLARED;
         private InteractionRef predecessor;

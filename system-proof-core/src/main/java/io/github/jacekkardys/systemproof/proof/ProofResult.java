@@ -16,6 +16,7 @@ public final class ProofResult {
     private final ProofOutcome outcome;
     private final ProofSubjectRef primarySubject;
     private final ProofStimulusResolution stimulus;
+    private final ProofEvaluationResolution evaluation;
     private final List<ProofObligationResolution> resolutions;
     private final Optional<ProofDiagnostic> primaryFailure;
     private final List<ProofDiagnostic> secondaryDiagnostics;
@@ -31,6 +32,30 @@ public final class ProofResult {
         Optional<ProofDiagnostic> primaryFailure,
         List<ProofDiagnostic> secondaryDiagnostics
     ) {
+        this(
+            planId,
+            title,
+            outcome,
+            primarySubject,
+            stimulus,
+            legacyEvaluation(outcome, primaryFailure),
+            resolutions,
+            primaryFailure,
+            secondaryDiagnostics
+        );
+    }
+
+    public ProofResult(
+        ProofPlanId planId,
+        String title,
+        ProofOutcome outcome,
+        ProofSubjectRef primarySubject,
+        ProofStimulusResolution stimulus,
+        ProofEvaluationResolution evaluation,
+        List<ProofObligationResolution> resolutions,
+        Optional<ProofDiagnostic> primaryFailure,
+        List<ProofDiagnostic> secondaryDiagnostics
+    ) {
         this.planId = Objects.requireNonNull(planId, "planId must not be null");
         this.title = ProofText.requireTitle(title);
         this.outcome = Objects.requireNonNull(outcome, "outcome must not be null");
@@ -39,6 +64,7 @@ public final class ProofResult {
             "primarySubject must not be null"
         );
         this.stimulus = Objects.requireNonNull(stimulus, "stimulus must not be null");
+        this.evaluation = Objects.requireNonNull(evaluation, "evaluation must not be null");
         this.resolutions = List.copyOf(
             Objects.requireNonNull(resolutions, "resolutions must not be null")
         );
@@ -68,6 +94,9 @@ public final class ProofResult {
             "secondaryDiagnostics must not be null"
         );
         this.secondaryDiagnostics = secondaryDiagnostics.stream()
+            .sorted(java.util.Comparator
+                .comparing((ProofDiagnostic value) -> value.stage().ordinal())
+                .thenComparing(value -> value.failure().failureType()))
             .limit(MAX_SECONDARY_DIAGNOSTICS)
             .map(value -> Objects.requireNonNull(
                 value,
@@ -96,6 +125,10 @@ public final class ProofResult {
 
     public ProofStimulusResolution stimulus() {
         return stimulus;
+    }
+
+    public ProofEvaluationResolution evaluation() {
+        return evaluation;
     }
 
     public List<ProofObligationResolution> resolutions() {
@@ -160,6 +193,8 @@ public final class ProofResult {
             .allMatch(value -> value.resolution() == ProofResolution.SATISFIED);
         boolean stimulusSatisfied = stimulus.state() == ProofStimulusState.COMPLETED
             && stimulus.resolution() == ProofResolution.SATISFIED;
+        boolean evaluationSatisfied = evaluation.state() == ProofEvaluationState.COMPLETED
+            && evaluation.resolution() == ProofResolution.SATISFIED;
         boolean violated = resolutions.stream().anyMatch(
             value -> value.resolution() == ProofResolution.VIOLATED
         );
@@ -168,30 +203,36 @@ public final class ProofResult {
         );
         boolean notEvaluated = resolutions.stream().anyMatch(
             value -> value.resolution() == ProofResolution.NOT_EVALUATED
-        ) || stimulus.resolution() == ProofResolution.NOT_EVALUATED;
-        if (outcome == ProofOutcome.PROVED && (!allSatisfied || !stimulusSatisfied)) {
+        ) || stimulus.resolution() == ProofResolution.NOT_EVALUATED
+            || evaluation.resolution() == ProofResolution.NOT_EVALUATED;
+        if (outcome == ProofOutcome.PROVED
+            && (!allSatisfied || !stimulusSatisfied || !evaluationSatisfied)) {
             throw new IllegalArgumentException(
-                "PROVED requires a completed stimulus and every required item to be SATISFIED"
+                "PROVED requires completed evaluation, a completed stimulus, and every required item to be SATISFIED"
             );
         }
         if (outcome == ProofOutcome.VIOLATED && (!violated || failed
-            || stimulus.resolution() == ProofResolution.FAILED)) {
+            || stimulus.resolution() == ProofResolution.FAILED
+            || evaluation.resolution() == ProofResolution.FAILED)) {
             throw new IllegalArgumentException(
                 "VIOLATED requires an explicit violated obligation and no failed item"
             );
         }
         if (outcome == ProofOutcome.INCONCLUSIVE) {
             boolean exactGap = !allSatisfied
-                || stimulus.resolution() != ProofResolution.SATISFIED;
+                || stimulus.resolution() != ProofResolution.SATISFIED
+                || evaluation.resolution() != ProofResolution.SATISFIED;
             if (!exactGap || violated || failed || notEvaluated
-                || stimulus.resolution() == ProofResolution.FAILED) {
+                || stimulus.resolution() == ProofResolution.FAILED
+                || evaluation.resolution() == ProofResolution.FAILED) {
                 throw new IllegalArgumentException(
                     "INCONCLUSIVE requires an exact unresolved gap and no violated, failed, or not-evaluated item"
                 );
             }
         }
         if (outcome == ProofOutcome.ERROR && primaryFailure.isEmpty()
-            && !failed && stimulus.resolution() != ProofResolution.FAILED) {
+            && !failed && stimulus.resolution() != ProofResolution.FAILED
+            && evaluation.resolution() != ProofResolution.FAILED) {
             throw new IllegalArgumentException(
                 "ERROR requires a safe primary failure or failed obligation"
             );
@@ -225,6 +266,9 @@ public final class ProofResult {
         appendDecisive(output, lineSeparator);
         output.append("stimulus=").append(stimulus.state()).append('/')
             .append(stimulus.resolution()).append('/').append(stimulus.reason())
+            .append(lineSeparator);
+        output.append("evaluation=").append(evaluation.state()).append('/')
+            .append(evaluation.resolution()).append('/').append(evaluation.reason())
             .append(lineSeparator);
         primaryFailure.ifPresent(value -> output.append("failure=")
             .append(value.stage()).append('/').append(value.failure().failureType())
@@ -270,8 +314,41 @@ public final class ProofResult {
             && stimulus.resolution() != ProofResolution.SATISFIED) {
             return "STIMULUS/" + stimulus.reason();
         }
+        if (outcome == ProofOutcome.INCONCLUSIVE
+            && evaluation.resolution() != ProofResolution.SATISFIED) {
+            return "EVALUATION/" + evaluation.reason();
+        }
         return primaryFailure.map(value ->
             value.stage() + "/" + value.failure().failureType()
         ).orElse("none");
+    }
+
+    private static ProofEvaluationResolution legacyEvaluation(
+        ProofOutcome outcome,
+        Optional<ProofDiagnostic> primaryFailure
+    ) {
+        outcome = Objects.requireNonNull(outcome, "outcome must not be null");
+        primaryFailure = Objects.requireNonNull(primaryFailure, "primaryFailure must not be null");
+        if (outcome == ProofOutcome.PROVED || outcome == ProofOutcome.INCONCLUSIVE) {
+            return new ProofEvaluationResolution(
+                ProofEvaluationState.COMPLETED,
+                ProofResolution.SATISFIED,
+                ProofResolutionReason.EVALUATION_COMPLETED
+            );
+        }
+        if (outcome == ProofOutcome.ERROR
+            && primaryFailure.filter(value -> value.stage() == ProofFailureStage.EVALUATION)
+                .isPresent()) {
+            return new ProofEvaluationResolution(
+                ProofEvaluationState.FAILED,
+                ProofResolution.FAILED,
+                ProofResolutionReason.EVALUATION_FAILED
+            );
+        }
+        return new ProofEvaluationResolution(
+            ProofEvaluationState.NOT_STARTED,
+            ProofResolution.NOT_EVALUATED,
+            ProofResolutionReason.NOT_EVALUATED_AFTER_TERMINAL_OUTCOME
+        );
     }
 }

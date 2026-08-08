@@ -3,6 +3,10 @@ package io.github.jacekkardys.systemproof.environment;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
@@ -33,7 +37,15 @@ final class EnvironmentRuntime {
     private final ProofExecutionCoordinator proofCoordinator;
     private final SemanticControls controls;
     private final Proofs proofs;
+    private final ExecutorService proofObservationExecutor =
+        Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "system-proof-observation-refresh");
+            thread.setDaemon(true);
+            return thread;
+        });
     private boolean observationRefreshInProgress;
+    private CompletableFuture<Void> proofObservationRefresh;
+    private Set<ConnectionId> proofObservationConnections = Set.of();
 
     private EnvironmentRuntime(EnvironmentRuntimeFactory.Assembly assembly) {
         this.execution = assembly.execution();
@@ -157,8 +169,14 @@ final class EnvironmentRuntime {
         }
     }
 
-    synchronized void close() {
-        execution.close();
+    void close() {
+        try {
+            synchronized (this) {
+                execution.close();
+            }
+        } finally {
+            proofObservationExecutor.shutdownNow();
+        }
     }
 
     private void refreshObservationStatuses() {
@@ -284,10 +302,11 @@ final class EnvironmentRuntime {
         }
     }
 
-    private void refreshForProof(
+    private CompletionStage<Void> refreshForProof(
         Set<ConnectionId> connectionIds
     ) {
         RuntimeConnectionRegistry.ObservationBatch batch;
+        CompletableFuture<Void> refresh;
         synchronized (this) {
             if (execution.state() != EnvironmentState.RUNNING) {
                 throw new IllegalStateException(
@@ -295,28 +314,67 @@ final class EnvironmentRuntime {
                 );
             }
             if (observationRefreshInProgress) {
+                if (proofObservationRefresh != null
+                    && !proofObservationRefresh.isDone()
+                    && proofObservationConnections.equals(connectionIds)) {
+                    return proofObservationRefresh;
+                }
                 throw new IllegalStateException(
                     "Fresh observation status is unavailable while a refresh is in progress"
                 );
             }
             batch = execution.observationRefreshBatch(connectionIds);
             observationRefreshInProgress = true;
+            proofObservationConnections = Set.copyOf(connectionIds);
+            refresh = new CompletableFuture<>();
+            proofObservationRefresh = refresh;
         }
         try {
-            RuntimeConnectionRegistry.ObservationResults results = batch.evaluate();
-            synchronized (this) {
-                if (execution.state() != EnvironmentState.RUNNING) {
-                    throw new IllegalStateException(
-                        "Fresh observation status is unavailable because the environment "
-                            + "is not running"
-                    );
-                }
-                execution.applyObservationRefresh(results, connectionIds);
-            }
-        } finally {
+            proofObservationExecutor.execute(() -> completeProofObservationRefresh(
+                batch,
+                connectionIds,
+                refresh
+            ));
+        } catch (RuntimeException | Error failure) {
             synchronized (this) {
                 observationRefreshInProgress = false;
+                proofObservationRefresh = null;
+                proofObservationConnections = Set.of();
             }
+            refresh.completeExceptionally(failure);
+        }
+        return refresh;
+    }
+
+    private void completeProofObservationRefresh(
+        RuntimeConnectionRegistry.ObservationBatch batch,
+        Set<ConnectionId> connectionIds,
+        CompletableFuture<Void> refresh
+    ) {
+        Throwable failure = null;
+        RuntimeConnectionRegistry.ObservationResults results = null;
+        try {
+            results = batch.evaluate();
+        } catch (RuntimeException | Error providerFailure) {
+            failure = providerFailure;
+        }
+        synchronized (this) {
+            try {
+                if (failure == null && execution.state() == EnvironmentState.RUNNING) {
+                    execution.applyObservationRefresh(results, connectionIds);
+                }
+            } catch (RuntimeException | Error commitFailure) {
+                failure = commitFailure;
+            } finally {
+                observationRefreshInProgress = false;
+                proofObservationRefresh = null;
+                proofObservationConnections = Set.of();
+            }
+        }
+        if (failure == null) {
+            refresh.complete(null);
+        } else {
+            refresh.completeExceptionally(failure);
         }
     }
 }

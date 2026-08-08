@@ -46,9 +46,10 @@ Public contracts:
 - `SemanticControls`, `SemanticInteractionSelector<T>`, `SemanticHold`, and
   `SemanticPredecessorGuard`: one environment-owned control boundary for deterministic holds and
   exact subject-scoped predecessor enforcement.
-- `ProofPlan`, `Proofs`, `ProofExecution`, `ProofResult`, and their closed outcome/resolution
-  values: one bounded frozen declaration, explicit activation/stimulus/evaluation sequence, and a
-  detached fail-closed result for one environment execution.
+- `ProofPlan`, `Proofs`, `ProofExecution`, `ProofResult`, and their closed stimulus, evaluation,
+  outcome, and obligation-resolution values: one bounded frozen declaration, explicit
+  activation/stimulus/evaluation sequence, and a detached fail-closed result for one environment
+  execution.
 - `EnvironmentLogging`, top-level `EnvironmentLoggingBuilder`, `EnvironmentDiagnostics`, and
   `EnvironmentStartException`: logging configuration, rendered journal views, and failure reporting.
 
@@ -73,7 +74,10 @@ samples fresh observation state, and arms all prepared controls before the evide
 `ACTIVE`. Partial arming is rolled back without forwarding protected traffic. Unsupported runtime
 coverage completes `INCONCLUSIVE`; malformed plans throw `ProofConfigurationException`; internal
 activation failure completes `ERROR`. In every pre-stimulus outcome the stimulus callback is not
-invoked.
+invoked. The observation owner records each allocated `InteractionRef` before journal publication
+and proof callbacks. While the control activation transaction still owns its monitor, it captures
+one per-session/direction ordinal watermark. Only later observation identities belong to the proof
+window; callback arrival order cannot admit pre-boundary traffic.
 
 The environment consumes only framework-owned typed facts into a bounded current-state index. It
 does not scan or duplicate the scenario journal and never infers correlation or causality from
@@ -84,11 +88,17 @@ the existing subject registry, and causal relations remain owned by predecessor-
 The terminal outcome has one linearization point. `PROVED` requires every item to be explicitly
 `SATISFIED`; an explicit guard counterexample yields `VIOLATED`; missing, ambiguous, unsupported,
 unreached, or timed-out coverage yields `INCONCLUSIVE`; trust loss yields `ERROR`. Later facts do
-not change the primary outcome. At most 32 later type-only diagnostics may be retained, and repeated
-evaluation/result access returns the same immutable object. An unfinished active execution makes
-environment teardown fail. The deterministic compact report is capped at 64 KiB and never renders
-payloads, evidence bytes, native references, exception messages, or arbitrary opaque-reference
-`toString()` output. See [ADR 0011](../docs/adr/0011-frozen-proof-plan-evaluation.md).
+not change the primary outcome. The deadline crosses the same control/observation/correlation
+boundary as explicit evaluation and always yields a typed `INCONCLUSIVE` evaluation gap unless an
+earlier violation or error already won. Required observation refresh is single-flight and bounded
+by that deadline; teardown never waits for a blocked provider, and a late refresh is discarded.
+Finalization performs internal cleanup, freezes exactly one result, then delivers public control
+completion callbacks, so reentrant result/evaluation access cannot deadlock. At most 32 later
+type-only diagnostics may be retained, and repeated evaluation/result access returns the same
+immutable object. An unfinished active execution makes environment teardown fail. The deterministic
+compact report is capped at 64 KiB and never renders payloads, evidence bytes, native references,
+exception messages, or arbitrary opaque-reference `toString()` output. See
+[ADR 0011](../docs/adr/0011-frozen-proof-plan-evaluation.md).
 
 ## Secret-safe diagnostics
 

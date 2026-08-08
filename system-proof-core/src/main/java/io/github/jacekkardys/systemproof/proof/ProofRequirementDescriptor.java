@@ -76,11 +76,13 @@ public sealed interface ProofRequirementDescriptor permits
 
     record HoldControl(
         SemanticHoldRef controlRef,
-        SemanticHoldState expectedState
+        SemanticHoldState expectedState,
+        ConnectionId connectionId
     ) implements ProofRequirementDescriptor {
         public HoldControl {
             controlRef = Objects.requireNonNull(controlRef, "controlRef must not be null");
             expectedState = Objects.requireNonNull(expectedState, "expectedState must not be null");
+            connectionId = Objects.requireNonNull(connectionId, "connectionId must not be null");
         }
 
         @Override
@@ -91,11 +93,21 @@ public sealed interface ProofRequirementDescriptor permits
 
     record GuardControl(
         SemanticPredecessorGuardRef controlRef,
-        SemanticPredecessorGuardState expectedState
+        SemanticPredecessorGuardState expectedState,
+        ConnectionId predecessorConnectionId,
+        ConnectionId successorConnectionId
     ) implements ProofRequirementDescriptor {
         public GuardControl {
             controlRef = Objects.requireNonNull(controlRef, "controlRef must not be null");
             expectedState = Objects.requireNonNull(expectedState, "expectedState must not be null");
+            predecessorConnectionId = Objects.requireNonNull(
+                predecessorConnectionId,
+                "predecessorConnectionId must not be null"
+            );
+            successorConnectionId = Objects.requireNonNull(
+                successorConnectionId,
+                "successorConnectionId must not be null"
+            );
         }
 
         @Override
@@ -106,11 +118,13 @@ public sealed interface ProofRequirementDescriptor permits
 
     record HoldEvidence(
         SemanticHoldRef controlRef,
-        ProofEvidenceKind evidenceKind
+        ProofEvidenceKind evidenceKind,
+        ConnectionId connectionId
     ) implements ProofRequirementDescriptor {
         public HoldEvidence {
             controlRef = Objects.requireNonNull(controlRef, "controlRef must not be null");
             evidenceKind = Objects.requireNonNull(evidenceKind, "evidenceKind must not be null");
+            connectionId = Objects.requireNonNull(connectionId, "connectionId must not be null");
         }
 
         @Override
@@ -121,11 +135,13 @@ public sealed interface ProofRequirementDescriptor permits
 
     record GuardEvidence(
         SemanticPredecessorGuardRef controlRef,
-        ProofEvidenceKind evidenceKind
+        ProofEvidenceKind evidenceKind,
+        ConnectionId connectionId
     ) implements ProofRequirementDescriptor {
         public GuardEvidence {
             controlRef = Objects.requireNonNull(controlRef, "controlRef must not be null");
             evidenceKind = Objects.requireNonNull(evidenceKind, "evidenceKind must not be null");
+            connectionId = Objects.requireNonNull(connectionId, "connectionId must not be null");
         }
 
         @Override
@@ -134,10 +150,22 @@ public sealed interface ProofRequirementDescriptor permits
         }
     }
 
-    record CausalRelation(SemanticPredecessorGuardRef guardRef)
+    record CausalRelation(
+        SemanticPredecessorGuardRef guardRef,
+        ConnectionId predecessorConnectionId,
+        ConnectionId successorConnectionId
+    )
         implements ProofRequirementDescriptor {
         public CausalRelation {
             guardRef = Objects.requireNonNull(guardRef, "guardRef must not be null");
+            predecessorConnectionId = Objects.requireNonNull(
+                predecessorConnectionId,
+                "predecessorConnectionId must not be null"
+            );
+            successorConnectionId = Objects.requireNonNull(
+                successorConnectionId,
+                "successorConnectionId must not be null"
+            );
         }
 
         @Override

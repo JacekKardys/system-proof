@@ -13,10 +13,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
 import io.github.jacekkardys.systemproof.control.SemanticHoldFailure;
 import io.github.jacekkardys.systemproof.control.SemanticHoldRef;
 import io.github.jacekkardys.systemproof.control.SemanticHoldState;
@@ -37,6 +39,8 @@ import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
 import io.github.jacekkardys.systemproof.proof.ProofConfigurationException;
 import io.github.jacekkardys.systemproof.proof.ProofDiagnostic;
 import io.github.jacekkardys.systemproof.proof.ProofEvidenceKind;
+import io.github.jacekkardys.systemproof.proof.ProofEvaluationResolution;
+import io.github.jacekkardys.systemproof.proof.ProofEvaluationState;
 import io.github.jacekkardys.systemproof.proof.ProofExecution;
 import io.github.jacekkardys.systemproof.proof.ProofExecutionState;
 import io.github.jacekkardys.systemproof.proof.ProofFailureStage;
@@ -70,6 +74,7 @@ final class ProofExecutionCoordinator
     private final Object prerequisiteOwner = new Object();
     private final DeadlineScheduler deadlineScheduler;
     private final ProofOutcomeEvaluator outcomeEvaluator;
+    private final BoundaryObserver boundaryObserver;
     private ProofSubjectRegistry proofSubjects;
     private SemanticControlCoordinator controls;
     private RuntimeConnectionRegistry connections;
@@ -77,6 +82,7 @@ final class ProofExecutionCoordinator
     private ExecutionRecord execution;
     private boolean bound;
     private boolean closed;
+    private boolean activationReserved;
 
     ProofExecutionCoordinator() {
         this(new SystemDeadlineScheduler(), ProofOutcomeEvaluator.failClosed());
@@ -90,6 +96,14 @@ final class ProofExecutionCoordinator
         DeadlineScheduler deadlineScheduler,
         ProofOutcomeEvaluator outcomeEvaluator
     ) {
+        this(deadlineScheduler, outcomeEvaluator, BoundaryObserver.NONE);
+    }
+
+    ProofExecutionCoordinator(
+        DeadlineScheduler deadlineScheduler,
+        ProofOutcomeEvaluator outcomeEvaluator,
+        BoundaryObserver boundaryObserver
+    ) {
         this.deadlineScheduler = Objects.requireNonNull(
             deadlineScheduler,
             "deadlineScheduler must not be null"
@@ -97,6 +111,10 @@ final class ProofExecutionCoordinator
         this.outcomeEvaluator = Objects.requireNonNull(
             outcomeEvaluator,
             "outcomeEvaluator must not be null"
+        );
+        this.boundaryObserver = Objects.requireNonNull(
+            boundaryObserver,
+            "boundaryObserver must not be null"
         );
     }
 
@@ -133,14 +151,13 @@ final class ProofExecutionCoordinator
 
     ProofExecution activate(
         ProofPlan plan,
-        Consumer<Set<ConnectionId>> refreshObservation
+        ObservationRefresher refreshObservation
     ) {
         plan = Objects.requireNonNull(plan, "plan must not be null");
         refreshObservation = Objects.requireNonNull(
             refreshObservation,
             "refreshObservation must not be null"
         );
-        ExecutionRecord record;
         synchronized (this) {
             requireBound();
             if (closed) {
@@ -148,19 +165,38 @@ final class ProofExecutionCoordinator
                     "Environment execution is complete and cannot activate a proof plan"
                 );
             }
-            if (execution != null) {
+            if (execution != null || activationReserved) {
                 throw new ProofConfigurationException(
                     "An environment execution accepts exactly one proof execution"
                 );
             }
-            record = new ExecutionRecord(plan, this, refreshObservation);
+            activationReserved = true;
+        }
+        ControlMetadata controlMetadata;
+        try {
+            controlMetadata = captureControlMetadata(plan);
+        } catch (RuntimeException | Error failure) {
+            synchronized (this) {
+                activationReserved = false;
+            }
+            throw failure;
+        }
+        ExecutionRecord record;
+        synchronized (this) {
+            record = new ExecutionRecord(
+                plan,
+                this,
+                refreshObservation,
+                controlMetadata
+            );
             execution = record;
+            activationReserved = false;
             record.state = ProofExecutionState.ACTIVATING;
         }
 
         ActivationControls activationControls;
         try {
-            activationControls = validateStaticPlan(record);
+            activationControls = validateStaticPlan(record, controlMetadata);
         } catch (ProofConfigurationException failure) {
             discardInvalidExecution(record);
             throw failure;
@@ -224,7 +260,9 @@ final class ProofExecutionCoordinator
         }
 
         try {
-            refreshObservation.accept(record.requiredObservationConnections);
+            joinObservationRefresh(
+                refreshObservation.refresh(record.requiredObservationConnections)
+            );
         } catch (RuntimeException | Error failure) {
             completeAndCancelPrepared(
                 record,
@@ -277,7 +315,6 @@ final class ProofExecutionCoordinator
 
         synchronized (this) {
             seedActiveObligations(record, activationControls);
-            record.acceptActivationFacts = true;
         }
         try {
             controls.activatePreparedControls(
@@ -332,13 +369,20 @@ final class ProofExecutionCoordinator
         return record.handle;
     }
 
-    private void activateAtControlBoundary(ExecutionRecord record) {
+    private Predicate<InteractionRef> activateAtControlBoundary(ExecutionRecord record) {
+        ProofEvidenceWindowTracker.EvidenceWindow evidenceWindow =
+            connections.openProofEvidenceWindow();
         synchronized (this) {
             if (record.state == ProofExecutionState.ACTIVATING) {
+                record.evidenceWindow = evidenceWindow;
                 record.state = ProofExecutionState.ACTIVE;
                 record.activationReached = true;
             }
         }
+        return interaction -> connections.isWithinProofEvidenceWindow(
+            evidenceWindow,
+            interaction
+        );
     }
 
     @Override
@@ -356,8 +400,7 @@ final class ProofExecutionCoordinator
                     retainSecondary(execution, event);
                     return;
                 }
-                if (execution.state == ProofExecutionState.ACTIVATING
-                    && !execution.acceptActivationFacts) {
+                if (execution.state == ProofExecutionState.ACTIVATING) {
                     if (event instanceof FailureEvent failure
                         && relevantFailure(execution, failure)) {
                         completeLocked(
@@ -368,8 +411,7 @@ final class ProofExecutionCoordinator
                     }
                     return;
                 }
-                if (execution.state != ProofExecutionState.ACTIVE
-                    && execution.state != ProofExecutionState.ACTIVATING) {
+                if (execution.state != ProofExecutionState.ACTIVE) {
                     return;
                 }
                 switch (event) {
@@ -594,7 +636,45 @@ final class ProofExecutionCoordinator
         return unfinished;
     }
 
-    private ActivationControls validateStaticPlan(ExecutionRecord record) {
+    private ControlMetadata captureControlMetadata(ProofPlan plan) {
+        Map<SemanticHoldRef, SemanticControlCoordinator.HoldDeclaration> holds =
+            new HashMap<>();
+        Map<SemanticPredecessorGuardRef, SemanticControlCoordinator.GuardDeclaration> guards =
+            new HashMap<>();
+        for (ProofPlan.Requirement requirement : plan.requirements()) {
+            switch (requirement) {
+                case ProofPlan.HoldControl value -> holds.computeIfAbsent(
+                    value.holdRef(),
+                    controls::holdDeclaration
+                );
+                case ProofPlan.HoldEvidence value -> holds.computeIfAbsent(
+                    value.holdRef(),
+                    controls::holdDeclaration
+                );
+                case ProofPlan.GuardControl value -> guards.computeIfAbsent(
+                    value.guardRef(),
+                    controls::guardDeclaration
+                );
+                case ProofPlan.GuardEvidence value -> guards.computeIfAbsent(
+                    value.guardRef(),
+                    controls::guardDeclaration
+                );
+                case ProofPlan.CausalRelation value -> guards.computeIfAbsent(
+                    value.guardRef(),
+                    controls::guardDeclaration
+                );
+                default -> {
+                    // Non-control descriptors are completely plan-owned.
+                }
+            }
+        }
+        return new ControlMetadata(holds, guards);
+    }
+
+    private ActivationControls validateStaticPlan(
+        ExecutionRecord record,
+        ControlMetadata controlMetadata
+    ) {
         proofSubjects.validateSubject(record.plan.primarySubject());
         Map<ConnectionId, ProofPlan.Observation> observations = new LinkedHashMap<>();
         List<SemanticHoldRef> holds = new ArrayList<>();
@@ -624,7 +704,7 @@ final class ProofExecutionCoordinator
                 }
                 case ProofPlan.HoldControl control -> {
                     SemanticControlCoordinator.HoldDeclaration declaration =
-                        controls.holdDeclaration(control.holdRef());
+                        controlMetadata.hold(control.holdRef());
                     if (declaration.state() != SemanticHoldState.DECLARED
                         || declaration.proofSubject()
                             .filter(record.plan.primarySubject()::equals).isEmpty()) {
@@ -637,7 +717,7 @@ final class ProofExecutionCoordinator
                 }
                 case ProofPlan.GuardControl control -> {
                     SemanticControlCoordinator.GuardDeclaration declaration =
-                        controls.guardDeclaration(control.guardRef());
+                        controlMetadata.guard(control.guardRef());
                     if (declaration.state() != SemanticPredecessorGuardState.DECLARED
                         || !declaration.subject().equals(record.plan.primarySubject())) {
                         throw new ProofConfigurationException(
@@ -646,13 +726,13 @@ final class ProofExecutionCoordinator
                     }
                     guards.add(control.guardRef());
                 }
-                case ProofPlan.HoldEvidence evidence -> controls.holdDeclaration(
+                case ProofPlan.HoldEvidence evidence -> controlMetadata.hold(
                     evidence.holdRef()
                 );
-                case ProofPlan.GuardEvidence evidence -> controls.guardDeclaration(
+                case ProofPlan.GuardEvidence evidence -> controlMetadata.guard(
                     evidence.guardRef()
                 );
-                case ProofPlan.CausalRelation relation -> controls.guardDeclaration(
+                case ProofPlan.CausalRelation relation -> controlMetadata.guard(
                     relation.guardRef()
                 );
             }
@@ -667,12 +747,12 @@ final class ProofExecutionCoordinator
                 );
                 case ProofPlan.HoldControl control -> requireObservation(
                     observations,
-                    controls.holdDeclaration(control.holdRef()).connectionId(),
+                    controlMetadata.hold(control.holdRef()).connectionId(),
                     control.id().toString()
                 );
                 case ProofPlan.GuardControl control -> {
                     SemanticControlCoordinator.GuardDeclaration declaration =
-                        controls.guardDeclaration(control.guardRef());
+                        controlMetadata.guard(control.guardRef());
                     requireObservation(
                         observations,
                         declaration.predecessorConnectionId(),
@@ -828,19 +908,23 @@ final class ProofExecutionCoordinator
                     record.guardControls.put(control.guardRef(), state);
                 }
                 case ProofPlan.HoldEvidence evidence -> {
+                    ProofRequirementDescriptor.HoldEvidence descriptor =
+                        (ProofRequirementDescriptor.HoldEvidence) state.descriptor;
                     state.set(
                         ProofResolution.MISSING,
                         ProofResolutionReason.EVIDENCE_MISSING,
-                        Optional.empty(),
+                        Optional.of(descriptor.connectionId()),
                         List.of()
                     );
                     record.holdEvidence.put(evidence.holdRef(), state);
                 }
                 case ProofPlan.GuardEvidence evidence -> {
+                    ProofRequirementDescriptor.GuardEvidence descriptor =
+                        (ProofRequirementDescriptor.GuardEvidence) state.descriptor;
                     state.set(
                         ProofResolution.MISSING,
                         ProofResolutionReason.EVIDENCE_MISSING,
-                        Optional.empty(),
+                        Optional.of(descriptor.connectionId()),
                         List.of()
                     );
                     record.guardEvidence.computeIfAbsent(
@@ -862,6 +946,9 @@ final class ProofExecutionCoordinator
     }
 
     private void applyCorrelation(ExecutionRecord record, CorrelationCandidateEvent event) {
+        if (!isWithinEvidenceWindow(record, event.interactionRef())) {
+            return;
+        }
         for (RequirementState state : record.correlations) {
             ProofPlan.Correlation correlation = (ProofPlan.Correlation) state.requirement;
             if (!correlation.key().equals(event.key())
@@ -920,6 +1007,11 @@ final class ProofExecutionCoordinator
     }
 
     private void applyHold(ExecutionRecord record, SemanticHoldEvent event) {
+        if (event.interactionRef()
+            .filter(reference -> !isWithinEvidenceWindow(record, reference))
+            .isPresent()) {
+            return;
+        }
         RequirementState control = record.holdControls.get(event.holdRef());
         RequirementState evidence = record.holdEvidence.get(event.holdRef());
         if (control == null && evidence == null) {
@@ -1009,6 +1101,15 @@ final class ProofExecutionCoordinator
     }
 
     private void applyGuard(ExecutionRecord record, SemanticPredecessorGuardEvent event) {
+        if (event.predecessor()
+            .or(() -> event.successor())
+            .filter(reference -> !isWithinEvidenceWindow(record, reference))
+            .isPresent()
+            || event.successor()
+                .filter(reference -> !isWithinEvidenceWindow(record, reference))
+                .isPresent()) {
+            return;
+        }
         RequirementState control = record.guardControls.get(event.guardRef());
         Map<ProofEvidenceKind, RequirementState> evidence = record.guardEvidence.get(
             event.guardRef()
@@ -1057,11 +1158,13 @@ final class ProofExecutionCoordinator
                 return;
             }
             if (event.state() == SemanticPredecessorGuardState.VIOLATED) {
+                Optional<ConnectionId> successorConnection = event.successor()
+                    .map(InteractionRef::connectionId);
                 if (control != null) {
                     control.set(
                         ProofResolution.VIOLATED,
                         ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
-                        Optional.empty(),
+                        successorConnection,
                         interactions
                     );
                 }
@@ -1069,7 +1172,7 @@ final class ProofExecutionCoordinator
                     relation.set(
                         ProofResolution.VIOLATED,
                         ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
-                        Optional.empty(),
+                        successorConnection,
                         interactions
                     );
                 }
@@ -1078,11 +1181,13 @@ final class ProofExecutionCoordinator
             }
         }
         if (event.kind() == SemanticPredecessorGuardEvent.Kind.VIOLATION) {
+            Optional<ConnectionId> successorConnection = event.successor()
+                .map(InteractionRef::connectionId);
             if (control != null) {
                 control.set(
                     ProofResolution.VIOLATED,
                     ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
-                    Optional.empty(),
+                    successorConnection,
                     interactions
                 );
             }
@@ -1090,7 +1195,7 @@ final class ProofExecutionCoordinator
                 relation.set(
                     ProofResolution.VIOLATED,
                     ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
-                    Optional.empty(),
+                    successorConnection,
                     interactions
                 );
             }
@@ -1180,49 +1285,59 @@ final class ProofExecutionCoordinator
     }
 
     private void deadlineExpired(ExecutionRecord record) {
+        controls.withRequiredObservationBoundary(() ->
+            proofSubjects.withCorrelationBoundary(
+                record.plan.primarySubject(),
+                correlationRequirements(record),
+                snapshots -> deadlineLocked(record, snapshots)
+            )
+        );
+        finalizePending(record);
+    }
+
+    private void deadlineLocked(
+        ExecutionRecord record,
+        List<ProofSubjectRegistry.CorrelationSnapshot> snapshots
+    ) {
+        boundaryObserver.deadlineBoundaryReached();
         synchronized (this) {
             if (record != execution || record.state != ProofExecutionState.ACTIVE
                 || record.outcome != null) {
                 return;
             }
-            if (record.stimulusLifecycle == StimulusLifecycle.COMPLETED) {
-                ProofOutcome candidate = outcomeEvaluator.evaluate(
-                    record.states.stream().map(value -> value.resolution).toList()
-                );
-                if (candidate == ProofOutcome.PROVED) {
-                    completeLocked(record, ProofOutcome.PROVED, null);
-                } else {
-                    markFirstUnresolvedAsTimedOut(record);
-                    completeLocked(record, candidate, evaluationFailure(candidate));
-                }
-            } else {
-                record.stimulusTerminal = new ProofStimulusResolution(
-                    record.stimulusLifecycle == StimulusLifecycle.RUNNING
-                        ? ProofStimulusState.RUNNING
-                        : ProofStimulusState.NOT_STARTED,
+            try {
+                applyCorrelationSnapshots(record, snapshots);
+                record.primaryEvaluation = new ProofEvaluationResolution(
+                    record.evaluationState,
                     ProofResolution.TIMED_OUT,
                     ProofResolutionReason.DEADLINE_EXPIRED
                 );
+                if (record.stimulusLifecycle != StimulusLifecycle.COMPLETED) {
+                    record.stimulusTerminal = new ProofStimulusResolution(
+                        record.stimulusLifecycle == StimulusLifecycle.RUNNING
+                            ? ProofStimulusState.RUNNING
+                            : ProofStimulusState.NOT_STARTED,
+                        ProofResolution.TIMED_OUT,
+                        ProofResolutionReason.DEADLINE_EXPIRED
+                    );
+                }
                 completeLocked(record, ProofOutcome.INCONCLUSIVE, null);
+            } catch (RuntimeException | Error failure) {
+                record.evaluationState = ProofEvaluationState.FAILED;
+                record.primaryEvaluation = new ProofEvaluationResolution(
+                    ProofEvaluationState.FAILED,
+                    ProofResolution.FAILED,
+                    ProofResolutionReason.EVALUATION_FAILED
+                );
+                completeLocked(
+                    record,
+                    ProofOutcome.ERROR,
+                    new ProofDiagnostic(
+                        ProofFailureStage.EVALUATION,
+                        FailureDetails.from(failure)
+                    )
+                );
             }
-        }
-        finalizePending(record);
-    }
-
-    private static void markFirstUnresolvedAsTimedOut(ExecutionRecord record) {
-        RequirementState unresolved = record.states.stream()
-            .filter(value -> value.resolution != ProofResolution.SATISFIED)
-            .findFirst()
-            .orElse(null);
-        if (unresolved != null
-            && unresolved.resolution != ProofResolution.VIOLATED
-            && unresolved.resolution != ProofResolution.FAILED) {
-            unresolved.set(
-                ProofResolution.TIMED_OUT,
-                ProofResolutionReason.DEADLINE_EXPIRED,
-                unresolved.connectionId,
-                unresolved.interactions
-            );
         }
     }
 
@@ -1282,11 +1397,11 @@ final class ProofExecutionCoordinator
     }
 
     private ProofResult evaluate(ExecutionRecord record) {
-        boolean refresh;
+        boolean startEvaluation;
         synchronized (this) {
             requireRecord(record);
             if (record.outcome != null) {
-                refresh = false;
+                startEvaluation = false;
             } else {
                 if (record.state != ProofExecutionState.ACTIVE) {
                     throw new IllegalStateException(
@@ -1298,28 +1413,60 @@ final class ProofExecutionCoordinator
                         "Proof evaluation requires one successfully completed stimulus"
                     );
                 }
-                refresh = true;
+                startEvaluation = record.evaluationState == ProofEvaluationState.NOT_STARTED;
+                if (startEvaluation) {
+                    record.evaluationState = ProofEvaluationState.RUNNING;
+                }
             }
         }
-        if (refresh) {
+        if (startEvaluation) {
+            CompletionStage<Void> refresh;
             try {
-                record.refreshObservation.accept(record.requiredObservationConnections);
+                refresh = Objects.requireNonNull(
+                    record.refreshObservation.refresh(record.requiredObservationConnections),
+                    "Proof observation refresher must return a completion stage"
+                );
             } catch (RuntimeException | Error failure) {
-                complete(
-                    record,
-                    ProofOutcome.ERROR,
-                    new ProofDiagnostic(
-                        ProofFailureStage.OBSERVATION,
-                        FailureDetails.from(failure)
-                    )
+                observationRefreshCompleted(record, failure);
+                refresh = null;
+            }
+            if (refresh != null) {
+                refresh.whenComplete((ignored, failure) ->
+                    observationRefreshCompleted(record, unwrapCompletionFailure(failure))
                 );
             }
         }
-        if (refresh) {
-            evaluateAtAuthoritativeBoundary(record);
-        }
         finalizePending(record);
         return awaitResult(record);
+    }
+
+    private void observationRefreshCompleted(ExecutionRecord record, Throwable failure) {
+        if (failure == null) {
+            evaluateAtAuthoritativeBoundary(record);
+        } else {
+            controls.withRequiredObservationBoundary(() -> {
+                synchronized (this) {
+                    if (record.outcome != null) {
+                        return;
+                    }
+                    record.evaluationState = ProofEvaluationState.FAILED;
+                    record.primaryEvaluation = new ProofEvaluationResolution(
+                        ProofEvaluationState.FAILED,
+                        ProofResolution.FAILED,
+                        ProofResolutionReason.EVALUATION_FAILED
+                    );
+                    completeLocked(
+                        record,
+                        ProofOutcome.ERROR,
+                        new ProofDiagnostic(
+                            ProofFailureStage.OBSERVATION,
+                            FailureDetails.from(failure)
+                        )
+                    );
+                }
+            });
+        }
+        finalizePending(record);
     }
 
     private void evaluateAtAuthoritativeBoundary(ExecutionRecord record) {
@@ -1336,6 +1483,7 @@ final class ProofExecutionCoordinator
         ExecutionRecord record,
         List<ProofSubjectRegistry.CorrelationSnapshot> snapshots
     ) {
+        boundaryObserver.evaluationBoundaryReached();
         synchronized (this) {
             if (record.outcome != null) {
                 return;
@@ -1345,8 +1493,20 @@ final class ProofExecutionCoordinator
                 ProofOutcome outcome = outcomeEvaluator.evaluate(
                     record.states.stream().map(value -> value.resolution).toList()
                 );
+                record.evaluationState = ProofEvaluationState.COMPLETED;
+                record.primaryEvaluation = new ProofEvaluationResolution(
+                    ProofEvaluationState.COMPLETED,
+                    ProofResolution.SATISFIED,
+                    ProofResolutionReason.EVALUATION_COMPLETED
+                );
                 completeLocked(record, outcome, evaluationFailure(outcome));
             } catch (RuntimeException | Error evaluatorFailure) {
+                record.evaluationState = ProofEvaluationState.FAILED;
+                record.primaryEvaluation = new ProofEvaluationResolution(
+                    ProofEvaluationState.FAILED,
+                    ProofResolution.FAILED,
+                    ProofResolutionReason.EVALUATION_FAILED
+                );
                 completeLocked(
                     record,
                     ProofOutcome.ERROR,
@@ -1477,30 +1637,24 @@ final class ProofExecutionCoordinator
             .map(RequirementState::snapshot)
             .toList();
         record.primaryStimulus = stimulusSnapshot(record, outcome);
+        if (record.primaryEvaluation == null) {
+            record.primaryEvaluation = evaluationSnapshot(record, outcome);
+        }
     }
 
     private static void markNotEvaluatedAfterTerminal(ExecutionRecord record) {
-        boolean decisiveFound = false;
         for (RequirementState state : record.states) {
-            boolean decisive = record.outcome == ProofOutcome.VIOLATED
-                ? state.resolution == ProofResolution.VIOLATED
-                : state.resolution == ProofResolution.FAILED;
-            if (decisive) {
-                decisiveFound = true;
+            if (state.resolution == ProofResolution.SATISFIED
+                || state.resolution == ProofResolution.VIOLATED
+                || state.resolution == ProofResolution.FAILED) {
                 continue;
             }
-            if (!decisiveFound && state.resolution == ProofResolution.SATISFIED) {
-                continue;
-            }
-            if (state.resolution != ProofResolution.VIOLATED
-                && state.resolution != ProofResolution.FAILED) {
-                state.set(
-                    ProofResolution.NOT_EVALUATED,
-                    ProofResolutionReason.NOT_EVALUATED_AFTER_TERMINAL_OUTCOME,
-                    state.connectionId,
-                    List.of()
-                );
-            }
+            state.set(
+                ProofResolution.NOT_EVALUATED,
+                ProofResolutionReason.NOT_EVALUATED_AFTER_TERMINAL_OUTCOME,
+                state.connectionId,
+                List.of()
+            );
         }
     }
 
@@ -1558,6 +1712,35 @@ final class ProofExecutionCoordinator
         };
     }
 
+    private static ProofEvaluationResolution evaluationSnapshot(
+        ExecutionRecord record,
+        ProofOutcome outcome
+    ) {
+        return switch (record.evaluationState) {
+            case COMPLETED -> new ProofEvaluationResolution(
+                ProofEvaluationState.COMPLETED,
+                ProofResolution.SATISFIED,
+                ProofResolutionReason.EVALUATION_COMPLETED
+            );
+            case FAILED -> new ProofEvaluationResolution(
+                ProofEvaluationState.FAILED,
+                ProofResolution.FAILED,
+                ProofResolutionReason.EVALUATION_FAILED
+            );
+            case NOT_STARTED, RUNNING -> outcome == ProofOutcome.INCONCLUSIVE
+                ? new ProofEvaluationResolution(
+                    record.evaluationState,
+                    ProofResolution.UNREACHED,
+                    ProofResolutionReason.EVALUATION_NOT_REACHED
+                )
+                : new ProofEvaluationResolution(
+                    record.evaluationState,
+                    ProofResolution.NOT_EVALUATED,
+                    ProofResolutionReason.NOT_EVALUATED_AFTER_TERMINAL_OUTCOME
+                );
+        };
+    }
+
     private void finalizePending(ExecutionRecord record) {
         boolean owner = false;
         synchronized (this) {
@@ -1590,12 +1773,19 @@ final class ProofExecutionCoordinator
         if (deadline != null) {
             cancelDeadlineTask(record, deadline);
         }
+        SemanticControlCoordinator.PreparedControlCancellation controlNotifications = null;
         if (activationControls != null) {
             try {
-                controls.cancelPreparedControls(
+                controlNotifications = controls.cancelPreparedControlsInternally(
                     activationControls.holds,
                     activationControls.guards
                 );
+                for (Throwable failure : controlNotifications.failures()) {
+                    addSecondarySafely(
+                        record,
+                        diagnostic(ProofFailureStage.CLEANUP, failure)
+                    );
+                }
             } catch (RuntimeException | Error failure) {
                 addSecondarySafely(
                     record,
@@ -1605,26 +1795,65 @@ final class ProofExecutionCoordinator
         }
 
         ProofResult frozen;
-        synchronized (this) {
-            frozen = new ProofResult(
-                record.plan.id(),
-                record.plan.title(),
-                record.outcome,
-                record.plan.primarySubject(),
-                record.primaryStimulus,
-                record.primaryResolutions,
-                Optional.ofNullable(record.primaryFailure),
-                List.copyOf(record.secondaryDiagnostics)
-            );
-            record.result = frozen;
-            record.state = ProofExecutionState.COMPLETED;
-            record.finalizationOwner = null;
+        try {
+            synchronized (this) {
+                frozen = new ProofResult(
+                    record.plan.id(),
+                    record.plan.title(),
+                    record.outcome,
+                    record.plan.primarySubject(),
+                    record.primaryStimulus,
+                    record.primaryEvaluation,
+                    record.primaryResolutions,
+                    Optional.ofNullable(record.primaryFailure),
+                    List.copyOf(record.secondaryDiagnostics)
+                );
+                record.result = frozen;
+                record.state = ProofExecutionState.COMPLETED;
+                record.finalizationOwner = null;
+            }
+        } catch (RuntimeException | Error failure) {
+            synchronized (this) {
+                record.finalizing = false;
+                record.finalizationOwner = null;
+            }
+            record.resultReady.completeExceptionally(failure);
+            return;
         }
         record.resultReady.complete(frozen);
+        if (controlNotifications != null) {
+            controlNotifications.deliver();
+        }
     }
 
     private ProofResult awaitResult(ExecutionRecord record) {
         return record.resultReady.join();
+    }
+
+    private static void joinObservationRefresh(CompletionStage<Void> refresh) {
+        try {
+            Objects.requireNonNull(
+                refresh,
+                "Proof observation refresher must return a completion stage"
+            ).toCompletableFuture().join();
+        } catch (CompletionException failure) {
+            Throwable cause = unwrapCompletionFailure(failure);
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new CompletionException(cause);
+        }
+    }
+
+    private static Throwable unwrapCompletionFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current instanceof CompletionException && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private RuntimeProofPrerequisite requirePrerequisite(ProofPrerequisite prerequisite) {
@@ -1686,6 +1915,17 @@ final class ProofExecutionCoordinator
         event.predecessor().ifPresent(interactions::add);
         event.successor().ifPresent(interactions::add);
         return List.copyOf(interactions);
+    }
+
+    private boolean isWithinEvidenceWindow(
+        ExecutionRecord record,
+        InteractionRef interaction
+    ) {
+        ProofEvidenceWindowTracker.EvidenceWindow evidenceWindow = record.evidenceWindow;
+        if (evidenceWindow == null) {
+            return false;
+        }
+        return connections.isWithinProofEvidenceWindow(evidenceWindow, interaction);
     }
 
     private static RequirementState first(ExecutionRecord record, ProofResolution resolution) {
@@ -1819,6 +2059,19 @@ final class ProofExecutionCoordinator
     }
 
     @FunctionalInterface
+    interface ObservationRefresher {
+        CompletionStage<Void> refresh(Set<ConnectionId> connectionIds);
+    }
+
+    interface BoundaryObserver {
+        BoundaryObserver NONE = new BoundaryObserver() {};
+
+        default void deadlineBoundaryReached() {}
+
+        default void evaluationBoundaryReached() {}
+    }
+
+    @FunctionalInterface
     interface DeadlineTask {
         void cancel();
     }
@@ -1877,6 +2130,38 @@ final class ProofExecutionCoordinator
         }
     }
 
+    private record ControlMetadata(
+        Map<SemanticHoldRef, SemanticControlCoordinator.HoldDeclaration> holds,
+        Map<SemanticPredecessorGuardRef, SemanticControlCoordinator.GuardDeclaration> guards
+    ) {
+        private ControlMetadata {
+            holds = Map.copyOf(Objects.requireNonNull(holds, "holds must not be null"));
+            guards = Map.copyOf(Objects.requireNonNull(guards, "guards must not be null"));
+        }
+
+        private SemanticControlCoordinator.HoldDeclaration hold(SemanticHoldRef ref) {
+            SemanticControlCoordinator.HoldDeclaration declaration = holds.get(ref);
+            if (declaration == null) {
+                throw new ProofConfigurationException(
+                    "Semantic hold metadata is unavailable for the proof plan"
+                );
+            }
+            return declaration;
+        }
+
+        private SemanticControlCoordinator.GuardDeclaration guard(
+            SemanticPredecessorGuardRef ref
+        ) {
+            SemanticControlCoordinator.GuardDeclaration declaration = guards.get(ref);
+            if (declaration == null) {
+                throw new ProofConfigurationException(
+                    "Predecessor guard metadata is unavailable for the proof plan"
+                );
+            }
+            return declaration;
+        }
+    }
+
     private record ObservationSeed(
         RequirementState state,
         RuntimeConnectionSnapshot snapshot
@@ -1889,7 +2174,8 @@ final class ProofExecutionCoordinator
 
     private ProofRequirementDescriptor descriptor(
         ProofPlan plan,
-        ProofPlan.Requirement requirement
+        ProofPlan.Requirement requirement,
+        ControlMetadata controls
     ) {
         return switch (requirement) {
             case ProofPlan.Prerequisite value ->
@@ -1911,25 +2197,36 @@ final class ProofExecutionCoordinator
             case ProofPlan.HoldControl value ->
                 new ProofRequirementDescriptor.HoldControl(
                     value.holdRef(),
-                    value.expectedState()
+                    value.expectedState(),
+                    controls.hold(value.holdRef()).connectionId()
                 );
             case ProofPlan.GuardControl value ->
                 new ProofRequirementDescriptor.GuardControl(
                     value.guardRef(),
-                    value.expectedState()
+                    value.expectedState(),
+                    controls.guard(value.guardRef()).predecessorConnectionId(),
+                    controls.guard(value.guardRef()).successorConnectionId()
                 );
             case ProofPlan.HoldEvidence value ->
                 new ProofRequirementDescriptor.HoldEvidence(
                     value.holdRef(),
-                    value.evidenceKind()
+                    value.evidenceKind(),
+                    controls.hold(value.holdRef()).connectionId()
                 );
             case ProofPlan.GuardEvidence value ->
                 new ProofRequirementDescriptor.GuardEvidence(
                     value.guardRef(),
-                    value.evidenceKind()
+                    value.evidenceKind(),
+                    value.evidenceKind() == ProofEvidenceKind.PREDECESSOR_INTERACTION
+                        ? controls.guard(value.guardRef()).predecessorConnectionId()
+                        : controls.guard(value.guardRef()).successorConnectionId()
                 );
             case ProofPlan.CausalRelation value ->
-                new ProofRequirementDescriptor.CausalRelation(value.guardRef());
+                new ProofRequirementDescriptor.CausalRelation(
+                    value.guardRef(),
+                    controls.guard(value.guardRef()).predecessorConnectionId(),
+                    controls.guard(value.guardRef()).successorConnectionId()
+                );
         };
     }
 
@@ -1943,7 +2240,7 @@ final class ProofExecutionCoordinator
     private static final class ExecutionRecord {
         private final ProofPlan plan;
         private final ExecutionHandle handle;
-        private final Consumer<Set<ConnectionId>> refreshObservation;
+        private final ObservationRefresher refreshObservation;
         private final Set<ConnectionId> requiredObservationConnections;
         private final List<RequirementState> states;
         private final Map<ConnectionId, RequirementState> observations = new HashMap<>();
@@ -1968,20 +2265,23 @@ final class ProofExecutionCoordinator
         private ProofResult result;
         private List<ProofObligationResolution> primaryResolutions;
         private ProofStimulusResolution primaryStimulus;
+        private ProofEvaluationResolution primaryEvaluation;
         private ProofStimulusResolution stimulusTerminal;
         private DeadlineTask deadlineTask;
         private boolean deadlineInstalling;
         private ActivationControls activationControls;
         private StimulusLifecycle stimulusLifecycle = StimulusLifecycle.NOT_STARTED;
+        private ProofEvaluationState evaluationState = ProofEvaluationState.NOT_STARTED;
         private Thread finalizationOwner;
         private boolean finalizing;
         private boolean activationReached;
-        private boolean acceptActivationFacts;
+        private ProofEvidenceWindowTracker.EvidenceWindow evidenceWindow;
 
         private ExecutionRecord(
             ProofPlan plan,
             ProofExecutionCoordinator coordinator,
-            Consumer<Set<ConnectionId>> refreshObservation
+            ObservationRefresher refreshObservation,
+            ControlMetadata controlMetadata
         ) {
             this.plan = Objects.requireNonNull(plan, "plan must not be null");
             this.refreshObservation = Objects.requireNonNull(
@@ -1992,7 +2292,7 @@ final class ProofExecutionCoordinator
             states = plan.requirements().stream()
                 .map(requirement -> new RequirementState(
                     requirement,
-                    coordinator.descriptor(plan, requirement)
+                    coordinator.descriptor(plan, requirement, controlMetadata)
                 ))
                 .toList();
             LinkedHashSet<ConnectionId> requiredConnections = new LinkedHashSet<>();

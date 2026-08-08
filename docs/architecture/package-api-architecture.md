@@ -215,8 +215,8 @@ remove the marker, and unrelated connections remain independent.
   `ProofObligationId`, frozen `ProofPlan.Requirement` records, `ProofExecutionState`, `ProofOutcome`,
   `ProofResolution`, `ProofResolutionReason`, `ProofRequirementKind`, `ProofEvidenceKind`,
   `ProofPrerequisiteStatus`, `ProofDiagnostic`, `ProofRequirementDescriptor` and its typed records,
-  `ProofStimulusState`, `ProofStimulusResolution`, `ProofObligationResolution`, `ProofReport`, and
-  `ProofResult`.
+  `ProofStimulusState`, `ProofStimulusResolution`, `ProofEvaluationState`,
+  `ProofEvaluationResolution`, `ProofObligationResolution`, `ProofReport`, and `ProofResult`.
 - Topology inspection: `CompatibilityResult`, `ConnectionDescriptor`, `ConnectionId`,
   `ConnectionRef`, `PortDirection`, `PortRef`.
 
@@ -239,8 +239,9 @@ Only these core types remain Java-public without compatibility support:
 
 `EnvironmentRuntime`, its factory, assembly, lifecycle, inspector, component supervisor, connection
 registry, proof registry, proof execution coordinator, protocol-neutral outcome evaluator,
-proof current-state index, journal store, classified diagnostics capture, emitter, and failure
-accumulator are package-private. `EnvironmentTopology.runtimeComponents()` is package-private; public topology
+proof evidence-window watermark tracker, proof current-state index, journal store, classified
+diagnostics capture, emitter, and failure accumulator are package-private.
+`EnvironmentTopology.runtimeComponents()` is package-private; public topology
 inspection returns only `List<Component>` and logical connections. `EnvironmentLogging` exposes
 only `logs()` and `defaults()` plus value methods; threshold lookup and `validateAgainst(...)` are
 package-private. Its builder is the supported mutation boundary.

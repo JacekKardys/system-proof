@@ -32,6 +32,7 @@ final class RuntimeConnectionRegistry {
     private final RuntimeConnectionCatalog catalog;
     private final EnvironmentEventPublisher events;
     private final ProofObservationListener proofObservations;
+    private final ProofEvidenceWindowTracker evidenceWindows;
 
     RuntimeConnectionRegistry(
         List<ConnectionRef> declarations,
@@ -135,17 +136,44 @@ final class RuntimeConnectionRegistry {
         SemanticControlCapabilityRegistry controlCapabilities,
         ProofObservationListener proofObservations
     ) {
+        this(
+            declarations,
+            events,
+            routing,
+            coordinator,
+            proofSubjects,
+            controlCapabilities,
+            proofObservations,
+            new ProofEvidenceWindowTracker()
+        );
+    }
+
+    RuntimeConnectionRegistry(
+        List<ConnectionRef> declarations,
+        EnvironmentEventPublisher events,
+        ConnectionRouting routing,
+        InteractionDecisionCoordinator coordinator,
+        ProofSubjectRegistry proofSubjects,
+        SemanticControlCapabilityRegistry controlCapabilities,
+        ProofObservationListener proofObservations,
+        ProofEvidenceWindowTracker evidenceWindows
+    ) {
         this.events = Objects.requireNonNull(events, "events must not be null");
         this.proofObservations = Objects.requireNonNull(
             proofObservations,
             "proofObservations must not be null"
+        );
+        this.evidenceWindows = Objects.requireNonNull(
+            evidenceWindows,
+            "evidenceWindows must not be null"
         );
         catalog = new RuntimeConnectionCatalog(
             declarations,
             events,
             routing,
             coordinator,
-            proofSubjects
+            proofSubjects,
+            evidenceWindows
         );
         Objects.requireNonNull(
             controlCapabilities,
@@ -157,6 +185,23 @@ final class RuntimeConnectionRegistry {
             connection.requiredObservationProfile()
         ));
         catalog.all().forEach(this::recordLifecycle);
+    }
+
+    ProofEvidenceWindowTracker.EvidenceWindow openProofEvidenceWindow() {
+        return evidenceWindows.openWindow();
+    }
+
+    boolean isWithinProofEvidenceWindow(
+        ProofEvidenceWindowTracker.EvidenceWindow window,
+        io.github.jacekkardys.systemproof.observation.InteractionRef interaction
+    ) {
+        window = Objects.requireNonNull(window, "window must not be null");
+        if (!window.belongsTo(evidenceWindows)) {
+            throw new IllegalArgumentException(
+                "Proof evidence window belongs to a different environment execution"
+            );
+        }
+        return window.includes(interaction);
     }
 
     synchronized void beginStartup() {

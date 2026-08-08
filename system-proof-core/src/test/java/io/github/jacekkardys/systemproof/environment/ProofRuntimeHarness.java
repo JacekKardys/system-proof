@@ -46,11 +46,24 @@ final class ProofRuntimeHarness implements AutoCloseable {
         ProofOutcomeEvaluator evaluator,
         SemanticControlCoordinator.TimeoutScheduler controlTimeouts
     ) {
+        this(deadlineScheduler, evaluator, controlTimeouts, BoundaryHooks.NONE);
+    }
+
+    private ProofRuntimeHarness(
+        ManualDeadlineScheduler deadlineScheduler,
+        ProofOutcomeEvaluator evaluator,
+        SemanticControlCoordinator.TimeoutScheduler controlTimeouts,
+        BoundaryHooks boundaryHooks
+    ) {
         deadlines = java.util.Objects.requireNonNull(
             deadlineScheduler,
             "deadlineScheduler must not be null"
         );
-        proofs = new ProofExecutionCoordinator(deadlines, evaluator);
+        boundaryHooks = java.util.Objects.requireNonNull(
+            boundaryHooks,
+            "boundaryHooks must not be null"
+        );
+        proofs = new ProofExecutionCoordinator(deadlines, evaluator, boundaryHooks);
         route = new ProofTestFixture.RouteProvider();
         ProofTestFixture.Client client = new ProofTestFixture.Client();
         ProofTestFixture.Server server = new ProofTestFixture.Server();
@@ -61,10 +74,42 @@ final class ProofRuntimeHarness implements AutoCloseable {
         EnvironmentLogging logging = EnvironmentLogging.defaults();
         ScenarioJournal journal = ScenarioJournal.withoutDiagnosticTime();
         JournalRenderer renderer = new JournalRenderer();
+        BoundaryHooks hooks = boundaryHooks;
+        ProofFactObserver observedFacts = new ProofFactObserver() {
+            @Override
+            public void fact(io.github.jacekkardys.systemproof.journal.ScenarioEvent event) {
+                hooks.beforeProofFact(event);
+                proofs.fact(event);
+            }
+
+            @Override
+            public void journalFailure(Throwable failure) {
+                proofs.journalFailure(failure);
+            }
+        };
+        ProofObservationListener observedProofState = new ProofObservationListener() {
+            @Override
+            public void observationChanged(
+                io.github.jacekkardys.systemproof.environment.state.RuntimeConnectionSnapshot snapshot
+            ) {
+                proofs.observationChanged(snapshot);
+            }
+
+            @Override
+            public void requiredObservationFailed(ConnectionId connectionId) {
+                hooks.beforeRequiredObservationFailure(connectionId);
+                proofs.requiredObservationFailed(connectionId);
+            }
+
+            @Override
+            public void finalizePending() {
+                proofs.finalizePending();
+            }
+        };
         events = new EnvironmentEventPublisher(
             journal,
             new JournalSlf4jEmitter(logging, renderer),
-            proofs
+            observedFacts
         );
         proofSubjects = new ProofSubjectRegistry(events);
         SemanticControlCapabilityRegistry capabilities =
@@ -74,7 +119,7 @@ final class ProofRuntimeHarness implements AutoCloseable {
             proofSubjects,
             capabilities,
             controlTimeouts,
-            proofs
+            observedProofState
         );
         connections = new RuntimeConnectionRegistry(
             topology.connections(),
@@ -87,7 +132,8 @@ final class ProofRuntimeHarness implements AutoCloseable {
             controls,
             proofSubjects,
             capabilities,
-            proofs
+            observedProofState,
+            new ProofEvidenceWindowTracker(hooks::beforeEvidenceWindow)
         );
         proofs.bind(proofSubjects, controls, connections);
         ComponentExecutionPlan plan = ComponentExecutionPlan.create(
@@ -175,6 +221,15 @@ final class ProofRuntimeHarness implements AutoCloseable {
         );
     }
 
+    static ProofRuntimeHarness startWithBoundaryHooks(BoundaryHooks hooks) {
+        return new ProofRuntimeHarness(
+            new ManualDeadlineScheduler(),
+            ProofOutcomeEvaluator.failClosed(),
+            new PassiveControlTimeoutScheduler(),
+            hooks
+        );
+    }
+
     SemanticPredecessorGuard declareGuard() {
         SemanticInteractionSelector<String> predecessor = selector("predecessor");
         return controls.declareGuard(SemanticPredecessorGuardSpec.requiring(
@@ -199,6 +254,12 @@ final class ProofRuntimeHarness implements AutoCloseable {
     }
 
     void publish(String value) {
+        Recorded recorded = record(value);
+        correlate(recorded, value);
+        forward(recorded);
+    }
+
+    Recorded record(String value) {
         InteractionSession session = route.observations().openSession();
         io.github.jacekkardys.systemproof.observation.RecordedInteraction interaction =
             session.record(
@@ -206,17 +267,32 @@ final class ProofRuntimeHarness implements AutoCloseable {
                 ProofTestFixture.TextCodec.INSTANCE,
                 value
             );
-        session.correlate(
-            interaction.interactionRef(),
+        return new Recorded(session, interaction);
+    }
+
+    void correlate(Recorded recorded, String value) {
+        correlate(
+            recorded,
+            "successor".equals(value) ? successorKey : key,
+            value
+        );
+    }
+
+    void correlate(Recorded recorded, CorrelationKey correlationKey, String value) {
+        recorded.session().correlate(
+            recorded.interaction().interactionRef(),
             CorrelationContribution.capture(
-                "successor".equals(value) ? successorKey : key,
+                correlationKey,
                 ProofTestFixture.NativeCodec.INSTANCE,
                 value
             )
         );
+    }
+
+    void forward(Recorded recorded) {
         try {
             io.github.jacekkardys.systemproof.observation.ForwardingPermit permit =
-                route.coordinator().permit(interaction);
+                route.coordinator().permit(recorded.interaction());
             if (permit.awaitDecision()
                 == io.github.jacekkardys.systemproof.observation.ForwardingDecision.FORWARD) {
                 permit.forwarded();
@@ -225,6 +301,23 @@ final class ProofRuntimeHarness implements AutoCloseable {
             Thread.currentThread().interrupt();
             throw new AssertionError("Interrupted while publishing a proof fact", interrupted);
         }
+    }
+
+    record Recorded(
+        InteractionSession session,
+        io.github.jacekkardys.systemproof.observation.RecordedInteraction interaction
+    ) {}
+
+    interface BoundaryHooks extends ProofExecutionCoordinator.BoundaryObserver {
+        BoundaryHooks NONE = new BoundaryHooks() {};
+
+        default void beforeEvidenceWindow() {}
+
+        default void beforeProofFact(
+            io.github.jacekkardys.systemproof.journal.ScenarioEvent event
+        ) {}
+
+        default void beforeRequiredObservationFailure(ConnectionId connectionId) {}
     }
 
     void cleanupFailure() {
@@ -302,10 +395,13 @@ final class ProofRuntimeHarness implements AutoCloseable {
         }
     }
 
-    private void refreshObservation(java.util.Set<ConnectionId> connectionIds) {
+    private java.util.concurrent.CompletionStage<Void> refreshObservation(
+        java.util.Set<ConnectionId> connectionIds
+    ) {
         RuntimeConnectionRegistry.ObservationBatch batch =
             execution.observationRefreshBatch(connectionIds);
         execution.applyObservationRefresh(batch.evaluate(), connectionIds);
+        return java.util.concurrent.CompletableFuture.completedFuture(null);
     }
 
     private static CorrelationKey key(int seed) {

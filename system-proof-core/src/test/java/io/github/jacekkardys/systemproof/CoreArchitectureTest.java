@@ -215,6 +215,8 @@ class CoreArchitectureTest {
         proof.CorrelationResult$Missing
         proof.CorrelationResult$Unique
         proof.ProofDiagnostic
+        proof.ProofEvaluationResolution
+        proof.ProofEvaluationState
         proof.ProofEvidenceKind
         proof.ProofExecutionState
         proof.ProofFailureStage
@@ -368,6 +370,10 @@ class CoreArchitectureTest {
         proof.CorrelationCardinality#AMBIGUOUS:proof.CorrelationCardinality
         proof.CorrelationCardinality#MISSING:proof.CorrelationCardinality
         proof.CorrelationCardinality#UNIQUE:proof.CorrelationCardinality
+        proof.ProofEvaluationState#COMPLETED:proof.ProofEvaluationState
+        proof.ProofEvaluationState#FAILED:proof.ProofEvaluationState
+        proof.ProofEvaluationState#NOT_STARTED:proof.ProofEvaluationState
+        proof.ProofEvaluationState#RUNNING:proof.ProofEvaluationState
         proof.ProofEvidenceKind#HELD_INTERACTION:proof.ProofEvidenceKind
         proof.ProofEvidenceKind#PREDECESSOR_INTERACTION:proof.ProofEvidenceKind
         proof.ProofEvidenceKind#SUCCESSOR_INTERACTION:proof.ProofEvidenceKind
@@ -422,6 +428,9 @@ class CoreArchitectureTest {
         proof.ProofResolutionReason#CORRELATION_MISSING:proof.ProofResolutionReason
         proof.ProofResolutionReason#CORRELATION_UNIQUE:proof.ProofResolutionReason
         proof.ProofResolutionReason#DEADLINE_EXPIRED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#EVALUATION_COMPLETED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#EVALUATION_FAILED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#EVALUATION_NOT_REACHED:proof.ProofResolutionReason
         proof.ProofResolutionReason#EVIDENCE_MISSING:proof.ProofResolutionReason
         proof.ProofResolutionReason#EVIDENCE_PRESENT:proof.ProofResolutionReason
         proof.ProofResolutionReason#NOT_EVALUATED_AFTER_TERMINAL_OUTCOME:proof.ProofResolutionReason
@@ -803,6 +812,7 @@ class CoreArchitectureTest {
         );
         assertThat(methodKeys(result)).containsExactly(
             "decisiveResolution():java.util.Optional",
+            "evaluation():proof.ProofEvaluationResolution",
             "outcome():proof.ProofOutcome",
             "planId():proof.ProofPlanId",
             "primaryFailure():java.util.Optional",

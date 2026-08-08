@@ -24,6 +24,8 @@ import io.github.jacekkardys.systemproof.proof.ProofDiagnostic;
 import io.github.jacekkardys.systemproof.proof.CorrelationKey;
 import io.github.jacekkardys.systemproof.proof.CorrelationKeySchema;
 import io.github.jacekkardys.systemproof.proof.ProofEvidenceKind;
+import io.github.jacekkardys.systemproof.proof.ProofEvaluationResolution;
+import io.github.jacekkardys.systemproof.proof.ProofEvaluationState;
 import io.github.jacekkardys.systemproof.proof.ProofExecution;
 import io.github.jacekkardys.systemproof.proof.ProofFailureStage;
 import io.github.jacekkardys.systemproof.proof.ProofObligationId;
@@ -45,7 +47,7 @@ class ProofExecutionFollowUpTest {
     private static final Duration DEADLINE = Duration.ofSeconds(30);
 
     @Test
-    void shouldRetainAControlTerminalFactBeforeTheActivationBoundary() {
+    void shouldFailActivationWhenAControlBecomesTerminalBeforeTheEvidenceWindow() {
         try (ProofRuntimeHarness harness =
                  ProofRuntimeHarness.startWithImmediateControlTimeout()) {
             SemanticPredecessorGuard guard = harness.declareGuard();
@@ -53,12 +55,10 @@ class ProofExecutionFollowUpTest {
 
             ProofResult result = execution.result();
 
-            assertThat(result.outcome()).isEqualTo(ProofOutcome.INCONCLUSIVE);
-            assertThat(result.resolutions()).anySatisfy(resolution -> {
-                assertThat(resolution.descriptor())
-                    .isInstanceOf(ProofRequirementDescriptor.GuardControl.class);
-                assertThat(resolution.resolution()).isEqualTo(ProofResolution.TIMED_OUT);
-            });
+            assertThat(result.outcome()).isEqualTo(ProofOutcome.ERROR);
+            assertThat(result.primaryFailure()).hasValueSatisfying(failure ->
+                assertThat(failure.stage()).isEqualTo(ProofFailureStage.ACTIVATION)
+            );
         }
     }
 
@@ -394,14 +394,12 @@ class ProofExecutionFollowUpTest {
                 ProofResolution.SATISFIED,
                 ProofResolutionReason.PREREQUISITE_SATISFIED
             );
-            ProofObligationResolution missing = prerequisiteResolution(
+            ProofObligationResolution missing = observationResolution(
                 ProofResolution.MISSING,
-                ProofResolutionReason.ACTIVATION_NOT_REACHED
+                ProofResolutionReason.OBSERVATION_LOST,
+                harness.connectionId
             );
-            ProofObligationResolution violated = prerequisiteResolution(
-                ProofResolution.VIOLATED,
-                ProofResolutionReason.CAUSAL_RELATION_VIOLATED
-            );
+            ProofObligationResolution violated = violatedRelation(harness);
             ProofObligationResolution failed = prerequisiteResolution(
                 ProofResolution.FAILED,
                 ProofResolutionReason.PREREQUISITE_FAILED
@@ -434,6 +432,144 @@ class ProofExecutionFollowUpTest {
                 failed
             );
             assertInvalidResult(harness, ProofOutcome.ERROR, incompleteStimulus(), missing);
+            assertThatThrownBy(() -> new ProofResult(
+                new ProofPlanId("invalid-deadline-proved"),
+                "Invalid deadline proved",
+                ProofOutcome.PROVED,
+                harness.subject,
+                completedStimulus(),
+                new ProofEvaluationResolution(
+                    ProofEvaluationState.RUNNING,
+                    ProofResolution.TIMED_OUT,
+                    ProofResolutionReason.DEADLINE_EXPIRED
+                ),
+                List.of(satisfied),
+                Optional.empty(),
+                List.of()
+            )).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void shouldRejectForgedDescriptorResolutionReasonAndProvenanceMatrices() {
+        try (ProofRuntimeHarness harness = ProofRuntimeHarness.start()) {
+            ConnectionId otherConnection = ConnectionId.of(
+                "other-client[].required->other-server[].provided"
+            );
+            InteractionRef otherInteraction = new InteractionRef(
+                new SessionId(otherConnection, 1),
+                FlowDirection.CONSUMER_TO_PROVIDER,
+                1
+            );
+            SemanticPredecessorGuard guard = harness.declareGuard();
+
+            assertThatThrownBy(() -> new ProofObligationResolution(
+                new ProofObligationId("forged-prerequisite"),
+                ProofRequirementKind.PREREQUISITE,
+                new ProofRequirementDescriptor.Prerequisite(
+                    ProofPrerequisiteStatus.SATISFIED
+                ),
+                ProofResolution.VIOLATED,
+                ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
+                Optional.empty(),
+                List.of()
+            )).isInstanceOf(IllegalArgumentException.class);
+
+            assertThatThrownBy(() -> new ProofObligationResolution(
+                new ProofObligationId("forged-correlation-reason"),
+                ProofRequirementKind.CORRELATION,
+                new ProofRequirementDescriptor.Correlation(
+                    harness.subject,
+                    harness.key,
+                    harness.connectionId,
+                    ProofTestFixture.NATIVE_SCHEMA
+                ),
+                ProofResolution.MISSING,
+                ProofResolutionReason.EVIDENCE_MISSING,
+                Optional.of(harness.connectionId),
+                List.of()
+            )).isInstanceOf(IllegalArgumentException.class);
+
+            assertThatThrownBy(() -> new ProofObligationResolution(
+                new ProofObligationId("forged-correlation-connection"),
+                ProofRequirementKind.CORRELATION,
+                new ProofRequirementDescriptor.Correlation(
+                    harness.subject,
+                    harness.key,
+                    harness.connectionId,
+                    ProofTestFixture.NATIVE_SCHEMA
+                ),
+                ProofResolution.SATISFIED,
+                ProofResolutionReason.CORRELATION_UNIQUE,
+                Optional.of(harness.connectionId),
+                List.of(otherInteraction)
+            )).isInstanceOf(IllegalArgumentException.class);
+
+            assertThatThrownBy(() -> new ProofObligationResolution(
+                new ProofObligationId("forged-violation-provenance"),
+                ProofRequirementKind.CAUSAL_RELATION,
+                new ProofRequirementDescriptor.CausalRelation(
+                    guard.ref(),
+                    otherConnection,
+                    harness.connectionId
+                ),
+                ProofResolution.VIOLATED,
+                ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
+                Optional.of(harness.connectionId),
+                List.of(otherInteraction)
+            )).isInstanceOf(IllegalArgumentException.class);
+
+            assertThatThrownBy(() -> new ProofObligationResolution(
+                new ProofObligationId("forged-not-evaluated-reason"),
+                ProofRequirementKind.OBSERVATION,
+                new ProofRequirementDescriptor.Observation(
+                    harness.connectionId,
+                    ProofTestFixture.PROFILE
+                ),
+                ProofResolution.NOT_EVALUATED,
+                ProofResolutionReason.OBSERVATION_LOST,
+                Optional.of(harness.connectionId),
+                List.of()
+            )).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void shouldSortAndCapDiagnosticsSuppliedThroughThePublicResultContract() {
+        try (ProofRuntimeHarness harness = ProofRuntimeHarness.start()) {
+            List<ProofDiagnostic> supplied = new ArrayList<>();
+            for (int index = 0; index < 20; index++) {
+                supplied.add(new ProofDiagnostic(
+                    ProofFailureStage.JOURNAL,
+                    FailureDetails.from(new BetaSecondaryFailure())
+                ));
+                supplied.add(new ProofDiagnostic(
+                    ProofFailureStage.CLEANUP,
+                    FailureDetails.from(new AlphaSecondaryFailure())
+                ));
+            }
+
+            ProofResult result = new ProofResult(
+                new ProofPlanId("public-diagnostic-order"),
+                "Public diagnostic order",
+                ProofOutcome.PROVED,
+                harness.subject,
+                completedStimulus(),
+                List.of(prerequisiteResolution(
+                    ProofResolution.SATISFIED,
+                    ProofResolutionReason.PREREQUISITE_SATISFIED
+                )),
+                Optional.empty(),
+                supplied
+            );
+
+            List<ProofDiagnostic> expected = supplied.stream()
+                .sorted(java.util.Comparator
+                    .comparing((ProofDiagnostic value) -> value.stage().ordinal())
+                    .thenComparing(value -> value.failure().failureType()))
+                .limit(32)
+                .toList();
+            assertThat(result.secondaryDiagnostics()).containsExactlyElementsOf(expected);
         }
     }
 
@@ -521,6 +657,7 @@ class ProofExecutionFollowUpTest {
     @Test
     void shouldKeepTheDecisiveReasonInAMaximumSizeTruncatedReport() {
         try (ProofRuntimeHarness harness = ProofRuntimeHarness.start()) {
+            SemanticPredecessorGuard guard = harness.declareGuard();
             String source = "s".repeat(980);
             String target = "t".repeat(980);
             ConnectionId connectionId = ConnectionId.of(
@@ -540,17 +677,16 @@ class ProofExecutionFollowUpTest {
             for (int index = 0; index < 256; index++) {
                 resolutions.add(new ProofObligationResolution(
                     new ProofObligationId("obligation-" + index + "-" + "x".repeat(100)),
-                    ProofRequirementKind.OBSERVATION,
-                    new ProofRequirementDescriptor.Observation(
+                    ProofRequirementKind.CAUSAL_RELATION,
+                    new ProofRequirementDescriptor.CausalRelation(
+                        guard.ref(),
                         connectionId,
-                        ProofTestFixture.PROFILE
+                        connectionId
                     ),
-                    index == 0 ? ProofResolution.VIOLATED : ProofResolution.NOT_EVALUATED,
-                    index == 0
-                        ? ProofResolutionReason.CAUSAL_RELATION_VIOLATED
-                        : ProofResolutionReason.NOT_EVALUATED_AFTER_TERMINAL_OUTCOME,
+                    ProofResolution.VIOLATED,
+                    ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
                     Optional.of(connectionId),
-                    List.of(first, second)
+                    List.of(second)
                 ));
             }
 
@@ -566,7 +702,7 @@ class ProofExecutionFollowUpTest {
             );
 
             assertThat(result.report().content()).contains(
-                "decisive=OBSERVATION/obligation-0-"
+                "decisive=CAUSAL_RELATION/obligation-0-"
             ).contains("[PROOF REPORT TRUNCATED]");
             assertThat(result.report().content().indexOf("decisive="))
                 .isLessThan(result.report().content().indexOf("[PROOF REPORT TRUNCATED]"));
@@ -699,12 +835,55 @@ class ProofExecutionFollowUpTest {
             new ProofObligationId("matrix-" + resolution.name().toLowerCase()),
             ProofRequirementKind.PREREQUISITE,
             new ProofRequirementDescriptor.Prerequisite(
-                ProofPrerequisiteStatus.SATISFIED
+                resolution == ProofResolution.FAILED
+                    ? ProofPrerequisiteStatus.FAILED
+                    : ProofPrerequisiteStatus.SATISFIED
             ),
             resolution,
             reason,
             Optional.empty(),
             List.of()
+        );
+    }
+
+    private static ProofObligationResolution observationResolution(
+        ProofResolution resolution,
+        ProofResolutionReason reason,
+        ConnectionId connectionId
+    ) {
+        return new ProofObligationResolution(
+            new ProofObligationId("matrix-observation"),
+            ProofRequirementKind.OBSERVATION,
+            new ProofRequirementDescriptor.Observation(
+                connectionId,
+                ProofTestFixture.PROFILE
+            ),
+            resolution,
+            reason,
+            Optional.of(connectionId),
+            List.of()
+        );
+    }
+
+    private static ProofObligationResolution violatedRelation(ProofRuntimeHarness harness) {
+        SemanticPredecessorGuard guard = harness.declareGuard();
+        InteractionRef successor = new InteractionRef(
+            new SessionId(harness.connectionId, 1),
+            FlowDirection.CONSUMER_TO_PROVIDER,
+            1
+        );
+        return new ProofObligationResolution(
+            new ProofObligationId("matrix-violation"),
+            ProofRequirementKind.CAUSAL_RELATION,
+            new ProofRequirementDescriptor.CausalRelation(
+                guard.ref(),
+                harness.connectionId,
+                harness.connectionId
+            ),
+            ProofResolution.VIOLATED,
+            ProofResolutionReason.CAUSAL_RELATION_VIOLATED,
+            Optional.of(harness.connectionId),
+            List.of(successor)
         );
     }
 

@@ -43,6 +43,16 @@ NOT_STARTED -> RUNNING -> COMPLETED
                       \-> FAILED
 ```
 
+Explicit evaluation has a separate typed lifecycle:
+
+```text
+NOT_STARTED -> RUNNING -> COMPLETED
+                       \-> FAILED
+```
+
+A deadline may freeze `NOT_STARTED` or `RUNNING` evaluation as `TIMED_OUT/DEADLINE_EXPIRED` in the
+result without pretending that evaluation completed.
+
 `evaluate()` before or during the stimulus is deterministic API misuse and throws
 `IllegalStateException`; it does not manufacture an outcome. `PROVED` requires exactly one
 successfully completed stimulus. A thrown stimulus fixes terminal `ERROR`. Activation-time
@@ -60,9 +70,16 @@ that was already armed; cancellation never authorizes held traffic. Only after a
 armed does the control coordinator invoke an internal activation boundary while retaining its
 monitor. That boundary atomically enters `ACTIVE`; autonomous control terminal transitions cannot
 interleave between the final armed validation and activation. The deadline is scheduled outside
-framework monitors and installed only if the execution is still active. Facts published before
-the evidence window cannot satisfy the execution, while relevant facts produced during the
-arming transaction are reconciled rather than discarded.
+framework monitors and installed only if the execution is still active.
+
+The observation owner assigns every `InteractionRef` and records its session/direction ordinal
+before journal publication and any proof or control callback. At the control-owned activation
+boundary, while the control monitor is still held, the runtime captures the current ordinal
+watermark for every observed stream and installs the resulting membership predicate into the
+proof execution and all prepared controls. Only identities after that watermark, or from streams
+created later, belong to the evidence window. Callback arrival time is irrelevant: an interaction
+observed before the boundary cannot satisfy correlation, evidence, a hold, a guard, or a relation
+even if its callback is delayed until after `ACTIVE`.
 
 ## Read model and evaluation
 
@@ -89,10 +106,21 @@ index. Terminal `FAILED`/`DEGRADED` cache semantics and semantic-control observa
 markers remain authoritative; later `ACTIVE` cannot restore lost coverage.
 
 Proof refresh batches contain only the exact `ConnectionId`s declared by the frozen plan. A
-provider for an unrelated connection is never called. Connection-scoped materialization and
-cleanup failures affect a proof only when that connection is required; environment-wide and
-journal-integrity failures remain fail-closed. Required-observation failure and final evaluation
-share the semantic-control monitor as their authoritative boundary.
+provider for an unrelated connection is never called. Explicit evaluation starts at most one
+asynchronous required-provider refresh; concurrent callers share that single flight. The proof
+deadline bounds their wait. Environment teardown shuts down the daemon refresh worker without
+waiting for a blocked provider, and any result arriving after terminal proof or environment close
+is ignored. An actual required-provider failure before the deadline makes the proof `ERROR`.
+There is no unbounded work queue. Connection-scoped materialization and cleanup failures affect a
+proof only when that connection is required; environment-wide and journal-integrity failures remain
+fail-closed.
+
+Required-observation failure, explicit evaluation, correlation revalidation, and the deadline
+cross the same nested semantic-control and proof-subject boundaries. Therefore their order, not
+thread scheduling or callback arrival, determines the terminal result. Deadline expiry always
+freezes `INCONCLUSIVE` with an evaluation `TIMED_OUT/DEADLINE_EXPIRED` gap unless `VIOLATED` or
+`ERROR` was already terminal. It never invokes the outcome evaluator to manufacture `PROVED` and
+never rewrites an already satisfied obligation.
 
 At terminal evaluation, every accepted correlation is revalidated under the proof-subject
 registry monitor for the exact subject, key, connection, native-reference schema, and accepted
@@ -117,20 +145,26 @@ The closed outcomes are exactly:
 
 Primary-outcome linearization and completion finalization are separate. The first terminal
 transition fixes the outcome and an immutable resolution/stimulus snapshot. Finalization then
-cancels the deadline and prepared controls outside the proof monitor, catches every cleanup
-failure, deterministically orders and caps retained type-only secondary diagnostics at 32, and
-freezes exactly one result. Cleanup cannot escape or replace the primary outcome. Facts after the
-freeze cannot mutate the public result. Repeated evaluation and early or late result access return
-the same immutable `ProofResult` instance and report.
+cancels the deadline and performs prepared-control state transitions without delivering public
+completion callbacks, catches every cleanup failure, deterministically orders and caps retained
+type-only secondary diagnostics at 32, and freezes exactly one result. Only after result publication
+does it deliver the queued control completions. Cleanup cannot escape or replace the primary
+outcome. Reentrant completion callbacks may call `result()` or `evaluate()` and receive the same
+already frozen object without deadlock. Facts after the freeze cannot mutate the public result.
 
 ## Result and report
 
 `ProofResult` is detached and deeply immutable. It preserves plan identity and bounded title, an
 opaque primary subject, every ordered obligation resolution, decisive evidence identities or the
-decisive gap, the stimulus resolution, unresolved/not-evaluated items, a type-only primary
-failure, and bounded secondary diagnostics. Every obligation resolution carries a detached typed
-descriptor of the exact prerequisite status, observation profile, correlation namespace, control
-reference and expected state, evidence kind, or causal-relation reference evaluated. Its
+decisive gap, the stimulus resolution, the explicit evaluation lifecycle and resolution,
+unresolved/not-evaluated items, a type-only primary failure, and bounded secondary diagnostics.
+Every obligation resolution carries a detached typed descriptor of the exact prerequisite status,
+observation profile, correlation namespace, control reference and expected state, evidence kind,
+or causal-relation reference evaluated. Construction validates the complete descriptor-kind-
+resolution-reason-connection-interaction matrix. Only a guard control or causal relation may be
+`VIOLATED`, and both require exact successor provenance. `NOT_EVALUATED` has one exact terminal
+reason and no interaction provenance. Satisfied items remain satisfied after an independent
+decisive item regardless of declaration order. Its
 deterministic compact `ProofReport` is limited to 64 KiB characters. The outcome and decisive
 reason are rendered before truncatable obligation detail, so they survive worst-case truncation.
 

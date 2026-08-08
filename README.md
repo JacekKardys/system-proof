@@ -139,8 +139,11 @@ stimulus is rejected. Silence, timeout, missing or ambiguous correlation, unsupp
 and an unreached control remain inconclusive. Framework trust failures are errors. An authoritative
 early-successor guard violation remains a violation even if cleanup later fails. The compact result
 report is detached, bounded, deterministic, and type-only for failures. Its resolutions retain
-safe typed requirement descriptors, while the full journal and troubleshooting diagnostics remain
-separate.
+safe typed requirement descriptors. Evidence belongs to an execution only when its observation-
+allocated interaction identity is after the atomically captured activation watermark; delayed
+callback delivery cannot move older traffic into the proof window. The proof deadline also bounds
+required-provider refresh and is reported as a typed evaluation gap, never as successful proof.
+The full journal and troubleshooting diagnostics remain separate.
 
 ## Component declarations
 
