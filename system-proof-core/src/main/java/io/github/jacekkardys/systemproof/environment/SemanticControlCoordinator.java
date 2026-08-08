@@ -206,8 +206,20 @@ final class SemanticControlCoordinator
         List<SemanticHoldRef> holdRefs,
         List<SemanticPredecessorGuardRef> guardRefs
     ) {
+        activatePreparedControls(holdRefs, guardRefs, () -> {});
+    }
+
+    void activatePreparedControls(
+        List<SemanticHoldRef> holdRefs,
+        List<SemanticPredecessorGuardRef> guardRefs,
+        Runnable activationBoundary
+    ) {
         holdRefs = List.copyOf(Objects.requireNonNull(holdRefs, "holdRefs must not be null"));
         guardRefs = List.copyOf(Objects.requireNonNull(guardRefs, "guardRefs must not be null"));
+        activationBoundary = Objects.requireNonNull(
+            activationBoundary,
+            "activationBoundary must not be null"
+        );
         List<Runnable> afterTransition = new ArrayList<>();
         Throwable activationFailure = null;
         synchronized (this) {
@@ -236,6 +248,15 @@ final class SemanticControlCoordinator
                     scheduleGuardTimeout(entry, afterTransition);
                     activatedGuards.add(entry);
                 }
+                if (holds.stream().anyMatch(entry -> entry.state != SemanticHoldState.ARMED)
+                    || preparedGuards.stream().anyMatch(
+                        entry -> entry.state != SemanticPredecessorGuardState.ARMED
+                    )) {
+                    throw new IllegalStateException(
+                        "Prepared controls did not remain ARMED at the activation boundary"
+                    );
+                }
+                activationBoundary.run();
             } catch (RuntimeException | Error failure) {
                 for (HoldEntry entry : activatedHolds) {
                     if (entry.state == SemanticHoldState.ARMED) {
@@ -341,6 +362,7 @@ final class SemanticControlCoordinator
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
             failedRequiredObservationConnections.add(connectionId);
+            proofObservations.requiredObservationFailed(connectionId);
             for (GuardEntry entry : List.copyOf(guards.values())) {
                 if (guardIsActiveForFailureOrTeardown(entry.state)
                     && entry.concerns(connectionId)) {
@@ -358,8 +380,14 @@ final class SemanticControlCoordinator
                 }
             }
         }
-        proofObservations.requiredObservationFailed(connectionId);
         runAfterTransition(afterTransition);
+    }
+
+    void withRequiredObservationBoundary(Runnable action) {
+        Objects.requireNonNull(action, "action must not be null");
+        synchronized (this) {
+            action.run();
+        }
     }
 
     private ForwardingPermit decideLocked(
@@ -531,7 +559,6 @@ final class SemanticControlCoordinator
                         Optional.empty(),
                         afterTransition
                     );
-                    appendGuardViolation(entry);
                     close = true;
                 }
                 case VIOLATED, CANCELLED, TIMED_OUT, FAILED -> {
@@ -823,7 +850,6 @@ final class SemanticControlCoordinator
                     Optional.empty(),
                     afterTransition
                 );
-                appendGuardRelation(entry);
             }
             for (GuardUse use : context.forwardedPredecessors) {
                 GuardEntry entry = use.entry;
@@ -1048,7 +1074,25 @@ final class SemanticControlCoordinator
         Optional<SemanticPredecessorGuardFailure> failure
     ) {
         entry.state = Objects.requireNonNull(next, "next must not be null");
-        appendGuardState(entry, next, failure);
+        if (next == SemanticPredecessorGuardState.SATISFIED) {
+            appendGuardFact(
+                entry,
+                SemanticPredecessorGuardEvent.Kind.TERMINAL,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()
+            );
+        } else if (next == SemanticPredecessorGuardState.VIOLATED) {
+            appendGuardFact(
+                entry,
+                SemanticPredecessorGuardEvent.Kind.TERMINAL,
+                Optional.of(ForwardingDecision.CLOSE_SESSION),
+                Optional.of(SemanticPredecessorViolation.PREDECESSOR_NOT_ESTABLISHED),
+                Optional.empty()
+            );
+        } else {
+            appendGuardState(entry, next, failure);
+        }
     }
 
     private void appendHold(
@@ -1091,26 +1135,6 @@ final class SemanticControlCoordinator
             SemanticPredecessorGuardEvent.Kind.DECISION,
             Optional.of(decision),
             Optional.empty(),
-            Optional.empty()
-        );
-    }
-
-    private void appendGuardRelation(GuardEntry entry) {
-        appendGuardFact(
-            entry,
-            SemanticPredecessorGuardEvent.Kind.RELATION,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty()
-        );
-    }
-
-    private void appendGuardViolation(GuardEntry entry) {
-        appendGuardFact(
-            entry,
-            SemanticPredecessorGuardEvent.Kind.VIOLATION,
-            Optional.of(ForwardingDecision.CLOSE_SESSION),
-            Optional.of(SemanticPredecessorViolation.PREDECESSOR_NOT_ESTABLISHED),
             Optional.empty()
         );
     }
@@ -1362,7 +1386,8 @@ final class SemanticControlCoordinator
         );
     }
 
-    private static void runAfterTransition(List<Runnable> actions) {
+    private void runAfterTransition(List<Runnable> actions) {
+        proofObservations.finalizePending();
         for (Runnable action : actions) {
             action.run();
         }

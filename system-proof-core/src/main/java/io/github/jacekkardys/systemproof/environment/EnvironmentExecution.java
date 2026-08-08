@@ -1,7 +1,9 @@
 package io.github.jacekkardys.systemproof.environment;
 
 import java.util.Objects;
+import java.util.Set;
 import io.github.jacekkardys.systemproof.environment.state.EnvironmentState;
+import io.github.jacekkardys.systemproof.topology.ConnectionId;
 
 /** Coordinates the environment lifecycle and cleanup of its execution subsystems. */
 final class EnvironmentExecution {
@@ -85,10 +87,23 @@ final class EnvironmentExecution {
         return connections.observationRefreshBatch();
     }
 
+    RuntimeConnectionRegistry.ObservationBatch observationRefreshBatch(
+        Set<ConnectionId> connectionIds
+    ) {
+        return connections.observationRefreshBatch(connectionIds);
+    }
+
     void applyObservationRefresh(
         RuntimeConnectionRegistry.ObservationResults observationResults
     ) {
         connections.applyObservationRefresh(observationResults);
+    }
+
+    void applyObservationRefresh(
+        RuntimeConnectionRegistry.ObservationResults observationResults,
+        Set<ConnectionId> connectionIds
+    ) {
+        connections.applyObservationRefresh(observationResults, connectionIds);
     }
 
     void close() {

@@ -214,7 +214,8 @@ remove the marker, and unrelated connections remain independent.
   `CorrelationResult` and nested `Missing`, `Unique`, and `Ambiguous` results; `ProofPlanId`,
   `ProofObligationId`, frozen `ProofPlan.Requirement` records, `ProofExecutionState`, `ProofOutcome`,
   `ProofResolution`, `ProofResolutionReason`, `ProofRequirementKind`, `ProofEvidenceKind`,
-  `ProofPrerequisiteStatus`, `ProofDiagnostic`, `ProofObligationResolution`, `ProofReport`, and
+  `ProofPrerequisiteStatus`, `ProofDiagnostic`, `ProofRequirementDescriptor` and its typed records,
+  `ProofStimulusState`, `ProofStimulusResolution`, `ProofObligationResolution`, `ProofReport`, and
   `ProofResult`.
 - Topology inspection: `CompatibilityResult`, `ConnectionDescriptor`, `ConnectionId`,
   `ConnectionRef`, `PortDirection`, `PortRef`.

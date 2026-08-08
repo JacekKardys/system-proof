@@ -10,6 +10,7 @@ import io.github.jacekkardys.systemproof.topology.ConnectionId;
 public record ProofObligationResolution(
     ProofObligationId id,
     ProofRequirementKind kind,
+    ProofRequirementDescriptor descriptor,
     ProofResolution resolution,
     ProofResolutionReason reason,
     Optional<ConnectionId> connectionId,
@@ -20,6 +21,12 @@ public record ProofObligationResolution(
     public ProofObligationResolution {
         id = Objects.requireNonNull(id, "id must not be null");
         kind = Objects.requireNonNull(kind, "kind must not be null");
+        descriptor = Objects.requireNonNull(descriptor, "descriptor must not be null");
+        if (descriptor.kind() != kind) {
+            throw new IllegalArgumentException(
+                "descriptor kind must match the resolved requirement kind"
+            );
+        }
         resolution = Objects.requireNonNull(resolution, "resolution must not be null");
         reason = Objects.requireNonNull(reason, "reason must not be null");
         connectionId = Objects.requireNonNull(connectionId, "connectionId must not be null");

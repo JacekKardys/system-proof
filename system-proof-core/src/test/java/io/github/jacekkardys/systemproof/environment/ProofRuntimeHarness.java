@@ -3,6 +3,8 @@ package io.github.jacekkardys.systemproof.environment;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import io.github.jacekkardys.systemproof.control.SemanticInteractionSelector;
 import io.github.jacekkardys.systemproof.control.SemanticHold;
 import io.github.jacekkardys.systemproof.control.SemanticPredecessorGuard;
@@ -36,7 +38,18 @@ final class ProofRuntimeHarness implements AutoCloseable {
         ProofOutcomeEvaluator evaluator,
         SemanticControlCoordinator.TimeoutScheduler controlTimeouts
     ) {
-        deadlines = new ManualDeadlineScheduler();
+        this(new ManualDeadlineScheduler(), evaluator, controlTimeouts);
+    }
+
+    private ProofRuntimeHarness(
+        ManualDeadlineScheduler deadlineScheduler,
+        ProofOutcomeEvaluator evaluator,
+        SemanticControlCoordinator.TimeoutScheduler controlTimeouts
+    ) {
+        deadlines = java.util.Objects.requireNonNull(
+            deadlineScheduler,
+            "deadlineScheduler must not be null"
+        );
         proofs = new ProofExecutionCoordinator(deadlines, evaluator);
         route = new ProofTestFixture.RouteProvider();
         ProofTestFixture.Client client = new ProofTestFixture.Client();
@@ -135,6 +148,30 @@ final class ProofRuntimeHarness implements AutoCloseable {
         return new ProofRuntimeHarness(
             ProofOutcomeEvaluator.failClosed(),
             new FailingControlTimeoutScheduler()
+        );
+    }
+
+    static ProofRuntimeHarness startWithImmediateControlTimeout() {
+        return new ProofRuntimeHarness(
+            ProofOutcomeEvaluator.failClosed(),
+            new ImmediateControlTimeoutScheduler()
+        );
+    }
+
+    static ProofRuntimeHarness startWithFailingControlCancellation() {
+        return new ProofRuntimeHarness(
+            ProofOutcomeEvaluator.failClosed(),
+            new FailingCancellationControlTimeoutScheduler()
+        );
+    }
+
+    static ProofRuntimeHarness startWithDeadlineScheduler(
+        ManualDeadlineScheduler scheduler
+    ) {
+        return new ProofRuntimeHarness(
+            scheduler,
+            ProofOutcomeEvaluator.failClosed(),
+            new PassiveControlTimeoutScheduler()
         );
     }
 
@@ -265,10 +302,10 @@ final class ProofRuntimeHarness implements AutoCloseable {
         }
     }
 
-    private void refreshObservation() {
+    private void refreshObservation(java.util.Set<ConnectionId> connectionIds) {
         RuntimeConnectionRegistry.ObservationBatch batch =
-            execution.observationRefreshBatch();
-        execution.applyObservationRefresh(batch.evaluate());
+            execution.observationRefreshBatch(connectionIds);
+        execution.applyObservationRefresh(batch.evaluate(), connectionIds);
     }
 
     private static CorrelationKey key(int seed) {
@@ -283,13 +320,30 @@ final class ProofRuntimeHarness implements AutoCloseable {
     static final class ManualDeadlineScheduler
         implements ProofExecutionCoordinator.DeadlineScheduler {
         private final AtomicReference<ScheduledDeadline> scheduled = new AtomicReference<>();
+        private final CountDownLatch cancellationEntered;
+        private final CountDownLatch cancellationRelease;
+        private final RuntimeException cancellationFailure;
+
+        ManualDeadlineScheduler() {
+            this(null, null, null);
+        }
+
+        ManualDeadlineScheduler(
+            CountDownLatch cancellationEntered,
+            CountDownLatch cancellationRelease,
+            RuntimeException cancellationFailure
+        ) {
+            this.cancellationEntered = cancellationEntered;
+            this.cancellationRelease = cancellationRelease;
+            this.cancellationFailure = cancellationFailure;
+        }
 
         @Override
         public ProofExecutionCoordinator.DeadlineTask schedule(
             Duration delay,
             Runnable action
         ) {
-            ScheduledDeadline deadline = new ScheduledDeadline(action);
+            ScheduledDeadline deadline = new ScheduledDeadline(action, this::cancel);
             if (!scheduled.compareAndSet(null, deadline)) {
                 throw new IllegalStateException("Only one proof deadline is expected");
             }
@@ -305,17 +359,46 @@ final class ProofRuntimeHarness implements AutoCloseable {
 
         @Override
         public void close() {}
+
+        private void cancel() {
+            if (cancellationEntered != null) {
+                cancellationEntered.countDown();
+            }
+            if (cancellationRelease != null) {
+                try {
+                    if (!cancellationRelease.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError(
+                            "Deadline cancellation release was not signalled"
+                        );
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(
+                        "Interrupted while awaiting deadline cancellation release",
+                        interrupted
+                    );
+                }
+            }
+            if (cancellationFailure != null) {
+                throw cancellationFailure;
+            }
+        }
     }
 
     private static final class ScheduledDeadline {
         private final Runnable action;
+        private final Runnable cancellation;
 
-        private ScheduledDeadline(Runnable action) {
+        private ScheduledDeadline(Runnable action, Runnable cancellation) {
             this.action = java.util.Objects.requireNonNull(action, "action must not be null");
+            this.cancellation = java.util.Objects.requireNonNull(
+                cancellation,
+                "cancellation must not be null"
+            );
         }
 
         private void cancel() {
-            // A scheduler callback already selected for execution may race with cancellation.
+            cancellation.run();
         }
 
         private void fire() {
@@ -359,5 +442,40 @@ final class ProofRuntimeHarness implements AutoCloseable {
         public void close() {}
     }
 
+    private static final class ImmediateControlTimeoutScheduler
+        implements SemanticControlCoordinator.TimeoutScheduler {
+        @Override
+        public SemanticControlCoordinator.TimeoutTask schedule(
+            Duration delay,
+            Runnable action
+        ) {
+            action.run();
+            return () -> {};
+        }
+
+        @Override
+        public void close() {}
+    }
+
+    private static final class FailingCancellationControlTimeoutScheduler
+        implements SemanticControlCoordinator.TimeoutScheduler {
+        @Override
+        public SemanticControlCoordinator.TimeoutTask schedule(
+            Duration delay,
+            Runnable action
+        ) {
+            return () -> {
+                throw new ControlCancellationFailure();
+            };
+        }
+
+        @Override
+        public void close() {}
+    }
+
     private static final class ControlSchedulingFailure extends RuntimeException {}
+
+    static final class DeadlineCancellationFailure extends RuntimeException {}
+
+    static final class ControlCancellationFailure extends RuntimeException {}
 }

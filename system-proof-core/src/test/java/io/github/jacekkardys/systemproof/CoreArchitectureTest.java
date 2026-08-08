@@ -233,10 +233,21 @@ class CoreArchitectureTest {
         proof.ProofPlanId
         proof.ProofPrerequisiteStatus
         proof.ProofReport
+        proof.ProofRequirementDescriptor
+        proof.ProofRequirementDescriptor$CausalRelation
+        proof.ProofRequirementDescriptor$Correlation
+        proof.ProofRequirementDescriptor$GuardControl
+        proof.ProofRequirementDescriptor$GuardEvidence
+        proof.ProofRequirementDescriptor$HoldControl
+        proof.ProofRequirementDescriptor$HoldEvidence
+        proof.ProofRequirementDescriptor$Observation
+        proof.ProofRequirementDescriptor$Prerequisite
         proof.ProofRequirementKind
         proof.ProofResolution
         proof.ProofResolutionReason
         proof.ProofResult
+        proof.ProofStimulusResolution
+        proof.ProofStimulusState
         proof.ProofSubjectRef
         topology.CompatibilityResult
         topology.ConnectionDescriptor
@@ -336,6 +347,7 @@ class CoreArchitectureTest {
         journal.SemanticPredecessorGuardEvent$Kind#RELATION:journal.SemanticPredecessorGuardEvent$Kind
         journal.SemanticPredecessorGuardEvent$Kind#STATE:journal.SemanticPredecessorGuardEvent$Kind
         journal.SemanticPredecessorGuardEvent$Kind#SUPPRESSED_FAILURE:journal.SemanticPredecessorGuardEvent$Kind
+        journal.SemanticPredecessorGuardEvent$Kind#TERMINAL:journal.SemanticPredecessorGuardEvent$Kind
         journal.SemanticPredecessorGuardEvent$Kind#VIOLATION:journal.SemanticPredecessorGuardEvent$Kind
         observation.EffectiveObservationStatus#ACTIVE:observation.EffectiveObservationStatus
         observation.EffectiveObservationStatus#DEGRADED:observation.EffectiveObservationStatus
@@ -420,6 +432,13 @@ class CoreArchitectureTest {
         proof.ProofResolutionReason#PREREQUISITE_FAILED:proof.ProofResolutionReason
         proof.ProofResolutionReason#PREREQUISITE_SATISFIED:proof.ProofResolutionReason
         proof.ProofResolutionReason#PREREQUISITE_UNSUPPORTED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#STIMULUS_COMPLETED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#STIMULUS_FAILED:proof.ProofResolutionReason
+        proof.ProofResolutionReason#STIMULUS_NOT_COMPLETED:proof.ProofResolutionReason
+        proof.ProofStimulusState#COMPLETED:proof.ProofStimulusState
+        proof.ProofStimulusState#FAILED:proof.ProofStimulusState
+        proof.ProofStimulusState#NOT_STARTED:proof.ProofStimulusState
+        proof.ProofStimulusState#RUNNING:proof.ProofStimulusState
         topology.PortDirection#PROVIDED:topology.PortDirection
         topology.PortDirection#REQUIRED:topology.PortDirection
         """);
@@ -792,6 +811,7 @@ class CoreArchitectureTest {
             "require(proof.ProofOutcome):proof.ProofResult",
             "resolutions():java.util.List",
             "secondaryDiagnostics():java.util.List",
+            "stimulus():proof.ProofStimulusResolution",
             "title():java.lang.String",
             "toString():java.lang.String",
             "unresolved():java.util.List"

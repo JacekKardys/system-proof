@@ -217,6 +217,13 @@ final class RuntimeConnectionRegistry {
             .toList());
     }
 
+    synchronized ObservationBatch observationRefreshBatch(Set<ConnectionId> connectionIds) {
+        return new ObservationBatch(proofObservationConnections(connectionIds).stream()
+            .map(RuntimeConnection::refreshObservationProbe)
+            .filter(Objects::nonNull)
+            .toList());
+    }
+
     synchronized void applyObservationRefresh(ObservationResults results) {
         Objects.requireNonNull(results, "results must not be null");
         List<RuntimeConnection.ObservationProbe> expected = catalog.all().stream()
@@ -241,6 +248,51 @@ final class RuntimeConnectionRegistry {
             result.connection().applyObservationRefresh(result);
             proofObservations.observationChanged(result.connection().snapshot());
         });
+    }
+
+    synchronized void applyObservationRefresh(
+        ObservationResults results,
+        Set<ConnectionId> connectionIds
+    ) {
+        Objects.requireNonNull(results, "results must not be null");
+        List<RuntimeConnection.ObservationProbe> expected = proofObservationConnections(
+            connectionIds
+        ).stream()
+            .map(RuntimeConnection::refreshObservationProbe)
+            .filter(Objects::nonNull)
+            .toList();
+        if (results.values().size() != expected.size()) {
+            throw new IllegalStateException(
+                "Proof observation refresh count changed during capture"
+            );
+        }
+        for (int index = 0; index < expected.size(); index++) {
+            RuntimeConnection.ObservationResult result = results.values().get(index);
+            if (result.connection() != expected.get(index).connection()) {
+                throw new IllegalStateException(
+                    "Proof observation refresh order changed during capture"
+                );
+            }
+            expected.get(index).connection().validateObservationRefresh(result);
+        }
+        results.values().forEach(result -> {
+            result.connection().applyObservationRefresh(result);
+            proofObservations.observationChanged(result.connection().snapshot());
+        });
+    }
+
+    private List<RuntimeConnection<?>> proofObservationConnections(
+        Set<ConnectionId> connectionIds
+    ) {
+        Objects.requireNonNull(connectionIds, "connectionIds must not be null");
+        List<RuntimeConnection<?>> selected = new ArrayList<>();
+        for (ConnectionId value : connectionIds) {
+            selected.add(catalog.connection(Objects.requireNonNull(
+                value,
+                "connectionIds must not contain null"
+            )));
+        }
+        return List.copyOf(selected);
     }
 
     synchronized void validateProofObservation(

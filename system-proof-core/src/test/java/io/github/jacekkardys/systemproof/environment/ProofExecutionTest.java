@@ -82,6 +82,7 @@ class ProofExecutionTest {
             ProofExecution execution = missing.environment.proofs().activate(
                 correlationPlan(missing, "missing-correlation")
             );
+            execution.runStimulus(() -> {});
 
             assertThat(execution.evaluate().outcome()).isEqualTo(
                 ProofOutcome.INCONCLUSIVE
@@ -267,6 +268,7 @@ class ProofExecutionTest {
             ProofExecution execution = fixture.environment.proofs().activate(
                 correlationPlan(fixture, "preactivation-evidence")
             );
+            execution.runStimulus(() -> {});
 
             assertThat(execution.evaluate().outcome()).isEqualTo(
                 ProofOutcome.INCONCLUSIVE
@@ -281,6 +283,7 @@ class ProofExecutionTest {
                 correlationPlan(fixture, "unrelated-evidence")
             );
             fixture.correlated("successor");
+            execution.runStimulus(() -> {});
 
             assertThat(execution.evaluate().outcome()).isEqualTo(
                 ProofOutcome.INCONCLUSIVE
@@ -331,7 +334,9 @@ class ProofExecutionTest {
                 fixture.environment.proofs().satisfiedPrerequisite()
             );
             ProofPlan plan = builder.build();
-            fixture.environment.proofs().activate(plan).evaluate();
+            ProofExecution execution = fixture.environment.proofs().activate(plan);
+            execution.runStimulus(() -> {});
+            execution.evaluate();
 
             assertThatThrownBy(builder::build).isInstanceOf(IllegalStateException.class);
             assertThatThrownBy(() -> fixture.environment.proofs().activate(plan))

@@ -37,7 +37,7 @@ class ProofExecutionRaceTest {
 
             ProofResult result = execution.result();
             assertStable(result, execution, ProofOutcome.VIOLATED);
-            assertThat(result.secondaryDiagnostics()).hasSize(1);
+            assertThat(result.secondaryDiagnostics()).isEmpty();
         }
     }
 
@@ -93,6 +93,7 @@ class ProofExecutionRaceTest {
     void shouldKeepEvaluationWhenItLinearizesBeforeDeadline() throws Exception {
         try (ProofRuntimeHarness harness = ProofRuntimeHarness.start()) {
             ProofExecution execution = prerequisiteExecution(harness, "evaluation-first");
+            execution.runStimulus(() -> {});
 
             runInOrder(execution::evaluate, harness.deadlines::fireRacingCallback);
 
@@ -120,11 +121,7 @@ class ProofExecutionRaceTest {
 
             ProofResult result = execution.result();
             assertStable(result, execution, ProofOutcome.VIOLATED);
-            assertThat(result.secondaryDiagnostics()).singleElement().satisfies(
-                diagnostic -> assertThat(diagnostic.stage()).isEqualTo(
-                    ProofFailureStage.CLEANUP
-                )
-            );
+            assertThat(result.secondaryDiagnostics()).isEmpty();
         }
     }
 
@@ -151,6 +148,7 @@ class ProofExecutionRaceTest {
             throw new EvaluatorFailure();
         })) {
             ProofExecution execution = prerequisiteExecution(harness, "evaluator-failure");
+            execution.runStimulus(() -> {});
 
             ProofResult result = execution.evaluate();
 
@@ -166,7 +164,10 @@ class ProofExecutionRaceTest {
     @Test
     void shouldConvertGatewayAdapterAndJournalFailuresToTypedErrors() {
         try (ProofRuntimeHarness gateway = ProofRuntimeHarness.start()) {
-            ProofExecution execution = prerequisiteExecution(gateway, "gateway-failure");
+            ProofExecution execution = observedPrerequisiteExecution(
+                gateway,
+                "gateway-failure"
+            );
             gateway.gatewayFailure();
             assertFailureStage(execution.result(), ProofFailureStage.GATEWAY);
         }
@@ -175,6 +176,7 @@ class ProofExecutionRaceTest {
                 adapter,
                 "adapter-failure"
             );
+            execution.runStimulus(() -> {});
             adapter.adapterFailure();
             assertFailureStage(execution.evaluate(), ProofFailureStage.OBSERVATION);
         }

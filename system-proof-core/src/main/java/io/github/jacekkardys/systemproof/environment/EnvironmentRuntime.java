@@ -2,6 +2,7 @@ package io.github.jacekkardys.systemproof.environment;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 import io.github.jacekkardys.systemproof.journal.ScenarioJournalSnapshot;
 import io.github.jacekkardys.systemproof.component.AbstractComponent;
@@ -283,7 +284,9 @@ final class EnvironmentRuntime {
         }
     }
 
-    private void refreshForProof() {
+    private void refreshForProof(
+        Set<ConnectionId> connectionIds
+    ) {
         RuntimeConnectionRegistry.ObservationBatch batch;
         synchronized (this) {
             if (execution.state() != EnvironmentState.RUNNING) {
@@ -296,7 +299,7 @@ final class EnvironmentRuntime {
                     "Fresh observation status is unavailable while a refresh is in progress"
                 );
             }
-            batch = execution.observationRefreshBatch();
+            batch = execution.observationRefreshBatch(connectionIds);
             observationRefreshInProgress = true;
         }
         try {
@@ -308,7 +311,7 @@ final class EnvironmentRuntime {
                             + "is not running"
                     );
                 }
-                execution.applyObservationRefresh(results);
+                execution.applyObservationRefresh(results, connectionIds);
             }
         } finally {
             synchronized (this) {

@@ -133,12 +133,14 @@ execution.runStimulus(() -> invokeSystemUnderTest());
 ProofResult result = execution.evaluate().require(ProofOutcome.PROVED);
 ```
 
-This is an explicit pre-1.0 API, not a final proof DSL. `PROVED` requires every declared item to be
-`SATISFIED`; silence, timeout, missing or ambiguous correlation, unsupported coverage, and an
-unreached control remain inconclusive. Framework trust failures are errors. An authoritative
+This is an explicit pre-1.0 API, not a final proof DSL. `PROVED` requires one successfully
+completed stimulus and every declared item to be `SATISFIED`; evaluating before or during the
+stimulus is rejected. Silence, timeout, missing or ambiguous correlation, unsupported coverage,
+and an unreached control remain inconclusive. Framework trust failures are errors. An authoritative
 early-successor guard violation remains a violation even if cleanup later fails. The compact result
-report is detached, bounded, deterministic, and type-only for failures; the full journal and
-troubleshooting diagnostics remain separate.
+report is detached, bounded, deterministic, and type-only for failures. Its resolutions retain
+safe typed requirement descriptors, while the full journal and troubleshooting diagnostics remain
+separate.
 
 ## Component declarations
 

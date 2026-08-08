@@ -10,4 +10,6 @@ interface ProofObservationListener {
     void observationChanged(RuntimeConnectionSnapshot snapshot);
 
     default void requiredObservationFailed(ConnectionId connectionId) {}
+
+    default void finalizePending() {}
 }

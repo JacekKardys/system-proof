@@ -15,6 +15,7 @@ public final class ProofResult {
     private final String title;
     private final ProofOutcome outcome;
     private final ProofSubjectRef primarySubject;
+    private final ProofStimulusResolution stimulus;
     private final List<ProofObligationResolution> resolutions;
     private final Optional<ProofDiagnostic> primaryFailure;
     private final List<ProofDiagnostic> secondaryDiagnostics;
@@ -25,6 +26,7 @@ public final class ProofResult {
         String title,
         ProofOutcome outcome,
         ProofSubjectRef primarySubject,
+        ProofStimulusResolution stimulus,
         List<ProofObligationResolution> resolutions,
         Optional<ProofDiagnostic> primaryFailure,
         List<ProofDiagnostic> secondaryDiagnostics
@@ -36,6 +38,7 @@ public final class ProofResult {
             primarySubject,
             "primarySubject must not be null"
         );
+        this.stimulus = Objects.requireNonNull(stimulus, "stimulus must not be null");
         this.resolutions = List.copyOf(
             Objects.requireNonNull(resolutions, "resolutions must not be null")
         );
@@ -89,6 +92,10 @@ public final class ProofResult {
 
     public ProofSubjectRef primarySubject() {
         return primarySubject;
+    }
+
+    public ProofStimulusResolution stimulus() {
+        return stimulus;
     }
 
     public List<ProofObligationResolution> resolutions() {
@@ -151,25 +158,47 @@ public final class ProofResult {
     private void validateOutcome() {
         boolean allSatisfied = resolutions.stream()
             .allMatch(value -> value.resolution() == ProofResolution.SATISFIED);
-        if (outcome == ProofOutcome.PROVED && !allSatisfied) {
+        boolean stimulusSatisfied = stimulus.state() == ProofStimulusState.COMPLETED
+            && stimulus.resolution() == ProofResolution.SATISFIED;
+        boolean violated = resolutions.stream().anyMatch(
+            value -> value.resolution() == ProofResolution.VIOLATED
+        );
+        boolean failed = resolutions.stream().anyMatch(
+            value -> value.resolution() == ProofResolution.FAILED
+        );
+        boolean notEvaluated = resolutions.stream().anyMatch(
+            value -> value.resolution() == ProofResolution.NOT_EVALUATED
+        ) || stimulus.resolution() == ProofResolution.NOT_EVALUATED;
+        if (outcome == ProofOutcome.PROVED && (!allSatisfied || !stimulusSatisfied)) {
             throw new IllegalArgumentException(
-                "PROVED requires every prerequisite and obligation to be SATISFIED"
+                "PROVED requires a completed stimulus and every required item to be SATISFIED"
             );
         }
-        if (outcome == ProofOutcome.VIOLATED
-            && resolutions.stream().noneMatch(
-                value -> value.resolution() == ProofResolution.VIOLATED
-            )) {
+        if (outcome == ProofOutcome.VIOLATED && (!violated || failed
+            || stimulus.resolution() == ProofResolution.FAILED)) {
             throw new IllegalArgumentException(
-                "VIOLATED requires an explicit violated obligation"
+                "VIOLATED requires an explicit violated obligation and no failed item"
             );
+        }
+        if (outcome == ProofOutcome.INCONCLUSIVE) {
+            boolean exactGap = !allSatisfied
+                || stimulus.resolution() != ProofResolution.SATISFIED;
+            if (!exactGap || violated || failed || notEvaluated
+                || stimulus.resolution() == ProofResolution.FAILED) {
+                throw new IllegalArgumentException(
+                    "INCONCLUSIVE requires an exact unresolved gap and no violated, failed, or not-evaluated item"
+                );
+            }
         }
         if (outcome == ProofOutcome.ERROR && primaryFailure.isEmpty()
-            && resolutions.stream().noneMatch(
-                value -> value.resolution() == ProofResolution.FAILED
-            )) {
+            && !failed && stimulus.resolution() != ProofResolution.FAILED) {
             throw new IllegalArgumentException(
                 "ERROR requires a safe primary failure or failed obligation"
+            );
+        }
+        if (outcome == ProofOutcome.ERROR && violated) {
+            throw new IllegalArgumentException(
+                "ERROR cannot contain an explicit violated obligation"
             );
         }
         if (outcome != ProofOutcome.ERROR && primaryFailure.isPresent()) {
@@ -178,9 +207,7 @@ public final class ProofResult {
             );
         }
         if (outcome != ProofOutcome.VIOLATED && outcome != ProofOutcome.ERROR
-            && resolutions.stream().anyMatch(
-                value -> value.resolution() == ProofResolution.NOT_EVALUATED
-            )) {
+            && notEvaluated) {
             throw new IllegalArgumentException(
                 "NOT_EVALUATED is permitted only after terminal VIOLATED or ERROR"
             );
@@ -195,6 +222,13 @@ public final class ProofResult {
             .append(" outcome=").append(outcome)
             .append(" subject=opaque")
             .append(lineSeparator);
+        appendDecisive(output, lineSeparator);
+        output.append("stimulus=").append(stimulus.state()).append('/')
+            .append(stimulus.resolution()).append('/').append(stimulus.reason())
+            .append(lineSeparator);
+        primaryFailure.ifPresent(value -> output.append("failure=")
+            .append(value.stage()).append('/').append(value.failure().failureType())
+            .append(lineSeparator));
         for (ProofObligationResolution resolution : resolutions) {
             output.append(resolution.kind()).append(' ')
                 .append(resolution.id()).append(' ')
@@ -211,25 +245,33 @@ public final class ProofResult {
             }
             output.append(lineSeparator);
         }
-        decisiveResolution().ifPresentOrElse(
-            value -> output.append("decisive=").append(value.kind()).append('/')
-                .append(value.id()).append('/').append(value.reason())
-                .append(lineSeparator),
-            () -> output.append("decisive=")
-                .append(outcome == ProofOutcome.PROVED
-                    ? "all-required-items-satisfied"
-                    : primaryFailure.map(value ->
-                        value.stage() + "/" + value.failure().failureType()
-                    ).orElse("none"))
-                .append(lineSeparator)
-        );
-        primaryFailure.ifPresent(value -> output.append("failure=")
-            .append(value.stage()).append('/').append(value.failure().failureType())
-            .append(lineSeparator));
         for (ProofDiagnostic diagnostic : secondaryDiagnostics) {
             output.append("secondary=").append(diagnostic.stage()).append('/')
                 .append(diagnostic.failure().failureType()).append(lineSeparator);
         }
         return output.toString();
+    }
+
+    private void appendDecisive(StringBuilder output, String lineSeparator) {
+        decisiveResolution().ifPresentOrElse(
+            value -> output.append("decisive=").append(value.kind()).append('/')
+                .append(value.id()).append('/').append(value.reason())
+                .append(lineSeparator),
+            () -> output.append("decisive=").append(decisiveWithoutObligation())
+                .append(lineSeparator)
+        );
+    }
+
+    private String decisiveWithoutObligation() {
+        if (outcome == ProofOutcome.PROVED) {
+            return "all-required-items-satisfied";
+        }
+        if (outcome == ProofOutcome.INCONCLUSIVE
+            && stimulus.resolution() != ProofResolution.SATISFIED) {
+            return "STIMULUS/" + stimulus.reason();
+        }
+        return primaryFailure.map(value ->
+            value.stage() + "/" + value.failure().failureType()
+        ).orElse("none");
     }
 }

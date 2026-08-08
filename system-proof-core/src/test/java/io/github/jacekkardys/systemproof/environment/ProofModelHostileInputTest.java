@@ -135,7 +135,7 @@ class ProofModelHostileInputTest {
             ProofResult result = execution.result();
 
             assertThat(result.outcome()).isEqualTo(ProofOutcome.VIOLATED);
-            assertThat(result.secondaryDiagnostics()).hasSize(32);
+            assertThat(result.secondaryDiagnostics()).isEmpty();
             assertThat(result.report().content()).doesNotContain(CANARY);
         }
     }
@@ -155,6 +155,7 @@ class ProofModelHostileInputTest {
                     fixture.environment.proofs().satisfiedPrerequisite()
                 ).build()
             );
+            execution.runStimulus(() -> {});
             retained = execution.evaluate();
             assertThatThrownBy(() -> retained.resolutions().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -182,13 +183,14 @@ class ProofModelHostileInputTest {
     }
 
     private static String provedReport(ProofRuntimeHarness harness) {
-        return harness.activate(ProofPlan.builder(
+        ProofExecution execution = harness.activate(ProofPlan.builder(
             "deterministic-report",
             "Deterministic report",
             harness.subject,
             DEADLINE
-        ).prerequisite("prerequisite", harness.prerequisite()).build())
-            .evaluate()
+        ).prerequisite("prerequisite", harness.prerequisite()).build());
+        execution.runStimulus(() -> {});
+        return execution.evaluate()
             .report()
             .content();
     }
