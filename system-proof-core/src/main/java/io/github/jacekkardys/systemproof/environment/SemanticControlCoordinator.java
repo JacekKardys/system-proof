@@ -3,10 +3,12 @@ package io.github.jacekkardys.systemproof.environment;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -60,6 +62,8 @@ final class SemanticControlCoordinator
         new LinkedHashMap<>();
     private final Map<RuntimeSemanticPredecessorGuardRef, GuardEntry> guards =
         new LinkedHashMap<>();
+    private final Set<ConnectionId> failedRequiredObservationConnections =
+        new LinkedHashSet<>();
     private long nextHoldValue = FIRST_CONTROL_VALUE;
     private long nextGuardValue = FIRST_CONTROL_VALUE;
     private boolean acceptingNewControls = true;
@@ -106,6 +110,7 @@ final class SemanticControlCoordinator
         synchronized (this) {
             requireAccepting();
             validateSelector(selector);
+            requireRequiredObservationAvailable(selector.connectionId());
             RuntimeSemanticHoldRef ref = nextHoldReference();
             HoldEntry entry = new HoldEntry(ref, selector, maximumHoldDuration);
             activeHolds.put(ref, entry);
@@ -129,6 +134,12 @@ final class SemanticControlCoordinator
             proofSubjects.validateSubject(specification.subject());
             validateSelector(specification.predecessor().selector());
             validateSelector(specification.successor());
+            requireRequiredObservationAvailable(
+                specification.predecessor().selector().connectionId()
+            );
+            requireRequiredObservationAvailable(
+                specification.successor().connectionId()
+            );
             RuntimeSemanticPredecessorGuardRef ref = nextGuardReference();
             entry = new GuardEntry(ref, specification);
             guards.put(ref, entry);
@@ -172,6 +183,7 @@ final class SemanticControlCoordinator
         connectionId = Objects.requireNonNull(connectionId, "connectionId must not be null");
         List<Runnable> afterTransition = new ArrayList<>();
         synchronized (this) {
+            failedRequiredObservationConnections.add(connectionId);
             for (GuardEntry entry : List.copyOf(guards.values())) {
                 if (guardIsActiveForFailureOrTeardown(entry.state)
                     && entry.concerns(connectionId)) {
@@ -998,6 +1010,15 @@ final class SemanticControlCoordinator
         if (!acceptingNewControls) {
             throw new IllegalStateException(
                 "Environment execution is complete and cannot arm semantic controls"
+            );
+        }
+    }
+
+    private void requireRequiredObservationAvailable(ConnectionId connectionId) {
+        if (failedRequiredObservationConnections.contains(connectionId)) {
+            throw new IllegalStateException(
+                "Connection '" + connectionId
+                    + "' has terminal required-observation failure"
             );
         }
     }

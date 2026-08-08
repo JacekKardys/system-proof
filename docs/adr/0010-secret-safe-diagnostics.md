@@ -59,6 +59,15 @@ commits `RUNNING` before a dependent consumer starts. Cleanup never evaluates an
 provider. The diagnostics base snapshot and concurrent ordinary reads use only the last complete
 framework-owned cache; they do not promise that every read starts a fresh sample.
 
+The runtime monitor does not linearize an asynchronous gateway failure callback. The shared point
+between that callback and control registration is `SemanticControlCoordinator`. Under its monitor,
+`observationFailed(connectionId)` first retains a terminal marker for that exact connection and then
+processes existing controls. `arm(...)` and `guard(...)` check the same marker immediately before
+registration. Therefore either registration wins and the later callback observes the control, or
+failure wins and stale `ACTIVE` cannot register it. This marker is independent of the provider
+cache, is never cleared by a later sample, and is scoped to one connection. Provider evaluation
+still occurs outside every framework monitor.
+
 ## Allowed and prohibited data
 
 Default output may contain only the safe-by-construction fields above, fixed framework text,

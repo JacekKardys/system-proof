@@ -29,7 +29,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import io.github.jacekkardys.systemproof.environment.ConnectionObservations;
 import io.github.jacekkardys.systemproof.proof.CorrelationCardinality;
 import io.github.jacekkardys.systemproof.environment.CorrelationContribution;
@@ -654,6 +659,54 @@ class ObserveBeforeForwardGatewayTest {
     }
 
     @Test
+    void shouldKeepRequiredObservationFailureCallbackMessageSecretSafe()
+        throws Exception {
+        String secret = "required-observation-failure-callback-message-canary";
+        AtomicInteger callbackCalls = new AtomicInteger();
+        InteractionDecisionCoordinator coordinator = new InteractionDecisionCoordinator() {
+            @Override
+            public ForwardingPermit permit(RecordedInteraction interaction) {
+                return immediateForwardPermit();
+            }
+
+            @Override
+            public void observationFailed(ConnectionId connectionId) {
+                callbackCalls.incrementAndGet();
+                throw new IllegalStateException(secret);
+            }
+        };
+        ConnectionObservations observations = () -> new InteractionSession() {
+            @Override
+            public <T> RecordedInteraction record(
+                FlowDirection direction,
+                EvidenceCodec<T> codec,
+                T evidence
+            ) {
+                throw new IllegalStateException("observation-trigger-message-canary");
+            }
+        };
+
+        try (GatewayLogCapture capture = new GatewayLogCapture()) {
+            assertCallbackError(
+                ObservationRequirement.REQUIRED,
+                observations,
+                coordinator,
+                new LengthPrefixedProtocolAdapter(),
+                LengthPrefixedProtocolAdapter.frame("trigger"),
+                false,
+                EffectiveObservationStatus.FAILED
+            );
+
+            assertThat(callbackCalls).hasValue(1);
+            assertThat(capture.content())
+                .contains("Required-observation failure callback failed")
+                .contains("IllegalStateException")
+                .doesNotContain(secret)
+                .doesNotContain("observation-trigger-message-canary");
+        }
+    }
+
+    @Test
     void shouldKeepDisabledAndUnsupportedOptionalRoutesExplicitlyTransparent()
         throws Exception {
         byte[] arbitraryTcpBytes = "not-a-frame".getBytes(UTF_8);
@@ -1051,6 +1104,33 @@ class ObserveBeforeForwardGatewayTest {
         byte[] combined = Arrays.copyOf(first, first.length + second.length);
         System.arraycopy(second, 0, combined, first.length, second.length);
         return combined;
+    }
+
+    private static final class GatewayLogCapture implements AutoCloseable {
+        private final Logger logger = (Logger) LoggerFactory.getLogger(GatewayRoute.class);
+        private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+        private GatewayLogCapture() {
+            appender.start();
+            logger.addAppender(appender);
+        }
+
+        private String content() {
+            StringBuilder content = new StringBuilder();
+            for (ILoggingEvent event : appender.list) {
+                content.append(event.getFormattedMessage()).append('\n');
+                if (event.getThrowableProxy() != null) {
+                    content.append(ThrowableProxyUtil.asString(event.getThrowableProxy()));
+                }
+            }
+            return content.toString();
+        }
+
+        @Override
+        public void close() {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     private static final class OrdinalHoldCoordinator

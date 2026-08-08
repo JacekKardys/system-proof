@@ -377,8 +377,13 @@ the route to materialize the capability with `ACTIVE` observation before a depen
 starts. A retained `SemanticControls` facade performs a new single-flight refresh immediately before
 every running-environment `arm(...)` or `guard(...)`. If another refresh is already in progress, the
 control operation fails closed instead of trusting an older `ACTIVE` cache. Refresh and control
-registration are committed in that order under the runtime boundary, so a later route failure
-prevents new holds and guards from being armed.
+registration are committed in that order under the runtime boundary, but that boundary alone does
+not serialize asynchronous gateway failure. `SemanticControlCoordinator.observationFailed(...)`
+first retains a terminal marker for the exact `ConnectionId` under the coordinator monitor, then
+fails existing guards. `arm(...)` and `guard(...)` check the same marker under that same monitor
+immediately before registration. If failure linearizes first, no stale `ACTIVE` refresh can create a
+later control; if registration linearizes first, failure observes that control and applies its
+existing terminal semantics. The marker never clears and does not affect another connection.
 
 The lifecycle is `ARMED -> REACHED_HELD -> RELEASING -> FORWARDED`, with `CANCELLED`, `TIMED_OUT`,
 and `FAILED` terminal alternatives. The hold duration begins at `REACHED_HELD`. Cancel, timeout, or
